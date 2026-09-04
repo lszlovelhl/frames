@@ -1,3 +1,14 @@
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: ce0d790a7b004233c1097246b343160b_aa414b02a81a11f18ba4525400f8a581
+    ReservedCode1: M8KgpBI+VUu6RGBD1+9ZsVhjAgmujPwGKNwrA5Z+Tj8tnog45WitGcbAPefNyflSI38CPxFMMThwnaM94Gwga/hFOfs+JdUj5Y8Kvdj3Fheo329YITZksxHcGEUgwgShk3i1fQrlSsD2tvGxaPolQeqBmSw5knarY1t+KRU04WGqBNWEmQ/t9jXqWmk=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: ce0d790a7b004233c1097246b343160b_aa414b02a81a11f18ba4525400f8a581
+    ReservedCode2: M8KgpBI+VUu6RGBD1+9ZsVhjAgmujPwGKNwrA5Z+Tj8tnog45WitGcbAPefNyflSI38CPxFMMThwnaM94Gwga/hFOfs+JdUj5Y8Kvdj3Fheo329YITZksxHcGEUgwgShk3i1fQrlSsD2tvGxaPolQeqBmSw5knarY1t+KRU04WGqBNWEmQ/t9jXqWmk=
+---
+
 # 帧间 · 数据模型设计草案 v0.3
 
 > 状态：待评审
@@ -358,3 +369,4 @@ erDiagram
 - [ ] analyses 多版本策略：同视频多次拆解时，是否开多条 analyses 还是升版本
 - [ ] 平台指标字段是否按平台拆成 `extra` 内部命名规范
 - [ ] API Key 加密方案落库细节（由后端引入时定）
+*（内容由AI生成，仅供参考）*
