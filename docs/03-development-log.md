@@ -1,3 +1,14 @@
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: ce0d790a7b004233c1097246b343160b_4acc67b1a81911f18ba4525400f8a581
+    ReservedCode1: mJSYiPwQavauOVK6+3JKMYm2JDrwv8jpHmqrOe88icygvti3wF38NzXyAVPaLXT9MU1EceUW8T+4rsrq2s5YgTIU0uQLxieAUcO0uX4WvqNCf53ot7/ISTfQdCfHP4uPKQP6PqNVHsG4Ye2R+FQHYUrRYvILYmLS5FT+tq+OO4v5YOXgfMIf/ATQzNU=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: ce0d790a7b004233c1097246b343160b_4acc67b1a81911f18ba4525400f8a581
+    ReservedCode2: mJSYiPwQavauOVK6+3JKMYm2JDrwv8jpHmqrOe88icygvti3wF38NzXyAVPaLXT9MU1EceUW8T+4rsrq2s5YgTIU0uQLxieAUcO0uX4WvqNCf53ot7/ISTfQdCfHP4uPKQP6PqNVHsG4Ye2R+FQHYUrRYvILYmLS5FT+tq+OO4v5YOXgfMIf/ATQzNU=
+---
+
 # 帧间 · 开发日志与断点续传手册
 
 > 规则：每次开发结束，在此追加当日记录。下次开工先读本文件最新一节。
@@ -55,3 +66,4 @@ curl http://127.0.0.1:8000/api/health/db
 - 项目根：`~/Projects/frames`
 - 蓝图文档（会话产出）：`~/Library/.../workspace/conv_*/output/梁龙科技-帧间重建蓝图-v0.1.md`（核心方法论已并入 docs/01）
 - 连接串默认：`postgresql+asyncpg://zhuolittlelong@localhost:5432/frames_dev`
+*（内容由AI生成，仅供参考）*

@@ -1,3 +1,14 @@
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: ce0d790a7b004233c1097246b343160b_48f7c406a81911f1a604525400461939
+    ReservedCode1: 4YVRa6x6nPDvZpFxt1QWeyptaFWCi0by6gk8wWnJa6x1BxoI1dWX/tzMeqhbrJ9t9S/jE5ALgDCo+1yESQwtGCZ6uWS7wElbWnMQS/eYkJjDlwkaDziAsLQ8bs8oFkf0iij/auIv25AwNSMzgWtmB95IcD6aXO+DfAE9qc8OK6B7jc4N4qP1+dY2SqY=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: ce0d790a7b004233c1097246b343160b_48f7c406a81911f1a604525400461939
+    ReservedCode2: 4YVRa6x6nPDvZpFxt1QWeyptaFWCi0by6gk8wWnJa6x1BxoI1dWX/tzMeqhbrJ9t9S/jE5ALgDCo+1yESQwtGCZ6uWS7wElbWnMQS/eYkJjDlwkaDziAsLQ8bs8oFkf0iij/auIv25AwNSMzgWtmB95IcD6aXO+DfAE9qc8OK6B7jc4N4qP1+dY2SqY=
+---
+
 # 帧间 · 产品设计文档 v0.2
 
 > 梁龙科技 | 更新：2026-09-04
@@ -77,3 +88,4 @@
 - **决策**：Web/PWA 起步（React + Vite），本地 FastAPI 后端 + PostgreSQL；未来可 Tauri 包壳上桌面。
 - **理由**：用户自带 API-key，无服务器算力成本；单人最快落地；五端浏览器可访问；代码可平滑迁移原生壳。
 - **数据策略**：本地优先，数据访问层抽象，为未来团队云同步预留。
+*（内容由AI生成，仅供参考）*

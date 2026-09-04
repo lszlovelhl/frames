@@ -1,3 +1,14 @@
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: ce0d790a7b004233c1097246b343160b_479db29fa81911f1a604525400461939
+    ReservedCode1: 2bltGBnol4Oovvf/JYX5q3dn+U0x5MN/hfUzdNarBiZgc8RpZYbWj6UQ37cHHSPp8f+HLi7K1T9/tApuDpSazKmLBG8kyxQyI6VXD/LCMuSf++7uPIC4ETwyJF4sf2GJaYLHXqF1Ef3L0yQyhDe1S8I+LTZ76lvzdoRvuQDufqPFIjQ19wohQCdeHTc=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: ce0d790a7b004233c1097246b343160b_479db29fa81911f1a604525400461939
+    ReservedCode2: 2bltGBnol4Oovvf/JYX5q3dn+U0x5MN/hfUzdNarBiZgc8RpZYbWj6UQ37cHHSPp8f+HLi7K1T9/tApuDpSazKmLBG8kyxQyI6VXD/LCMuSf++7uPIC4ETwyJF4sf2GJaYLHXqF1Ef3L0yQyhDe1S8I+LTZ76lvzdoRvuQDufqPFIjQ19wohQCdeHTc=
+---
+
 # 帧间 Frames
 
 > 梁龙科技 · 爆款拆解驱动的 AI 创作工作台
@@ -39,3 +50,4 @@ npm run dev                      # 启动，默认 http://localhost:5173
 
 - 阶段：骨架搭建 ✅ → 数据模型设计（进行中）
 - 详细进度见 `03-development-log.md`
+*（内容由AI生成，仅供参考）*

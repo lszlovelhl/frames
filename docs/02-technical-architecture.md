@@ -1,3 +1,14 @@
+---
+AIGC:
+    Label: "1"
+    ContentProducer: 001191440300708461136T1XGW3
+    ProduceID: ce0d790a7b004233c1097246b343160b_49cc93ffa81911f18567525400aeaaa3
+    ReservedCode1: kiOUT266rM/undufD/h8zalg+3mzYOAzgWMNvvkLCkbigUdlGGWurwEjvrwlRJswubuplEHtJ9K+7U2MeprJb1JfQwka7DzeoTVEeSkbnPpQgvMsAj97KlPUTDtI/uOt9QH2GZOjMftmEtC57Og8ivi4CrDaCPMgfRI5JoBnNOW5gauJHM7U+hlFeYM=
+    ContentPropagator: 001191440300708461136T1XGW3
+    PropagateID: ce0d790a7b004233c1097246b343160b_49cc93ffa81911f18567525400aeaaa3
+    ReservedCode2: kiOUT266rM/undufD/h8zalg+3mzYOAzgWMNvvkLCkbigUdlGGWurwEjvrwlRJswubuplEHtJ9K+7U2MeprJb1JfQwka7DzeoTVEeSkbnPpQgvMsAj97KlPUTDtI/uOt9QH2GZOjMftmEtC57Og8ivi4CrDaCPMgfRI5JoBnNOW5gauJHM7U+hlFeYM=
+---
+
 # 帧间 · 技术架构文档 v0.2
 
 > 梁龙科技 | 更新：2026-09-04
@@ -80,3 +91,4 @@ npm run dev
 | 2026-09-04 | 产品形态 Web/PWA（非原生 App） | 单人最快落地、五端可访问、可平滑包壳 |
 | 2026-09-04 | 后端 FastAPI+asyncpg | v1 Python 延续 + async 优势 |
 | 2026-09-04 | 数据库沿用 PostgreSQL | v1 选型延续，本机 16 已运行 |
+*（内容由AI生成，仅供参考）*
