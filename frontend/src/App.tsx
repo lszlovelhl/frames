@@ -1,122 +1,59 @@
-import { useState } from 'react'
-import heroImg from './assets/hero.png'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import './App.css'
+import { useState } from "react";
+import BreakdownView from "./views/BreakdownView";
+import LibraryView from "./views/LibraryView";
+import CreateView from "./views/CreateView";
+import SettingsView from "./views/SettingsView";
 
-function App() {
-  const [count, setCount] = useState(0)
+type ViewKey = "breakdown" | "library" | "create" | "settings";
+
+const NAV: Array<{ key: ViewKey; label: string; icon: string; hint: string }> = [
+  { key: "breakdown", label: "拆解工作台", icon: "▸", hint: "新建素材并跑五层拆解" },
+  { key: "library", label: "拆解库", icon: "▤", hint: "历史素材与拆解结果" },
+  { key: "create", label: "创作台", icon: "✎", hint: "元素组合生成脚本（下阶段）" },
+  { key: "settings", label: "系统设置", icon: "⚙", hint: "模型与服务状态" },
+];
+
+export default function App() {
+  const [view, setView] = useState<ViewKey>("breakdown");
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div className="flex h-screen bg-[#14161a] text-zinc-200">
+      {/* 侧栏 */}
+      <aside className="flex w-56 shrink-0 flex-col border-r border-white/5 bg-[#0f1114] px-3 py-5">
+        <div className="mb-6 px-2">
+          <div className="text-xl font-semibold tracking-wide text-amber-300">帧间</div>
+          <div className="mt-0.5 text-[11px] text-zinc-500">爆款拆解 · 元素飞轮</div>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
+        <nav className="flex flex-1 flex-col gap-1">
+          {NAV.map((n) => (
+            <button
+              key={n.key}
+              onClick={() => setView(n.key)}
+              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm transition-colors ${
+                view === n.key
+                  ? "bg-amber-300/10 text-amber-200"
+                  : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+              }`}
+            >
+              <span className="w-4 text-center">{n.icon}</span>
+              <span className="flex-1">{n.label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="rounded-lg bg-white/5 px-3 py-2 text-[11px] leading-relaxed text-zinc-500">
+          v0.3 · 拆解主链路已通
+          <br />
+          素材：手动粘贴字幕（v1）
         </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+      </aside>
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      {/* 主区 */}
+      <main className="flex-1 overflow-y-auto">
+        {view === "breakdown" && <BreakdownView />}
+        {view === "library" && <LibraryView />}
+        {view === "create" && <CreateView />}
+        {view === "settings" && <SettingsView />}
+      </main>
+    </div>
+  );
 }
-
-export default App
