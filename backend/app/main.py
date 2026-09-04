@@ -2,25 +2,20 @@
 梁龙科技 · viral_analyzer 重写
 """
 
-import os
-
 from fastapi import FastAPI
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
 
-app = FastAPI(title="帧间 Frames API", version="0.1.0")
+from app.core.config import DATABASE_URL
+from app.db import engine
+from app.routers import ai as ai_router
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://zhuolittlelong@localhost:5432/frames_dev",
-)
-
-engine = create_async_engine(DATABASE_URL)
+app = FastAPI(title="帧间 Frames API", version="0.2.0")
+app.include_router(ai_router.router)
 
 
 @app.get("/")
 async def root():
-    return {"app": "frames", "version": "0.1.0", "status": "ok"}
+    return {"app": "frames", "version": "0.2.0", "status": "ok"}
 
 
 @app.get("/api/health/db")
