@@ -25,6 +25,17 @@ export interface VideoCreatePayload {
   subtitle_text?: string;
 }
 
+export interface VideoMedia {
+  video_path: string | null;
+  has_transcript: boolean;
+  transcript_segments: number;
+  frames: number;
+  bpm: number | null;
+  bgm_ok: boolean;
+  bgm_path: string | null;
+  media_status: string;
+}
+
 export interface VideoItem {
   id: string;
   platform: string;
@@ -38,6 +49,8 @@ export interface VideoItem {
   stats_snapshot: Record<string, number>;
   category_guess: string | null;
   created_at: string;
+  subtitle_source: string;
+  media?: VideoMedia | null;
   latest_analysis?: { id: string; status: string; current_layer: number; summary: Record<string, unknown> } | null;
 }
 
@@ -100,7 +113,7 @@ export const api = {
   models: () => request<Array<{ alias: string; model: string }>>("/api/ai/models"),
   createVideo: (payload: VideoCreatePayload) => request<VideoItem & { has_subtitle?: boolean }>("/api/videos", { method: "POST", body: JSON.stringify(payload) }),
   listVideos: () => request<{ videos: VideoItem[] }>("/api/videos"),
-  runAnalysis: (videoId: string, model = "flash", targetLayers = 5) =>
+  runAnalysis: (videoId: string, model = "pro", targetLayers = 5) =>
     request<AnalysisResult>(`/api/videos/${videoId}/analyse`, { method: "POST", body: JSON.stringify({ model, target_layers: targetLayers }) }),
   getAnalysis: (analysisId: string) => request<AnalysisResult>(`/api/analyses/${analysisId}`),
 };
