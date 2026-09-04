@@ -36,9 +36,42 @@ AIGC:
 4. **文档体系**
    - docs/00-README.md、01-product-design.md、02-technical-architecture.md、03-development-log.md（本文档）、04-data-model.md（下一步建）
 
+### 本轮完成（第二阶段 · 同日）
+
+1. **远程仓库（私密）**
+   - GitHub 私密仓库 `frames` 已创建并推送：https://github.com/lszlovelhl/frames（仅 lszlovelhl 账号可见）
+   - 仓库含全部代码与 docs，main 分支与本地同步
+
+2. **DeepSeek 模型接入（帧间专用 Key）**
+   - Key 写入 `backend/.env`（已被 .gitignore 排除，不入库）
+   - 实测 `deepseek-v4-flash` 调用通过；别名映射 flash / pro / vision
+   - 说明：Key 在聊天记录出现过，用户选择暂不重置（自行评估风险）
+
+3. **数据模型 v0.3 落盘**
+   - `docs/04-data-model.md`：6 域（账户配置/素材建档/拆解/元素变异/创作/回流）16 表设计
+
+4. **后端地基升级（v0.2.0）**
+   - `app/core/config.py`：dotenv 读取（DATABASE_URL + DEEPSEEK_*）
+   - `app/db.py`：async engine + session + Base
+   - `app/models.py`：16 张 ORM 表（对齐 04 文档）
+   - `app/ai.py` + `app/routers/ai.py`：DeepSeek 网关 `/api/ai/chat`、`/api/ai/models`
+   - Alembic async 迁移：初始版本 `7df68a88`，16 表已建到 frames_dev
+   - 验证通过：health/db ok；ai/chat 真实返回（flash 思考+回复）
+
+5. **前端 Tailwind v4**
+   - `vite.config.ts` 接入 `@tailwindcss/vite`；`src/index.css` 换为 `@import "tailwindcss"`；清空模板 App.css
+   - `npm run build` 通过
+
+6. **踩坑备忘**
+   - shell_executor 非交互 shell 无 npm/node PATH：命令前 `export PATH="/opt/homebrew/bin:$PATH"`
+   - 系统 pip3 受 PEP 668 保护：一律用 `backend/.venv/bin/pip`
+
 ### 断点重启步骤（任何时候回来从这里开始）
 
 ```bash
+# 0. 后端依赖装好后若模型有改动，先跑迁移
+cd ~/Projects/frames/backend && .venv/bin/alembic upgrade head
+
 # 1. 启动 PostgreSQL（若未运行）
 brew services start postgresql@16
 
@@ -50,16 +83,24 @@ cd ~/Projects/frames/frontend && npm run dev
 
 # 4. 验证
 curl http://127.0.0.1:8000/api/health/db
+curl http://127.0.0.1:8000/api/ai/models
+curl -X POST http://127.0.0.1:8000/api/ai/chat -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"你好"}],"model":"flash"}'
 # 浏览器打开 http://localhost:5173
 ```
 
 ### 下一步（待办）
 
-- [ ] **推送远程仓库**（GitHub 账号 lszlovelhl 已存在）：建议 `gh repo create` 或网页建仓后 push，防止再次丢失
-- [ ] 设计核心数据模型（docs/04-data-model.md）：拆解记录/元素/标注/提示词/创作结果等表
-- [ ] 申请/配置 DeepSeek API Key，搭最小模型网关调用
-- [ ] 前端装 Tailwind，搭基础布局（侧边栏+主区）
-- [ ] 回填蓝图 v0.1 中待补全项（v1 表结构、提示词资产细节）
+- [x] **推送远程仓库（私密）**：https://github.com/lszlovelhl/frames
+- [x] 核心数据模型（docs/04-data-model.md v0.3，16 表已建）
+- [x] DeepSeek API Key 配置 + 模型网关 `/api/ai/chat`
+- [x] 前端 Tailwind v4
+- [ ] 前端基础布局：侧边栏 + 主区（拆解 / 创作 / 元素库 / 设置四视图）
+- [ ] 提示词模板种子数据（prompt_templates 首批五层模板，对齐方法论 A1-A5）
+- [ ] 拆解主流程 API：视频建档 → 五层拆解编排（任务化调 AI 网关）
+- [ ] 元素库：查询 / 采纳 / 纠错 API 与页面（质量自循环）
+- [ ] 创作单步 API（选题建议 / 脚本 / 拍摄指导）→ 跑通 MVP「拆解 → 创作」链路
+- [ ] 回填蓝图 v0.1 待补全项（v1 表结构、提示词资产细节、部署方式）
 
 ### 关键路径备忘
 
