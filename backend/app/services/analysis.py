@@ -124,8 +124,52 @@ def _parse_json_text(text: str) -> dict:
         return {}
 
 
-def _build_video_material(video: M.Video, subtitle_text: str) -> str:
-    """视频侧信息 + 字幕素材 → 拼给模型的 user 内容。"""
+def build_media_brief(manifest: dict) -> str:
+    """把多模态采集产物（画面逐段观察/声学特征/BGM）拼成给拆解模型的简报文本。"""
+    if not manifest:
+        return ""
+    parts: list[str] = []
+
+    frames = manifest.get("frames") or []
+    if frames:
+        shot_lines = []
+        for f in frames:
+            desc = f.get("desc")
+            if not desc:
+                continue
+            line = f"[{f.get('start_ms', 0)}-{f.get('end_ms', 0)}ms] {desc}"
+            if f.get("text_overlay"):
+                line += f"｜画面文字：{f['text_overlay']}"
+            if f.get("emotion"):
+                line += f"｜情绪：{f['emotion']}"
+            if f.get("style"):
+                line += f"｜风格：{f['style']}"
+            shot_lines.append(line)
+        if shot_lines:
+            parts.append(
+                "【画面逐段观察（由视觉模型对逐帧抽帧产出，仅描述客观画面）】\n"
+                + "\n".join(shot_lines)
+            )
+
+    audio = manifest.get("audio") or {}
+    feats = []
+    if audio.get("bpm"):
+        feats.append(f"节奏BPM≈{audio['bpm']}")
+    if audio.get("mean_volume_db") is not None:
+        feats.append(f"平均响度{audio['mean_volume_db']}dB")
+    bgm = manifest.get("bgm") or {}
+    if bgm.get("ok"):
+        feats.append("背景音乐已做人声/伴奏分离")
+        if bgm.get("vocal_ratio") is not None:
+            feats.append(f"人声/伴奏能量比≈{bgm['vocal_ratio']}")
+    if feats:
+        parts.append("【声音与背景音乐特征（客观声学指标，请勿臆造曲风与歌名）】\n" + "、".join(feats))
+
+    return "\n\n".join(parts)
+
+
+def _build_video_material(video: M.Video, subtitle_text: str, media_brief: str = "") -> str:
+    """视频侧信息 + 字幕素材 + 多模态简报 → 拼给模型的 user 内容。"""
     parts = [
         f"平台：{video.platform or '未知'}",
         f"标题：{video.title}",
@@ -137,8 +181,10 @@ def _build_video_material(video: M.Video, subtitle_text: str) -> str:
         parts.append(f"标签：{' / '.join(video.tags)}")
     if video.stats_snapshot:
         parts.append(f"数据快照：{json.dumps(video.stats_snapshot, ensure_ascii=False)}")
+    if media_brief:
+        parts.append(media_brief)
     if subtitle_text:
-        parts.append(f"\n字幕/旁白全文（用于逐句拆解）:\n{subtitle_text}")
+        parts.append(f"\n语音转写/旁白全文（用于逐句拆解）:\n{subtitle_text}")
     return "\n".join(parts)
 
 
@@ -162,6 +208,7 @@ async def _run_layer(
     model: str,
     layer: int,
     previous_summary: str,
+    media_brief: str = "",
 ) -> tuple[bool, dict, str]:
     """执行单层拆解；返回 (ok, content, raw)。"""
     template = await _load_prompt(db, LAYER_CODES[layer])
@@ -171,7 +218,7 @@ async def _run_layer(
         return False, content, ""
 
     schema_hint = json.dumps(LAYER_SCHEMAS[layer], ensure_ascii=False, indent=1)
-    user_text = _build_video_material(video, subtitle_text)
+    user_text = _build_video_material(video, subtitle_text, media_brief)
     if previous_summary:
         user_text += f"\n\n【前序层结论，供引用】\n{previous_summary}"
     user_text += f'\n\n必须严格输出 JSON 对象，字段结构如下（不得增删字段名，无法确定的时间写 0）：\n{schema_hint}'
@@ -339,13 +386,14 @@ async def run_analysis(
     subtitle_text: str,
     model: str = "flash",
     target_layers: int = 5,
+    media_brief: str = "",
 ) -> M.Analysis:
     """对某视频执行 1..target_layers 层拆解，返回 analysis 记录。"""
     analysis = M.Analysis(
         video_id=video.id,
         status="running",
         current_layer=0,
-        meta={"model": model, "subtitle_len": len(subtitle_text), "started_at": str(datetime.now(UTC))},
+        meta={"model": model, "subtitle_len": len(subtitle_text), "media_brief_len": len(media_brief), "started_at": str(datetime.now(UTC))},
     )
     db.add(analysis)
     await db.flush()
@@ -354,7 +402,7 @@ async def run_analysis(
     failed = 0
     for layer in range(1, target_layers + 1):
         ok, content, _raw = await _run_layer(
-            db, analysis, video, subtitle_text, model, layer, previous_summary
+            db, analysis, video, subtitle_text, model, layer, previous_summary, media_brief
         )
         if ok:
             previous_summary = (

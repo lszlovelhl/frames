@@ -2,58 +2,41 @@ import { useState } from "react";
 import { api, type AnalysisResult, type VideoItem } from "../api";
 import { ElementsPanel, LayersRail, NotesPanel, SegmentsPanel, SummaryPanel } from "../components/ResultPanels";
 
-const PLATFORMS = ["bilibili", "douyin", "xhs", "youtube", "weixin", "kuaishou"];
-const CATEGORIES = ["知识口播", "剧情短剧", "美妆测评", "生活Vlog", "游戏解说", "带货种草", ""];
-
 const field =
   "w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition focus:border-amber-300/50";
-const label = "mb-1 block text-[11px] text-zinc-500";
+
+const AUTO_STEPS = [
+  "自动识别平台（B站 / 抖音 / YouTube …）",
+  "下载视频并读取元数据",
+  "语音转文字：全量 ASR 获取文案",
+  "按内容分段抽帧 + 视觉模型逐段画面理解",
+  "声学分析：BGM 分离、响度 / 情绪曲线",
+  "多模态融合 → 五层专业拆解（L1 建档 → L5 元素）",
+];
 
 export default function BreakdownView() {
-  const [form, setForm] = useState({
-    platform: "bilibili",
-    title: "",
-    url: "",
-    author_name: "",
-    tags: "",
-    category_guess: "知识口播",
-    subtitle_text: "",
-    model: "flash",
-  });
+  const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState("");
   const [error, setError] = useState("");
   const [video, setVideo] = useState<VideoItem | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
 
-  const set = (k: keyof typeof form) => (v: string) => setForm((f) => ({ ...f, [k]: v }));
-
   async function run() {
-    if (!form.title.trim() && !form.url.trim()) {
-      setError("请至少填写标题或链接");
-      return;
-    }
-    if (!form.subtitle_text.trim()) {
-      setError("本版拆解需要字幕/旁白全文作为素材（自动抓取将在后续版本接入）");
+    const link = url.trim();
+    if (!link) {
+      setError("请先粘贴视频链接");
       return;
     }
     setBusy(true);
     setError("");
     setResult(null);
     try {
-      setStage("建档…");
-      const v = await api.createVideo({
-        platform: form.platform,
-        url: form.url || `https://example.com/manual-${Date.now()}`,
-        title: form.title || "未命名视频",
-        author_name: form.author_name || undefined,
-        tags: form.tags ? form.tags.split(/[,，]/).map((t) => t.trim()).filter(Boolean) : [],
-        category_guess: form.category_guess || undefined,
-        subtitle_text: form.subtitle_text,
-      });
+      setStage("识别平台并建档…");
+      const v = await api.createVideo({ url: link });
       setVideo(v);
-      setStage("AI 五层拆解中（约 1-3 分钟，逐层调用模型）…");
-      const r = await api.runAnalysis(v.id, form.model, 5);
+      setStage("自动采集多模态素材（下载 / 转写 / 抽帧 / 视觉 / BGM）…首次可能较久");
+      const r = await api.runAnalysis(v.id, "pro", 5);
       setResult(r);
       setStage("");
     } catch (e) {
@@ -63,79 +46,67 @@ export default function BreakdownView() {
     }
   }
 
+  const m = video?.media;
+
   return (
     <div className="mx-auto max-w-6xl px-8 py-8">
       <header className="mb-6">
         <h1 className="text-xl font-semibold text-zinc-100">拆解工作台</h1>
-        <p className="mt-1 text-sm text-zinc-500">粘贴视频信息与字幕全文 → 一键产出五层拆解（顶层预判 → 宏观快扫 → 结构线 → 精拆细节 → 元素提炼）</p>
+        <p className="mt-1 text-sm text-zinc-500">只填视频链接，系统自动抓取并多模态拆解（画面 + 语音 + 文案 + 音乐），无需手动粘贴任何素材</p>
       </header>
 
-      <div className="rounded-xl border border-white/5 bg-[#1c1f26] p-5">
-        <div className="grid gap-4 md:grid-cols-2">
-          <div>
-            <div className={label}>平台</div>
-            <select className={field} value={form.platform} onChange={(e) => set("platform")(e.target.value)}>
-              {PLATFORMS.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <div className={label}>内容品类（用于参考）</div>
-            <select className={field} value={form.category_guess} onChange={(e) => set("category_guess")(e.target.value)}>
-              {CATEGORIES.map((c) => (
-                <option key={c} value={c}>{c || "未分类"}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <div className={label}>视频标题</div>
-            <input className={field} value={form.title} onChange={(e) => set("title")(e.target.value)} placeholder="《如何一周涨粉十万》" />
-          </div>
-          <div>
-            <div className={label}>作者</div>
-            <input className={field} value={form.author_name} onChange={(e) => set("author_name")(e.target.value)} placeholder="up 主名" />
-          </div>
-          <div className="md:col-span-2">
-            <div className={label}>原视频链接</div>
-            <input className={field} value={form.url} onChange={(e) => set("url")(e.target.value)} placeholder="https://…" />
-          </div>
-          <div className="md:col-span-2">
-            <div className={label}>标签（逗号分隔）</div>
-            <input className={field} value={form.tags} onChange={(e) => set("tags")(e.target.value)} placeholder="口播, 知识区, 涨粉" />
-          </div>
-          <div className="md:col-span-2">
-            <div className={label}>字幕 / 旁白全文（拆解素材，建议逐句粘贴）</div>
-            <textarea
-              className={`${field} min-h-40 resize-y font-mono text-xs leading-relaxed`}
-              value={form.subtitle_text}
-              onChange={(e) => set("subtitle_text")(e.target.value)}
-              placeholder="粘贴平台字幕或语音转写文本…"
-            />
-          </div>
-          <div>
-            <div className={label}>拆解模型</div>
-            <select className={field} value={form.model} onChange={(e) => set("model")(e.target.value)}>
-              <option value="flash">flash（快 / 默认）</option>
-              <option value="pro">pro（深度，更慢）</option>
-            </select>
-          </div>
-          <div className="flex items-end">
-            <button
-              onClick={run}
-              disabled={busy}
-              className="w-full rounded-lg bg-amber-300 px-4 py-2.5 text-sm font-semibold text-zinc-900 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              {busy ? stage || "处理中…" : "建档并开始五层拆解"}
-            </button>
-          </div>
+      <div className="rounded-xl border border-white/5 bg-[#1c1f26] p-6">
+        <div className={field + " flex items-center gap-2 !border-white/15 !bg-white/[0.05] !px-4 !py-3.5"}>
+          <span className="text-amber-300/80">🔗</span>
+          <input
+            className="w-full bg-transparent text-[15px] text-zinc-50 placeholder-zinc-600 outline-none"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && !busy && run()}
+            placeholder="粘贴 B站 / 抖音 / YouTube 视频链接，回车即可拆解"
+            disabled={busy}
+          />
         </div>
-        {error && <p className="mt-3 rounded-lg border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-sm text-rose-300">{error}</p>}
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <ul className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-zinc-500">
+            {AUTO_STEPS.map((s, i) => (
+              <li key={i} className="flex items-center gap-1">
+                <span className="text-amber-300/60">{i + 1}</span>
+                <span>{s}</span>
+              </li>
+            ))}
+          </ul>
+          <button
+            onClick={run}
+            disabled={busy}
+            className="shrink-0 rounded-lg bg-amber-300 px-6 py-2.5 text-sm font-semibold text-zinc-900 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {busy ? (stage || "处理中…") : "一键多模态拆解"}
+          </button>
+        </div>
+        {error && <p className="mt-4 rounded-lg border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-sm text-rose-300">{error}</p>}
       </div>
 
-      {video && !result && busy && (
-        <div className="mt-6 rounded-xl border border-white/5 bg-[#1c1f26] p-4 text-sm text-zinc-400">
-          正在拆解「{video.title}」… <LayersRail r={{ status: "running", current_layer: 1, layers: [], id: video.id, video_id: video.id, summary: {}, meta: {} }} />
+      {video && !result && (
+        <div className="mt-6 rounded-xl border border-white/5 bg-[#1c1f26] p-5">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="max-w-[60%] truncate font-medium text-zinc-100">{video.title || "未命名视频"}</span>
+            <span className="rounded bg-white/5 px-2 py-0.5 text-[11px] text-zinc-400">{video.platform}</span>
+            {video.author_name && <span className="text-xs text-zinc-500">{video.author_name}</span>}
+          </div>
+          {m && (
+            <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+              <Chip on={!!m.video_path} label="视频已下载" />
+              <Chip on={m.has_transcript} label={`语音文案 ${m.transcript_segments} 段`} />
+              <Chip on={(m.frames ?? 0) > 0} label={`画面理解 ${m.frames} 帧`} />
+              <Chip on={m.bpm != null} label={m.bpm != null ? `BPM ${m.bpm}` : "BGM/声学分析中"} />
+              <Chip on={m.bgm_ok} label="BGM 已分离" />
+              <span className="text-zinc-600">{busy ? stage : "等待拆解…"}</span>
+            </div>
+          )}
+          <div className="mt-3">
+            <LayersRail r={{ status: "running", current_layer: 1, layers: [], id: video.id, video_id: video.id, summary: {}, meta: {} }} />
+          </div>
         </div>
       )}
 
@@ -144,7 +115,10 @@ export default function BreakdownView() {
           <div className="flex items-center justify-between rounded-xl border border-white/5 bg-[#1c1f26] px-4 py-3">
             <div className="min-w-0">
               <div className="truncate text-sm font-medium text-zinc-100">{video?.title ?? result.video?.title}</div>
-              <div className="text-[11px] text-zinc-500">{video?.platform} · {video?.author_name ?? "未知作者"} · {video?.created_at?.slice(0, 10)}</div>
+              <div className="text-[11px] text-zinc-500">
+                {video?.platform} · {video?.author_name ?? "未知作者"} ·{" "}
+                {m ? `文案 ${m.transcript_segments} 段 / 画面 ${m.frames} 帧 / ${m.bpm != null ? "BPM " + m.bpm + " / " : ""}${m.bgm_ok ? "BGM 已分离" : "BGM 未启用"}` : video?.created_at?.slice(0, 10)}
+              </div>
             </div>
             <LayersRail r={result} />
           </div>
@@ -155,5 +129,19 @@ export default function BreakdownView() {
         </div>
       )}
     </div>
+  );
+}
+
+function Chip({ on, label }: { on: boolean; label: string }) {
+  return (
+    <span
+      className={
+        "rounded px-2 py-0.5 " +
+        (on ? "border border-emerald-400/20 bg-emerald-400/10 text-emerald-300" : "border border-white/10 bg-white/5 text-zinc-500")
+      }
+    >
+      {on ? "✓ " : ""}
+      {label}
+    </span>
   );
 }

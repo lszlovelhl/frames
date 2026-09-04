@@ -1,0 +1,344 @@
+{
+ "platform": "bilibili",
+ "work_dir": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a9acdb9f9150817b",
+ "video_path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a9acdb9f9150817b/【官方 MV】Never Gonna Give You Up - Rick Astley.mp4",
+ "meta": {},
+ "duration_ms": 212393,
+ "warnings": [
+  "BGM 分离未完成：demucs/torch 未安装（BGM 分离暂不可用）"
+ ],
+ "transcript": {
+  "language": "en",
+  "text": "We're not strangers to love You know the rules, and so do I\nI feel commitments while I'm thinking of You wouldn't get this from any other guy\nI just wanna tell you how I'm feeling Gotta make you understand\nNever gonna give you up Never gonna let you down\nNever gonna run around and desert you Never gonna make you cry\nNever gonna say goodbye Never gonna tell a lie and hurt you\nWe've known each other for so long Your heart's been aching but you're too shy to say it\nInside we both know what's been going on We know the game and we're gonna play it\nAnd if you ask me how I'm feeling Don't tell me you're too much to see\nNever gonna give you up Never gonna let you down\nNever gonna run around and desert you Never gonna make you cry\nNever gonna say goodbye Never gonna tell a lie and hurt you\nNever gonna give you up Never gonna let you down\nNever gonna run around and desert you Never gonna make you cry\nNever gonna say goodbye Never gonna tell a lie and hurt you\nNever gonna give you up Never gonna give you up\nWe've known each other for so long Your heart's been aching but you're too shy to say it\nInside we both know what's been going on We know the game and we're gonna play it\nI just wanna tell you how I'm feeling Gotta make you understand\nNever gonna give you up Never gonna let you down\nNever gonna run around and desert you Never gonna make you cry\nNever gonna say goodbye Never gonna tell a lie and hurt you\nNever gonna give you up Never gonna let you down\nNever gonna run around and desert you Never gonna make you cry\nNever gonna say goodbye Never gonna tell a lie and hurt you\nNever gonna give you up Never gonna let you down\nNever gonna run around and desert you Never gonna make you cry\nNever gonna say goodbye Never gonna tell a lie and hurt you",
+  "segments": [
+   {
+    "start": 0.0,
+    "end": 27.0,
+    "text": "We're not strangers to love You know the rules, and so do I"
+   },
+   {
+    "start": 27.0,
+    "end": 35.0,
+    "text": "I feel commitments while I'm thinking of You wouldn't get this from any other guy"
+   },
+   {
+    "start": 35.0,
+    "end": 43.0,
+    "text": "I just wanna tell you how I'm feeling Gotta make you understand"
+   },
+   {
+    "start": 43.0,
+    "end": 47.0,
+    "text": "Never gonna give you up Never gonna let you down"
+   },
+   {
+    "start": 47.0,
+    "end": 53.0,
+    "text": "Never gonna run around and desert you Never gonna make you cry"
+   },
+   {
+    "start": 53.0,
+    "end": 60.0,
+    "text": "Never gonna say goodbye Never gonna tell a lie and hurt you"
+   },
+   {
+    "start": 60.0,
+    "end": 69.0,
+    "text": "We've known each other for so long Your heart's been aching but you're too shy to say it"
+   },
+   {
+    "start": 69.0,
+    "end": 77.0,
+    "text": "Inside we both know what's been going on We know the game and we're gonna play it"
+   },
+   {
+    "start": 77.0,
+    "end": 85.0,
+    "text": "And if you ask me how I'm feeling Don't tell me you're too much to see"
+   },
+   {
+    "start": 85.0,
+    "end": 89.0,
+    "text": "Never gonna give you up Never gonna let you down"
+   },
+   {
+    "start": 89.0,
+    "end": 95.0,
+    "text": "Never gonna run around and desert you Never gonna make you cry"
+   },
+   {
+    "start": 95.0,
+    "end": 102.0,
+    "text": "Never gonna say goodbye Never gonna tell a lie and hurt you"
+   },
+   {
+    "start": 102.0,
+    "end": 106.0,
+    "text": "Never gonna give you up Never gonna let you down"
+   },
+   {
+    "start": 106.0,
+    "end": 112.0,
+    "text": "Never gonna run around and desert you Never gonna make you cry"
+   },
+   {
+    "start": 112.0,
+    "end": 119.0,
+    "text": "Never gonna say goodbye Never gonna tell a lie and hurt you"
+   },
+   {
+    "start": 119.0,
+    "end": 136.0,
+    "text": "Never gonna give you up Never gonna give you up"
+   },
+   {
+    "start": 136.0,
+    "end": 145.0,
+    "text": "We've known each other for so long Your heart's been aching but you're too shy to say it"
+   },
+   {
+    "start": 145.0,
+    "end": 153.0,
+    "text": "Inside we both know what's been going on We know the game and we're gonna play it"
+   },
+   {
+    "start": 153.0,
+    "end": 161.0,
+    "text": "I just wanna tell you how I'm feeling Gotta make you understand"
+   },
+   {
+    "start": 161.0,
+    "end": 165.0,
+    "text": "Never gonna give you up Never gonna let you down"
+   },
+   {
+    "start": 165.0,
+    "end": 171.0,
+    "text": "Never gonna run around and desert you Never gonna make you cry"
+   },
+   {
+    "start": 171.0,
+    "end": 178.0,
+    "text": "Never gonna say goodbye Never gonna tell a lie and hurt you"
+   },
+   {
+    "start": 178.0,
+    "end": 182.0,
+    "text": "Never gonna give you up Never gonna let you down"
+   },
+   {
+    "start": 182.0,
+    "end": 188.0,
+    "text": "Never gonna run around and desert you Never gonna make you cry"
+   },
+   {
+    "start": 188.0,
+    "end": 195.0,
+    "text": "Never gonna say goodbye Never gonna tell a lie and hurt you"
+   },
+   {
+    "start": 195.0,
+    "end": 199.0,
+    "text": "Never gonna give you up Never gonna let you down"
+   },
+   {
+    "start": 199.0,
+    "end": 205.0,
+    "text": "Never gonna run around and desert you Never gonna make you cry"
+   },
+   {
+    "start": 205.0,
+    "end": 211.0,
+    "text": "Never gonna say goodbye Never gonna tell a lie and hurt you"
+   }
+  ],
+  "duration": 212.3946875,
+  "model": "/Users/zhuolittlelong/.cache/whisper-models/faster-whisper-small"
+ },
+ "frames": [
+  {
+   "seq": 0,
+   "start_ms": 0,
+   "end_ms": 27000,
+   "time_ms": 13500,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a9acdb9f9150817b/frames/seg000.jpg",
+   "desc": "男子戴墨镜，穿浅蓝色衬衫，侧身走过白色铁丝网背景，构图居中偏左",
+   "text_overlay": "",
+   "emotion": "平静",
+   "style": "实拍"
+  },
+  {
+   "seq": 1,
+   "start_ms": 27000,
+   "end_ms": 43000,
+   "time_ms": 35000,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a9acdb9f9150817b/frames/seg001.jpg",
+   "desc": "夜晚桥洞下，男子穿风衣站立，身后有拱形门洞和红灯，地面湿润反光",
+   "text_overlay": "",
+   "emotion": "悬念",
+   "style": "实拍"
+  },
+  {
+   "seq": 2,
+   "start_ms": 43000,
+   "end_ms": 53000,
+   "time_ms": 48000,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a9acdb9f9150817b/frames/seg002.jpg",
+   "desc": "男子面部特写，背景是网格状窗格，他对着麦克风唱歌",
+   "text_overlay": "",
+   "emotion": "深情",
+   "style": "实拍"
+  },
+  {
+   "seq": 3,
+   "start_ms": 53000,
+   "end_ms": 69000,
+   "time_ms": 61000,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a9acdb9f9150817b/frames/seg003.jpg",
+   "desc": "夜晚拱门场景，男子穿风衣，跳舞动作，画面有动态模糊感",
+   "text_overlay": "",
+   "emotion": "动感",
+   "style": "实拍"
+  },
+  {
+   "seq": 4,
+   "start_ms": 69000,
+   "end_ms": 77000,
+   "time_ms": 73000,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a9acdb9f9150817b/frames/seg004.jpg",
+   "desc": "空旷大厅内，三人站在白色长台上跳舞，背景是大面积彩色玻璃窗，前景有桌椅。",
+   "text_overlay": "",
+   "emotion": "欢快",
+   "style": "实拍"
+  },
+  {
+   "seq": 5,
+   "start_ms": 77000,
+   "end_ms": 89000,
+   "time_ms": 83000,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a9acdb9f9150817b/frames/seg005.jpg",
+   "desc": "一名男子身穿白色风衣，在砖墙拱门前跳舞，背景为蓝色砖墙。",
+   "text_overlay": "",
+   "emotion": "动感",
+   "style": "实拍"
+  },
+  {
+   "seq": 6,
+   "start_ms": 89000,
+   "end_ms": 102000,
+   "time_ms": 95500,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a9acdb9f9150817b/frames/seg006.jpg",
+   "desc": "酒吧吧台后，一名侍者正在操作，台上有银色漏斗和玻璃杯。",
+   "text_overlay": "",
+   "emotion": "忙碌",
+   "style": "实拍"
+  },
+  {
+   "seq": 7,
+   "start_ms": 102000,
+   "end_ms": 112000,
+   "time_ms": 107000,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a9acdb9f9150817b/frames/seg007.jpg",
+   "desc": "极近景，人物穿着深色上衣，模糊的侧身，背景为淡紫色。",
+   "text_overlay": "",
+   "emotion": "朦胧",
+   "style": "实拍"
+  },
+  {
+   "seq": 8,
+   "start_ms": 112000,
+   "end_ms": 119000,
+   "time_ms": 115500,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a9acdb9f9150817b/frames/seg008.jpg",
+   "desc": "金发女性戴墨镜，穿白色无袖上衣，侧身仰头，背景为白色砖墙。",
+   "text_overlay": "",
+   "emotion": "轻松",
+   "style": "实拍"
+  },
+  {
+   "seq": 9,
+   "start_ms": 119000,
+   "end_ms": 145000,
+   "time_ms": 132000,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a9acdb9f9150817b/frames/seg009.jpg",
+   "desc": "人影投射在浅色水泥地面上，侧身姿态，画面只有影子。",
+   "text_overlay": "",
+   "emotion": "神秘",
+   "style": "实拍"
+  },
+  {
+   "seq": 10,
+   "start_ms": 145000,
+   "end_ms": 161000,
+   "time_ms": 153000,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a9acdb9f9150817b/frames/seg010.jpg",
+   "desc": "年轻男子穿白色外套黑内搭，在蓝色砖墙背景前张嘴唱歌，画面略显模糊。",
+   "text_overlay": "",
+   "emotion": "亢奋",
+   "style": "实拍"
+  },
+  {
+   "seq": 11,
+   "start_ms": 161000,
+   "end_ms": 171000,
+   "time_ms": 166000,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a9acdb9f9150817b/frames/seg011.jpg",
+   "desc": "男子在蓝色拱门走廊中跳跃，穿背心和短裤，动态模糊。",
+   "text_overlay": "",
+   "emotion": "动感",
+   "style": "实拍"
+  },
+  {
+   "seq": 12,
+   "start_ms": 171000,
+   "end_ms": 178000,
+   "time_ms": 174500,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a9acdb9f9150817b/frames/seg012.jpg",
+   "desc": "身穿白上衣蓝牛仔裤的男子在蓝砖墙拱门前摆出马步姿势，双手张开，背景为蓝色砖墙和拱门。",
+   "text_overlay": "",
+   "emotion": "紧张",
+   "style": "实拍"
+  },
+  {
+   "seq": 13,
+   "start_ms": 178000,
+   "end_ms": 188000,
+   "time_ms": 183000,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a9acdb9f9150817b/frames/seg013.jpg",
+   "desc": "男子在室内，白墙、红柱，身体后仰，手臂挥舞，画面模糊。",
+   "text_overlay": "",
+   "emotion": "紧张",
+   "style": "实拍"
+  },
+  {
+   "seq": 14,
+   "start_ms": 188000,
+   "end_ms": 199000,
+   "time_ms": 193500,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a9acdb9f9150817b/frames/seg014.jpg",
+   "desc": "红发男子对着银色麦克风唱歌，身穿深色西装，背景为模糊的格子图案。",
+   "text_overlay": "",
+   "emotion": "亢奋",
+   "style": "实拍"
+  },
+  {
+   "seq": 15,
+   "start_ms": 199000,
+   "end_ms": 211000,
+   "time_ms": 205000,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a9acdb9f9150817b/frames/seg015.jpg",
+   "desc": "红发男子近景，身着白外套，背景是蓝色砖墙和拱门，表情专注。",
+   "text_overlay": "",
+   "emotion": "专注",
+   "style": "实拍"
+  }
+ ],
+ "audio": {
+  "mean_volume_db": -17.0,
+  "bpm": 117
+ },
+ "bgm": {
+  "ok": false,
+  "reason": "demucs/torch 未安装（BGM 分离暂不可用）"
+ }
+}

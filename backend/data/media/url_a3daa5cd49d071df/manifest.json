@@ -1,0 +1,201 @@
+{
+ "platform": "bilibili",
+ "work_dir": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a3daa5cd49d071df",
+ "video_path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a3daa5cd49d071df/字幕君交流场所.mp4",
+ "meta": {},
+ "duration_ms": 2055637,
+ "warnings": [
+  "语音转写失败：Got: ConnectError: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1006)\nAn error happened while trying to locate the files on the Hub, and we cannot find the appropriate snapshot folder for the specified revision on the local disk. Please check your internet connection and try again.",
+  "BGM 分离未完成：demucs/torch 未安装（BGM 分离暂不可用）"
+ ],
+ "transcript": {
+  "text": "",
+  "segments": []
+ },
+ "frames": [
+  {
+   "seq": 0,
+   "start_ms": 0,
+   "end_ms": 128477,
+   "time_ms": 64238,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a3daa5cd49d071df/frames/seg000.jpg",
+   "desc": "动漫少女侧身回望，红蓝双色衣服，白色花朵装饰，背景高光，底部有英文文字。",
+   "text_overlay": "Without you... be as I am now",
+   "emotion": "温馨",
+   "style": "动画"
+  },
+  {
+   "seq": 1,
+   "start_ms": 128477,
+   "end_ms": 256954,
+   "time_ms": 192715,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a3daa5cd49d071df/frames/seg001.jpg",
+   "desc": "五个动漫少女并排坐在地上，各具特色，长发或短发，兔耳等装饰，背景纯白。",
+   "text_overlay": "© Gome http://gome.org",
+   "emotion": "搞笑",
+   "style": "动画"
+  },
+  {
+   "seq": 2,
+   "start_ms": 256954,
+   "end_ms": 385431,
+   "time_ms": 321193,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a3daa5cd49d071df/frames/seg002.jpg",
+   "desc": "粉发少女戴眼镜，穿白大褂和红蓝内衬，手扶额头，背景实验室架子。",
+   "text_overlay": "",
+   "emotion": "专注",
+   "style": "动画"
+  },
+  {
+   "seq": 3,
+   "start_ms": 385431,
+   "end_ms": 513909,
+   "time_ms": 449670,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a3daa5cd49d071df/frames/seg003.jpg",
+   "desc": "银发少女背对回眸，穿红蓝衣服，扎辫子，背景有画笔涂抹效果。",
+   "text_overlay": "",
+   "emotion": "悬念",
+   "style": "动画"
+  },
+  {
+   "seq": 4,
+   "start_ms": 513909,
+   "end_ms": 642386,
+   "time_ms": 578147,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a3daa5cd49d071df/frames/seg004.jpg",
+   "desc": "两名动漫少女相互拥抱旋转，左侧银白发少女穿红衣，右侧蓝黑发少女着红裙，白色背景。",
+   "text_overlay": "",
+   "emotion": "温馨",
+   "style": "动画"
+  },
+  {
+   "seq": 5,
+   "start_ms": 642386,
+   "end_ms": 770863,
+   "time_ms": 706625,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a3daa5cd49d071df/frames/seg005.jpg",
+   "desc": "银发少女手持长弓侧身站立，背景是紫色魔法阵和红色螺旋状物体，表情沉稳。",
+   "text_overlay": "",
+   "emotion": "悬念",
+   "style": "动画"
+  },
+  {
+   "seq": 6,
+   "start_ms": 770863,
+   "end_ms": 899341,
+   "time_ms": 835102,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a3daa5cd49d071df/frames/seg006.jpg",
+   "desc": "少女穿蓝红拼接裙戴蓝帽，手持细长红绳，全身站立于白色背景前。",
+   "text_overlay": "",
+   "emotion": "平静",
+   "style": "动画"
+  },
+  {
+   "seq": 7,
+   "start_ms": 899341,
+   "end_ms": 1027818,
+   "time_ms": 963579,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a3daa5cd49d071df/frames/seg007.jpg",
+   "desc": "紫发少女穿白色制服，双手交握于胸前，眼神专注，浅蓝背景近景半身。",
+   "text_overlay": "",
+   "emotion": "专注",
+   "style": "动画"
+  },
+  {
+   "seq": 8,
+   "start_ms": 1027818,
+   "end_ms": 1156295,
+   "time_ms": 1092057,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a3daa5cd49d071df/frames/seg008.jpg",
+   "desc": "紫发少女身穿蓝白洋装，戴有红色蝴蝶结的帽子，背景有粉色花瓣飘落，表情平静。",
+   "text_overlay": "",
+   "emotion": "恬静",
+   "style": "动画"
+  },
+  {
+   "seq": 9,
+   "start_ms": 1156295,
+   "end_ms": 1284773,
+   "time_ms": 1220534,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a3daa5cd49d071df/frames/seg009.jpg",
+   "desc": "银发少女穿蓝紫色和服坐在雪地上，身旁有粉色月亮和红色绸带，远处有房舍，背景有星星。",
+   "text_overlay": "",
+   "emotion": "空灵",
+   "style": "动画"
+  },
+  {
+   "seq": 10,
+   "start_ms": 1284773,
+   "end_ms": 1413250,
+   "time_ms": 1349011,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a3daa5cd49d071df/frames/seg010.jpg",
+   "desc": "红发少女身穿红色上衣，背景有红色光环和暗色光效，姿态前倾，眼神专注。",
+   "text_overlay": "",
+   "emotion": "神秘",
+   "style": "动画"
+  },
+  {
+   "seq": 11,
+   "start_ms": 1413250,
+   "end_ms": 1541727,
+   "time_ms": 1477489,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a3daa5cd49d071df/frames/seg011.jpg",
+   "desc": "黑发少女与银发少女共同注视一个散发金光的罐子，背景为星空与月球，有红色液体滴落。",
+   "text_overlay": "",
+   "emotion": "诡异",
+   "style": "动画"
+  },
+  {
+   "seq": 12,
+   "start_ms": 1541727,
+   "end_ms": 1670205,
+   "time_ms": 1605966,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a3daa5cd49d071df/frames/seg012.jpg",
+   "desc": "银发护士与棕发角色拥抱，棕发角色亲吻银发脸颊，背景浅色带光斑。",
+   "text_overlay": "",
+   "emotion": "温馨",
+   "style": "动画"
+  },
+  {
+   "seq": 13,
+   "start_ms": 1670205,
+   "end_ms": 1798682,
+   "time_ms": 1734443,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a3daa5cd49d071df/frames/seg013.jpg",
+   "desc": "蓝发红衣角色被绿发和服角色抱起，蓝发角色瞪眼惊讶，背景白色。",
+   "text_overlay": "",
+   "emotion": "搞笑",
+   "style": "动画"
+  },
+  {
+   "seq": 14,
+   "start_ms": 1798682,
+   "end_ms": 1927159,
+   "time_ms": 1862921,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a3daa5cd49d071df/frames/seg014.jpg",
+   "desc": "银发护士角色跪坐，背景有粉色花朵和另一半透明角色，表情开心。",
+   "text_overlay": "",
+   "emotion": "温馨",
+   "style": "动画"
+  },
+  {
+   "seq": 15,
+   "start_ms": 1927159,
+   "end_ms": 2055637,
+   "time_ms": 1991398,
+   "path": "/Users/zhuolittlelong/Projects/frames/backend/data/media/url_a3daa5cd49d071df/frames/seg015.jpg",
+   "desc": "戴眼镜护士被长发角色从背后拥抱，背景夜景有月亮，角色露出惊讶表情。",
+   "text_overlay": "",
+   "emotion": "温馨",
+   "style": "动画"
+  }
+ ],
+ "audio": {
+  "mean_volume_db": -13.3,
+  "bpm": null
+ },
+ "bgm": {
+  "ok": false,
+  "reason": "demucs/torch 未安装（BGM 分离暂不可用）"
+ }
+}

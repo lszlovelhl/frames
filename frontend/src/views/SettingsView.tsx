@@ -51,7 +51,7 @@ export default function SettingsView() {
               <tr key={m.alias} className="border-t border-white/5">
                 <td className="py-2 font-mono text-amber-200/90">{m.alias}</td>
                 <td className="py-2 font-mono text-zinc-300">{m.model}</td>
-                <td className="py-2 text-zinc-500">{m.alias === "flash" ? "拆解默认 / 快" : m.alias === "pro" ? "深度拆解与创作" : "画面理解（预留）"}</td>
+                <td className="py-2 text-zinc-500">{m.alias === "flash" ? "备用（快速问答）" : m.alias === "pro" ? "统一拆解档（多模态五层）" : "画面理解 / 多模态（已接入）"}</td>
               </tr>
             ))}
             {models.length === 0 && (
