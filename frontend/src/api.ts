@@ -232,10 +232,10 @@ export const api = {
     }),
   saveCreation: (payload: { title: string; content: string; element_ids: string[]; platform?: string | null; intent?: string | null }) =>
     request<CreationItem & { assets: number }>("/api/creations", { method: "POST", body: JSON.stringify(payload) }),
-  creationsContinueChat: (creationId: string, messages: Array<{ role: "user" | "assistant"; content: string }>, elementIds: string[]) =>
+  creationsContinueChat: (creationId: string, messages: Array<{ role: "user" | "assistant"; content: string }>, elementIds: string[], baseAssetId?: string | null) =>
     request<{ reply: string; model?: string; current_version: number; base_asset_id: string | null; used_elements: UsedElementRef[] }>(
       `/api/creations/${creationId}/chat`,
-      { method: "POST", body: JSON.stringify({ messages, element_ids: elementIds }) }
+      { method: "POST", body: JSON.stringify({ messages, element_ids: elementIds, base_asset_id: baseAssetId ?? null }) }
     ),
   saveCreationVersion: (creationId: string, payload: { content: string; title?: string; element_ids: string[]; parent_asset_id?: string | null }) =>
     request<{ creation_id: string; title: string; asset: CreationAssetView }>(`/api/creations/${creationId}/versions`, {
