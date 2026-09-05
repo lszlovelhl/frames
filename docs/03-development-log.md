@@ -126,9 +126,22 @@ curl -X POST http://127.0.0.1:8000/api/ai/chat -H 'Content-Type: application/jso
 - [x] 提示词模板种子数据（prompt_templates 首批五层模板，对齐方法论 A1-A5）
 - [x] 拆解主流程 API：视频建档 → 五层拆解编排（任务化调 AI 网关）
 - [ ] UI 浏览器级目验：人工打开 http://localhost:5173 过一遍四视图与拆解详情
-- [ ] 元素库：查询 / 采纳 / 纠错 API 与页面（质量自循环）
-- [ ] 创作单步 API（选题建议 / 脚本 / 拍摄指导）→ 跑通 MVP「拆解 → 创作」链路
+- [x] 元素库：查询 / 采纳 / 纠错 API 与页面（质量自循环）
+- [x] 创作台：对话式驱动 + 产物卡片化（落卡 Creation/CreationAsset）→ 跑通 MVP「拆解 → 创作」链路
 - [ ] 回填蓝图 v0.1 待补全项（v1 表结构、提示词资产细节、部署方式）
+
+### 本轮完成（第四阶段 · 元素库跨片聚合 + 创作台落地）
+
+1. **元素库（跨拆解聚合 + 质量自循环）**
+   - 后端 `GET /api/elements`：跨 analysis 聚合，状态/分类/关键词过滤，draft 优先；返回 {total, status_counts, items}，item 含 video 来源
+   - 前端新增「元素库」视图：状态 tab、分类筛选、搜索、元素卡（采纳/驳回/纠错弹窗）、跳转拆解库对应素材
+   - 现状：22 个元素、3 个 analysis，均为 draft 待质控
+
+2. **创作台（对话式驱动 + 产物卡片化，用户确认形态）**
+   - 后端 `app/routers/creations.py`：`POST /api/creations/chat`（注入元素上下文生成，返回 {reply, used_elements, model}）、`POST /api/creations` 落卡、`GET/DELETE /api/creations(/id)` 产物库；`main.py` 注册
+   - 前端重写 `CreateView.tsx`：消息流 + 引用元素弹窗 + 落卡 + 产物库抽屉；`api.ts` 增 creations* 方法
+   - E2E 验证通过：对话生成 → 落卡 → 产物库查看；修复产物时间显示差 8 小时（UTC 本地化）
+   - 落卡 role_view=编导 写入 script 资产；产物库有冒烟测试残留「程序员副业钩子测试」可删
 
 ### 关键路径备忘
 
@@ -136,3 +149,54 @@ curl -X POST http://127.0.0.1:8000/api/ai/chat -H 'Content-Type: application/jso
 - 蓝图文档（会话产出）：`~/Library/.../workspace/conv_*/output/梁龙科技-帧间重建蓝图-v0.1.md`（核心方法论已并入 docs/01）
 - 连接串默认：`postgresql+asyncpg://zhuolittlelong@localhost:5432/frames_dev`
 *（内容由AI生成，仅供参考）*
+
+### 本轮完成（第五阶段 · 产物版本迭代，收口创作闭环）
+
+1. **后端 `app/routers/creations.py`**
+   - 新增 `ContinueChatReq` / `VersionSaveReq` 请求模型
+   - `POST /api/creations/{id}/chat`：带历史继续对话，自动注入该产物**最新 script 资产**作为改稿基线，返回 {reply, model, current_version, base_asset_id, used_elements}
+   - `POST /api/creations/{id}/versions`：将满意回复**存为新版本资产**（CreationAsset.parent_id 指向上一版形成版本链），parent_id 缺省自动取当前最新资产
+   - `GET /api/creations/{id}` 资产列表改用 `_asset_view`：按 created_at 升序返回并带 version 字段（v1..vN）；`_load_creation`/`_asset_view`/`_group_versions` 辅助函数
+   - 冒烟：v1 → versions 存 v2（parent_id 链正确）→ 详情返回 v1/v2 两段
+
+2. **前端 `CreateView.tsx` / `api.ts`**
+   - `CreationAssetView` 增 `version`/`parent_id`；api.ts 增 `creationsContinueChat`、`saveCreationVersion`
+   - 产物库抽屉：条目右侧「继续修改」入口、详情资产块显示 **v 版本徽标**与落卡时间
+   - 新增**改稿模式**（editing state）：进入后顶部琥珀色条「正在改稿《标题》· vN」+ 退出按钮；输入区平台/意图下拉隐藏；对话走 `/chat` 续聊接口并注入最新版本
+   - 回复卡按钮在改稿模式下切换为「存为新版本」（`versions` 接口），notice「已存为 vN」，改稿条版本号同步递增；空内容保护防止正文未完成即保存
+   - `npx tsc --noEmit` 通过
+
+3. **E2E 浏览器目验（Playwright + Chrome headless，6 步全通过）**
+   - 产物库列表含「继续修改」；详情 script v1/v2 徽标正确；点「继续修改」进入改稿模式（琥珀条 v2、下拉消失）
+   - 发送「把开头改得更炸一点」→ 完整新版文案 → 存为新版本 → notice「已存为 v3」→ 产物库详情 v1/v2/v3 三段齐全，无控制台报错
+   - 截图目录：`~/Projects/frames/tmp_e2e/`
+
+### 下一阶段建议
+
+- [x] 创作数据回流：元素被引用次数 usage（CreationAsset.used_elements 或独立引用表）反哺元素库热度排序
+- [x] 产物库冒烟残留「程序员副业钩子测试」清理
+- [ ] 改稿模式支持选择「基于某个历史版本」续改（当前固定基于最新版）
+
+### 本轮完成（第六阶段 · 创作数据回流：元素引用热度反哺元素库）
+
+1. **后端 `app/routers/elements.py`**
+   - `GET /api/elements` 增加**创作数据回流聚合**：扫描全部 `Creations.core_elements`（JSONB），统计每个 element_id 被多少个创作项目引用（同项目内去重），item 新增 `usage_count` 字段
+   - 数据语义：按项目粒度计数（引用过该元素的产物数），版本迭代沿用元素不重复累计；删除产物后级联解除引用，usage 自动归零
+
+2. **前端 `ElementsView.tsx` / `api.ts`**
+   - `ElementItem` 增 `usage_count`
+   - 元素卡新增紫色徽标「被 N 个创作引用」（usage>0 才显示，title 提示语义）
+   - 过滤行新增「排序方式」下拉：**质控优先**（默认，保持 draft 优先质控序）/ **热度优先**（usage_count 降序，热度相同维持原序）
+
+3. **E2E 浏览器目验（Playwright + Chrome headless，4 步全通过）**
+   - 受控造数：给冒烟产物「程序员副业钩子测试」写入对元素「时间戳复盘法」的引用 → 元素库出现紫色徽标「被 1 个创作引用」
+   - 切「热度优先」：带徽标元素升至列表第一位
+   - 创作台产物库删除两条冒烟残留（「程序员副业钩子测试」含 v1/v2/v3、另一条含主推钩子方案），空态文案正确
+   - 返回元素库刷新：徽标消失、usage 归 0 —— **删除产物 → 解除引用 → 热度回流**闭环验证通过
+   - 截图目录：`~/Projects/frames/tmp_e2e/usage_refund/`
+
+### 下一阶段建议
+
+- [ ] 改稿模式支持选择「基于某个历史版本」续改（当前固定基于最新版；后端 `parent_asset_id` 已就绪，需前端在产物详情版本块加「以此版续改」入口并透传）
+- [ ] 元素库验收后做「元素变异/组合」入口（E 域飞轮再前进一步，编导需要的是拿来就改的组合方式而非原始元素）
+- [ ] AI 网关 usage/计费落账可视化（Settings 面板可看每轮成本）
