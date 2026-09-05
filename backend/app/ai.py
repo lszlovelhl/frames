@@ -57,7 +57,7 @@ async def _log_usage(
         from app import models as M
         from app.db import SessionLocal
 
-        cost = _usage_cost_cny(alias, usage)
+        cost = await _usage_cost_cny(alias, usage)
         ref_uuid = None
         if ref_id:
             try:

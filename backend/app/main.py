@@ -51,6 +51,7 @@ app.include_router(videos_router.router)
 app.include_router(platforms_router.router)
 app.include_router(elements_router.router)
 app.include_router(creations_router.router)
+app.include_router(usage_router.router)
 
 # 本地媒体静态服务：/media/<work_dir>/...
 app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
