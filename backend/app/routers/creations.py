@@ -112,7 +112,13 @@ async def creation_chat(req: CreationChatReq, db: AsyncSession = Depends(get_ses
     msgs += [m.model_dump() for m in req.messages[-20:]]
 
     try:
-        result = await chat(messages=msgs, model="pro", max_tokens=4096)
+        result = await chat(
+            messages=msgs,
+            model="pro",
+            max_tokens=4096,
+            scene="creation_draft",
+            ref_type="creation",
+        )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"AI 网关调用失败: {exc}") from exc
 

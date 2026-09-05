@@ -336,6 +336,33 @@ class Annotation(TimestampMixin, Base):
 
 
 # ============================================================
+# F 域 · AI 用量与计费
+# ============================================================
+
+class AiUsageLog(TimestampMixin, Base):
+    """AI 网关每次调用的用量日志（token 数与估算成本，供计费可视化）"""
+
+    __tablename__ = "ai_usage_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    scene: Mapped[str] = mapped_column(String(32), default="misc", index=True)  # breakdown/creation/creation_edit/vision/element_mix/manual...
+    ref_type: Mapped[str | None] = mapped_column(String(32), nullable=True)  # analysis/creation/video/...
+    ref_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True, index=True
+    )
+    alias: Mapped[str] = mapped_column(String(32))  # flash/pro/vision（请求档位）
+    model: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 实际返回模型名
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_cny: Mapped[float | None] = mapped_column(Float, nullable=True)  # 估算成本（元）
+    ok: Mapped[bool] = mapped_column(Boolean, default=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# ============================================================
 # E 域 · 创作
 # ============================================================
 

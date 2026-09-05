@@ -199,6 +199,36 @@ export interface PlatformStatus {
   has_cookie: boolean;
 }
 
+export interface AiUsageAgg {
+  calls: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_cny: number;
+}
+
+export interface AiUsageSummary {
+  total: AiUsageAgg;
+  today: AiUsageAgg;
+  by_alias: Array<AiUsageAgg & { alias: string }>;
+}
+
+export interface AiUsageRecentItem {
+  id: string;
+  scene: string | null;
+  alias: string;
+  model: string | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_cny: number;
+  ok: boolean;
+  error: string | null;
+  ref_type: string | null;
+  ref_id: string | null;
+  created_at: string | null;
+}
+
 export const api = {
   health: () => request<{ database: string }>("/api/health/db"),
   models: () => request<Array<{ alias: string; model: string }>>("/api/ai/models"),
@@ -245,4 +275,11 @@ export const api = {
   listCreations: () => request<{ creations: CreationItem[] }>("/api/creations"),
   getCreation: (creationId: string) => request<CreationDetail>(`/api/creations/${creationId}`),
   removeCreation: (creationId: string) => request<{ ok: boolean }>(`/api/creations/${creationId}`, { method: "DELETE" }),
+  mixElements: (mode: "mix" | "vary", elementIds: string[], instruction?: string) =>
+    request<{ items: ElementItem[] }>("/api/elements/mix", {
+      method: "POST",
+      body: JSON.stringify({ mode, element_ids: elementIds, instruction: instruction || null }),
+    }),
+  aiUsageSummary: () => request<AiUsageSummary>("/api/ai/usage/summary"),
+  aiUsageRecent: (limit = 30) => request<{ items: AiUsageRecentItem[] }>(`/api/ai/usage/recent?limit=${limit}`),
 };

@@ -241,6 +241,9 @@ async def _run_layer(
                 max_tokens=8192,
                 json_mode=True,
                 timeout=240,
+                scene="breakdown",
+                ref_type="analysis",
+                ref_id=str(analysis.id),
             )
             raw = result.get("reply") or ""
             if raw.strip():

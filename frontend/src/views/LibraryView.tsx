@@ -1,8 +1,14 @@
 import { useEffect, useState } from "react";
 import { api, type AnalysisResult, type VideoItem } from "../api";
-import { ElementsPanel, LayerBadge, LayersRail, NotesPanel, SegmentsPanel, SummaryPanel } from "../components/ResultPanels";
+import VideoBreakdown from "../components/VideoBreakdown";
+import { LayerBadge, LayersRail } from "../components/ResultPanels";
 
-export default function LibraryView() {
+interface Props {
+  focusVideoId?: string | null;
+  onFocusConsumed?: () => void;
+}
+
+export default function LibraryView({ focusVideoId, onFocusConsumed }: Props) {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [selected, setSelected] = useState<VideoItem | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -25,6 +31,21 @@ export default function LibraryView() {
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    if (!focusVideoId || videos.length === 0) return;
+    const v = videos.find((x) => x.id === focusVideoId);
+    if (!v) return;
+    setSelected(v);
+    setResult(null);
+    onFocusConsumed?.();
+    if (v.latest_analysis) {
+      api
+        .getAnalysis(v.latest_analysis.id)
+        .then((r) => setResult(r))
+        .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    }
+  }, [focusVideoId, videos, onFocusConsumed]);
 
   async function openAnalysis(v: VideoItem) {
     setSelected(v);
@@ -82,17 +103,14 @@ export default function LibraryView() {
           {selected && !result && <div className="text-sm text-zinc-500">{selected.latest_analysis ? "读取拆解结果…" : "该素材尚未拆解，去工作台发起。"}</div>}
           {result && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between rounded-xl border border-white/5 bg-[#1c1f26] px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/5 bg-[#1c1f26] px-4 py-3">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-medium text-zinc-100">{selected?.title}</div>
                   <div className="text-[11px] text-zinc-500">拆解 #{result.id.slice(0, 8)}</div>
                 </div>
                 <LayersRail r={result} />
               </div>
-              <SummaryPanel r={result} />
-              <SegmentsPanel segments={result.layers.find((l) => l.layer === 3)?.segments ?? []} />
-              <NotesPanel notes={result.layers.find((l) => l.layer === 4)?.notes ?? []} />
-              <ElementsPanel elements={result.layers.find((l) => l.layer === 5)?.elements ?? []} />
+              <VideoBreakdown video={selected!} result={result} />
             </div>
           )}
         </div>

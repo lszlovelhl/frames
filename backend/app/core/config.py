@@ -25,3 +25,32 @@ DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_MODEL_FLASH = os.getenv("DEEPSEEK_MODEL_FLASH", "deepseek-v4-flash")
 DEEPSEEK_MODEL_PRO = os.getenv("DEEPSEEK_MODEL_PRO", "deepseek-v4-pro")
 DEEPSEEK_MODEL_VISION = os.getenv("DEEPSEEK_MODEL_VISION", "deepseek-v4-flash-vision-exp")
+
+# --- AI 费用估算单价（元 / 百万 token，输入 / 输出） ---
+# 按 DeepSeek 公开价近似维护，可在 .env 以 AI_PRICE_*_CNY_PER_M=flash:1,pro:2 覆盖；
+# 展示口径一律标注「估算」，仅用于成本可视化，不代表账单。
+AI_PRICE_IN_CNY_PER_M: dict[str, float] = {"flash": 1.0, "pro": 2.0, "vision": 2.0}
+AI_PRICE_OUT_CNY_PER_M: dict[str, float] = {"flash": 2.0, "pro": 8.0, "vision": 8.0}
+
+
+def _parse_price_env(raw: str | None, fallback: dict[str, float]) -> dict[str, float]:
+    if not raw:
+        return fallback
+    out = dict(fallback)
+    for part in raw.split(","):
+        if ":" not in part:
+            continue
+        k, v = part.split(":", 1)
+        try:
+            out[k.strip()] = float(v.strip())
+        except ValueError:
+            continue
+    return out
+
+
+AI_PRICE_IN_CNY_PER_M = _parse_price_env(
+    os.getenv("AI_PRICE_IN_CNY_PER_M"), AI_PRICE_IN_CNY_PER_M
+)
+AI_PRICE_OUT_CNY_PER_M = _parse_price_env(
+    os.getenv("AI_PRICE_OUT_CNY_PER_M"), AI_PRICE_OUT_CNY_PER_M
+)
