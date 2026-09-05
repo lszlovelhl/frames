@@ -197,6 +197,33 @@ curl -X POST http://127.0.0.1:8000/api/ai/chat -H 'Content-Type: application/jso
 
 ### 下一阶段建议
 
-- [ ] 改稿模式支持选择「基于某个历史版本」续改（当前固定基于最新版；后端 `parent_asset_id` 已就绪，需前端在产物详情版本块加「以此版续改」入口并透传）
+- [x] 改稿模式支持选择「基于某个历史版本」续改（当前固定基于最新版；后端 `parent_asset_id` 已就绪，需前端在产物详情版本块加「以此版续改」入口并透传）
 - [ ] 元素库验收后做「元素变异/组合」入口（E 域飞轮再前进一步，编导需要的是拿来就改的组合方式而非原始元素）
 - [ ] AI 网关 usage/计费落账可视化（Settings 面板可看每轮成本）
+### 本轮完成（第七阶段 · 改稿模式支持选历史版本续改，版本树分叉）
+
+1. **后端 `app/routers/creations.py`**
+   - `ContinueChatReq` 增加 `base_asset_id: str | None = None`：可显式指定某个历史 script_asset 作为续聊基线
+   - `POST /api/creations/{id}/chat`：传 `base_asset_id` 时校验并选中对应历史版本，否则仍取最新版；`version` 按基线在版本列表中的索引 +1 计算；系统提示语由「当前最新版全文」改为「当前基线版全文」；返回 `base_asset_id` 回显修正为请求值
+   - 存版链路无需改动（`VersionSaveReq.parent_asset_id` 第五阶段已就绪），前端透传即可形成 v1→v2→v3 主链 + v2→v4 分支链
+
+2. **前端 `CreateView.tsx` / `api.ts`**
+   - `api.ts`：`creationsContinueChat` 增可选 `baseAssetId` 参数并透传 `base_asset_id`
+   - `CreateView` editing state 增加 `baseAssetId` 字段（null=基于最新版）
+   - 产物详情资产块：每个有正文的版本旁新增「以此版续改」按钮 → 以该版本为基线进入改稿模式（琥珀条显示 vN、notice 注明基线版本），继续对话/存版均透传该基线
+   - `saveMessage` 存版时传 `parent_asset_id=editing.baseAssetId`，存后基线更新为刚存的新版本资产
+   - `npx tsc --noEmit` 通过
+
+3. **E2E API 级验证通过（脚本 `temp/e2e_version_branch*.py`）**
+   - 造数：产物 v1 → v2（橙子标记）→ v3（香蕉标记）
+   - 以 v2 为 `base_asset_id` 续聊 → 返回 `current_version=2`、`base_asset_id` 回显一致，AI 回复开头为「版本2：橙子标记——节奏」，**确认注入的是 v2 而非最新 v3**
+   - 基于 v2 存 v4 → `parent_id` 指向 v2，详情资产链 v1→v2→v3 / v2→v4 分叉正确
+   - 冒烟产物已清理；uvicorn 无 `--reload`，改动后需重启后端进程加载
+
+4. **提交**：`ba958fb`（仅含本次 3 个文件；注意本仓库历史遗留大量未跟踪文件，勿用 `git add -A`）
+
+### 下一阶段建议
+
+- [ ] 元素库验收后做「元素变异/组合」入口（E 域飞轮再前进一步，编导需要的是拿来就改的组合方式而非原始元素）
+- [ ] AI 网关 usage/计费落账可视化（Settings 面板可看每轮成本）
+- [ ] 产物详情资产块弱化「版本顺序=优劣」暗示：分支场景可加「衍生自 vN」小标签（parent_id 已可支撑）
