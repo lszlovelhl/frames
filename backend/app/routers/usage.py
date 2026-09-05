@@ -52,8 +52,10 @@ async def usage_summary(db: AsyncSession = Depends(get_session)):
             "cost_cny": round(float(row.cost), 6),
         }
 
-    total = await _agg([M.AiUsageLog.ok.is_(True)])
-    today = await _agg([M.AiUsageLog.ok.is_(True), M.AiUsageLog.created_at >= day_start, M.AiUsageLog.created_at < day_end])
+    total = _fmt(await _agg([M.AiUsageLog.ok.is_(True)]))
+    today = _fmt(
+        await _agg([M.AiUsageLog.ok.is_(True), M.AiUsageLog.created_at >= day_start, M.AiUsageLog.created_at < day_end])
+    )
 
     rows = (
         await db.execute(
