@@ -24,3 +24,6 @@ __pycache__/
 *.sqlite
 *.db
 pgdata/
+
+# E2E temp screenshots
+tmp_e2e/
