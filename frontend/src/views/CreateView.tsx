@@ -512,11 +512,16 @@ export default function CreateView() {
                   </div>
                 </div>
                 <div className="max-h-full overflow-y-auto px-4 py-3">
-                  {activeCreation.assets?.map((a) => (
+                  {activeCreation.assets?.map((a) => {
+                    const parentVer = a.parent_id ? activeCreation.assets?.find((p) => p.id === a.parent_id)?.version : null;
+                    return (
                     <div key={a.id} className="mb-3">
                       <div className="mb-1 flex items-center gap-2 text-[10px] uppercase tracking-wide text-zinc-600">
                         <span>{a.asset_type}</span>
                         {a.version ? <span className="rounded bg-sky-400/10 px-1 py-px text-[9px] normal-case text-sky-300">v{a.version}</span> : null}
+                        {a.parent_id && parentVer != null ? (
+                          <span className="rounded bg-zinc-400/10 px-1 py-px text-[9px] normal-case text-zinc-500">衍生自 v{parentVer}</span>
+                        ) : null}
                         <span className="text-[9px] normal-case text-zinc-700">{fmtTime(a.created_at)}</span>
                         {a.content?.text ? (
                           <button
