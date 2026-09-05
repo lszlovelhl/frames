@@ -13,6 +13,8 @@ from typing import Any
 
 import yt_dlp
 
+from app.media import cookies
+
 logger = logging.getLogger(__name__)
 
 BILIX_EXE = str(Path(sys.executable).parent / "bilix")
@@ -31,9 +33,10 @@ async def download(url: str, work_dir: Path, platform: str = "") -> dict[str, An
     """下载视频到 work_dir，返回 {video_path, meta}。"""
     work_dir.mkdir(parents=True, exist_ok=True)
     if platform in ("xiaohongshu", "wechat"):
+        # 无公开稳定取流；即使有登录态 yt-dlp 也没有可靠 extractor
         raise DownloadBlocked(
             "小红书 / 微信视频号无公开稳定取流接口，暂无法自动下载。"
-            "后续版本将提供浏览器通道（需首次扫码授权）。"
+            "请到「采集账号」页按提示完成平台授权；如仍失败可先把视频存到本地再手动上传。"
         )
     if platform == "bilibili":
         return await _download_bilibili(url, work_dir)
@@ -124,13 +127,17 @@ async def _download_bilibili(url: str, work_dir: Path) -> dict[str, Any]:
 async def _download_ytdlp_bilibili(
     url: str, work_dir: Path, meta_title: str
 ) -> dict[str, Any]:
-    cookie_file = work_dir / "_bili_cookies.txt"
-    # 先访问首页拿 buvid
-    subprocess.run(
-        ["curl", "-s", "-c", str(cookie_file), "-o", "/dev/null",
-         "-A", BILI_UA, "https://www.bilibili.com/"],
-        check=True, timeout=30, capture_output=True,
-    )
+    cookie_file = cookies.get_cookie_file_for("bilibili")
+    if cookie_file:
+        cookie_path_obj = Path(cookie_file)
+    else:
+        cookie_path_obj = work_dir / "_bili_cookies.txt"
+        # 先访问首页拿 buvid
+        subprocess.run(
+            ["curl", "-s", "-c", str(cookie_path_obj), "-o", "/dev/null",
+             "-A", BILI_UA, "https://www.bilibili.com/"],
+            check=True, timeout=30, capture_output=True,
+        )
     loop = asyncio.get_running_loop()
 
     def _run():
@@ -142,7 +149,7 @@ async def _download_ytdlp_bilibili(
             "quiet": True,
             "no_warnings": True,
             "noprogress": True,
-            "cookiefile": str(cookie_file),
+            "cookiefile": str(cookie_path_obj),
             "http_headers": {
                 "User-Agent": BILI_UA,
                 "Referer": "https://www.bilibili.com/",
@@ -152,6 +159,8 @@ async def _download_ytdlp_bilibili(
             return ydl.extract_info(url, download=True)
 
     info = await loop.run_in_executor(None, _run)
+    if cookie_file:
+        cookies.mark_success("bilibili")
     video_path = next(work_dir.glob("ytdlp_media.*"), None)
     if video_path is None:
         raise RuntimeError("yt-dlp 未产出文件")
@@ -191,6 +200,10 @@ async def _download_generic(url: str, work_dir: Path, platform: str) -> dict[str
             "Referer": referer,
         },
     }
+    # 平台已配置登录态 → 注入 cookie，规避反爬/风控
+    cookie_file = cookies.get_cookie_file_for(platform)
+    if cookie_file:
+        opts["cookiefile"] = cookie_file
     loop = asyncio.get_running_loop()
 
     def _run():
@@ -200,7 +213,14 @@ async def _download_generic(url: str, work_dir: Path, platform: str) -> dict[str
     try:
         info = await loop.run_in_executor(None, _run)
     except yt_dlp.utils.DownloadError as exc:
-        raise DownloadBlocked(f"下载失败：{exc}") from exc
+        msg = str(exc)
+        if cookies.looks_like_login_failure(msg):
+            cookies.mark_expired(platform, "抓取被平台判定需登录/风控，登录态可能失效")
+        raise DownloadBlocked(f"下载失败：{msg}") from exc
+
+    # 抓取成功 → 回写登录态有效（仅当确实用过 cookie）
+    if cookie_file:
+        cookies.mark_success(platform)
 
     video_path = next(work_dir.glob("media.*"), None)
     if video_path is None:

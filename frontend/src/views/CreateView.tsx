@@ -529,7 +529,8 @@ export default function CreateView() {
                       </div>
                       <div className="whitespace-pre-wrap break-words rounded-lg bg-black/20 px-3 py-2 text-xs leading-relaxed text-zinc-300">{a.content?.text}</div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}

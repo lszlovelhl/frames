@@ -7,6 +7,7 @@ import hashlib
 import logging
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -60,6 +61,17 @@ def _raw(video: M.Video) -> dict:
     return dict(video.raw_files or {})
 
 
+def _media_url(path: str | None) -> str | None:
+    """将本地媒体绝对路径转为 /media 静态访问 URL（限 MEDIA_DIR 内）。"""
+    if not path:
+        return None
+    try:
+        rel = Path(path).resolve().relative_to(MEDIA_DIR.resolve())
+    except ValueError:
+        return None
+    return "/media/" + quote(str(rel))
+
+
 def _video_public(v: M.Video, extra: dict | None = None) -> dict:
     raw = _raw(v)
     data = {
@@ -78,12 +90,14 @@ def _video_public(v: M.Video, extra: dict | None = None) -> dict:
         "category_guess": v.category_guess,
         "media": {
             "video_path": raw.get("video_path"),
+            "video_url": _media_url(raw.get("video_path")),
             "has_transcript": bool(raw.get("transcript", {}).get("text")),
             "transcript_segments": len(raw.get("transcript", {}).get("segments", []) or []),
             "frames": len(raw.get("frames", []) or []),
             "bpm": (raw.get("audio") or {}).get("bpm"),
             "bgm_ok": bool((raw.get("bgm") or {}).get("ok")),
             "bgm_path": (raw.get("bgm") or {}).get("bgm_path"),
+            "bgm_url": _media_url((raw.get("bgm") or {}).get("bgm_path")),
             "media_status": raw.get("media_status", ""),
         },
         "created_at": v.created_at.isoformat(),
@@ -292,6 +306,33 @@ async def video_detail(video_id: str, db: AsyncSession = Depends(get_session)):
     if video is None:
         raise HTTPException(status_code=404, detail="视频不存在")
     return _video_public(video)
+
+
+@router.get("/api/videos/{video_id}/detail")
+async def video_detail_full(video_id: str, db: AsyncSession = Depends(get_session)):
+    """详情页全量素材：视频 public + 全量转写 + 关键帧（带静态 URL）+ meta。"""
+    video = (
+        await db.execute(select(M.Video).where(M.Video.id == video_id))
+    ).scalar_one_or_none()
+    if video is None:
+        raise HTTPException(status_code=404, detail="视频不存在")
+    public = _video_public(video)
+    raw = video.raw_files or {}
+    frames = []
+    for f in raw.get("frames") or []:
+        out = dict(f)
+        out.pop("path", None)
+        if f.get("path"):
+            out["url"] = _media_url(f["path"])
+        frames.append(out)
+    public["detail"] = {
+        "transcript_text": (raw.get("transcript") or {}).get("text") or "",
+        "transcript_segments": (raw.get("transcript") or {}).get("segments") or [],
+        "frames": frames,
+        "meta": raw.get("meta") or {},
+        "audio": raw.get("audio") or {},
+    }
+    return public
 
 
 @router.get("/api/analyses/{analysis_id}")

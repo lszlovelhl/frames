@@ -1,20 +1,30 @@
 import { useState } from "react";
 import BreakdownView from "./views/BreakdownView";
 import LibraryView from "./views/LibraryView";
+import ElementsView from "./views/ElementsView";
 import CreateView from "./views/CreateView";
 import SettingsView from "./views/SettingsView";
+import AccountsView from "./views/AccountsView";
 
-type ViewKey = "breakdown" | "library" | "create" | "settings";
+type ViewKey = "breakdown" | "library" | "elements" | "create" | "accounts" | "settings";
 
 const NAV: Array<{ key: ViewKey; label: string; icon: string; hint: string }> = [
   { key: "breakdown", label: "拆解工作台", icon: "▸", hint: "新建素材并跑五层拆解" },
   { key: "library", label: "拆解库", icon: "▤", hint: "历史素材与拆解结果" },
-  { key: "create", label: "创作台", icon: "✎", hint: "元素组合生成脚本（下阶段）" },
+  { key: "elements", label: "元素库", icon: "◇", hint: "跨片元素检索与质控" },
+  { key: "create", label: "创作台", icon: "✎", hint: "对话式创作 · @元素库素材生成脚本" },
+  { key: "accounts", label: "采集账号", icon: "◎", hint: "平台登录态管理" },
   { key: "settings", label: "系统设置", icon: "⚙", hint: "模型与服务状态" },
 ];
 
 export default function App() {
   const [view, setView] = useState<ViewKey>("breakdown");
+  const [libraryFocusId, setLibraryFocusId] = useState<string | null>(null);
+
+  function openVideoInLibrary(videoId: string) {
+    setLibraryFocusId(videoId);
+    setView("library");
+  }
 
   return (
     <div className="flex h-screen bg-[#14161a] text-zinc-200">
@@ -50,8 +60,16 @@ export default function App() {
       {/* 主区 */}
       <main className="flex-1 overflow-y-auto">
         {view === "breakdown" && <BreakdownView />}
-        {view === "library" && <LibraryView />}
+        {view === "library" && (
+          <LibraryView
+            focusVideoId={libraryFocusId}
+            onFocusConsumed={() => setLibraryFocusId(null)}
+          />
+        )}
+        {view === "elements" && <ElementsView onOpenInLibrary={openVideoInLibrary} />}
         {view === "create" && <CreateView />}
+        {view === "usage" && <UsageView />}
+        {view === "accounts" && <AccountsView />}
         {view === "settings" && <SettingsView />}
       </main>
     </div>

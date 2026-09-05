@@ -68,6 +68,7 @@ async def _describe_batch(frames: list[dict]) -> dict:
                 max_tokens=2048,
                 json_mode=True,
                 timeout=180,
+                scene="vision",
             )
             raw = result.get("reply") or ""
             if not raw.strip():
