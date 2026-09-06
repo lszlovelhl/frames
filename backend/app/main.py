@@ -17,6 +17,7 @@ from app.routers import ai as ai_router
 from app.routers import creations as creations_router
 from app.routers import elements as elements_router
 from app.routers import platforms as platforms_router
+from app.routers import providers as providers_router
 from app.routers import usage as usage_router
 from app.routers import videos as videos_router
 
@@ -25,14 +26,19 @@ from app.routers import videos as videos_router
 async def lifespan(_: FastAPI):
     # 登录态定期巡检（每小时标记过期登录态）
     task = asyncio.create_task(cookies.periodic_check())
+    # 互动数据定时刷新（每 6 小时真实重抓有基准的 B 站视频，供变化对比）
+    from app.services.stats_scheduler import periodic_stats_refresh
+
+    stats_task = asyncio.create_task(periodic_stats_refresh())
     try:
         yield
     finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        for t in (task, stats_task):
+            t.cancel()
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(title="帧间 Frames API", version="0.3.0", lifespan=lifespan)
@@ -52,6 +58,7 @@ app.include_router(platforms_router.router)
 app.include_router(elements_router.router)
 app.include_router(creations_router.router)
 app.include_router(usage_router.router)
+app.include_router(providers_router.router)
 
 # 本地媒体静态服务：/media/<work_dir>/...
 app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")

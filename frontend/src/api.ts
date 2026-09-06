@@ -64,16 +64,41 @@ export interface VideoItem {
   url: string;
   title: string;
   author_name: string | null;
+  author_avatar: string | null;
+  author_fans: number | null;
+  author_likes: number | null;
   cover_url: string | null;
   duration_ms: number | null;
   publish_time: string | null;
   tags: string[];
   stats_snapshot: Record<string, number>;
+  stats_updated_at: string | null;
   category_guess: string | null;
   created_at: string;
   subtitle_source: string;
   media?: VideoMedia | null;
   latest_analysis?: { id: string; status: string; current_layer: number; summary: Record<string, unknown> } | null;
+}
+
+export interface VideoStatsComment {
+  comment_id: string;
+  user_name: string;
+  user_avatar: string | null;
+  content: string;
+  like_count: number;
+  reply_count: number;
+  is_top: boolean;
+}
+
+export interface VideoStatsView {
+  baseline: Record<string, number>;
+  baseline_at: string | null;
+  latest: Record<string, number>;
+  updated_at: string | null;
+  diff: Record<string, number>;
+  author: { name: string | null; avatar: string | null; fans: number | null; likes: number | null };
+  comments: VideoStatsComment[];
+  warnings: string[];
 }
 
 export interface LayerInfo {
@@ -216,6 +241,7 @@ export interface AiUsageSummary {
 export interface AiUsageRecentItem {
   id: string;
   scene: string | null;
+  provider: string | null;
   alias: string;
   model: string | null;
   prompt_tokens: number;
@@ -229,15 +255,62 @@ export interface AiUsageRecentItem {
   created_at: string | null;
 }
 
+export interface AiModelInfo {
+  id: string;
+  kind: string;
+  label?: string;
+  provider: string;
+  provider_name: string;
+}
+
+export type ProviderBalanceStatus = "ok" | "low" | "unknown" | "no_key";
+
+export interface AiProviderCard {
+  key: string;
+  name: string;
+  base_url: string;
+  api_key_set: boolean;
+  api_key_masked: string;
+  models: Array<{ id: string; kind: string; label?: string }>;
+  priority: number;
+  enabled: boolean;
+  brand_color: string | null;
+  logo_url: string | null;
+  topup_url: string | null;
+  balance_cny: number | null;
+  balance_checked_at: string | null;
+  balance_manual: boolean;
+  balance_warn_threshold: number;
+  balance_status: ProviderBalanceStatus;
+  warn?: string;
+  usage: AiUsageAgg;
+  today: { calls: number; cost_cny: number };
+  created_at: string | null;
+}
+
+export interface ProviderListResp {
+  items: AiProviderCard[];
+  templates: AiProviderCard[];
+}
+
+export interface ProviderUsageDetail {
+  provider: AiProviderCard;
+  total: AiUsageAgg;
+  today: AiUsageAgg;
+  by_model: Array<{ alias: string; model: string; calls: number; total_tokens: number; cost_cny: number }>;
+  recent: AiUsageRecentItem[];
+}
+
 export const api = {
   health: () => request<{ database: string }>("/api/health/db"),
-  models: () => request<Array<{ alias: string; model: string }>>("/api/ai/models"),
+  models: () => request<{ items: AiModelInfo[]; configured: boolean }>("/api/ai/models"),
   createVideo: (payload: VideoCreatePayload) => request<VideoItem & { has_subtitle?: boolean }>("/api/videos", { method: "POST", body: JSON.stringify(payload) }),
   listVideos: () => request<{ videos: VideoItem[] }>("/api/videos"),
   runAnalysis: (videoId: string, model = "pro", targetLayers = 5) =>
     request<AnalysisResult>(`/api/videos/${videoId}/analyse`, { method: "POST", body: JSON.stringify({ model, target_layers: targetLayers }) }),
   getAnalysis: (analysisId: string) => request<AnalysisResult>(`/api/analyses/${analysisId}`),
-  getVideoDetail: (videoId: string) => request<VideoItem & { detail: VideoDetail }>(`/api/videos/${videoId}/detail`),
+  getVideoDetail: (videoId: string) =>
+    request<VideoItem & { detail: VideoDetail; stats?: VideoStatsView }>(`/api/videos/${videoId}/detail`),
   reviewElement: (elementId: string, action: "accept" | "reject" | "adjust", patch?: Partial<Pick<ElementInfo, "category" | "name" | "description" | "formula">>) =>
     request<{ id: string; status: string }>(`/api/elements/${elementId}/review`, { method: "PATCH", body: JSON.stringify({ action, patch }) }),
   listElements: (params?: { status?: string; category?: string; q?: string }) => {
@@ -282,4 +355,23 @@ export const api = {
     }),
   aiUsageSummary: () => request<AiUsageSummary>("/api/ai/usage/summary"),
   aiUsageRecent: (limit = 30) => request<{ items: AiUsageRecentItem[] }>(`/api/ai/usage/recent?limit=${limit}`),
+  // ---- AI 服务商 / api-key / 余额 ----
+  aiProviders: () => request<ProviderListResp>("/api/ai/providers"),
+  aiProviderCreate: (payload: Partial<AiProviderCard> & { key: string; name: string; base_url: string }) =>
+    request<AiProviderCard>("/api/ai/providers", { method: "POST", body: JSON.stringify(payload) }),
+  aiProviderUpdate: (key: string, payload: Partial<AiProviderCard> & { key: string; name: string; base_url: string }) =>
+    request<AiProviderCard>(`/api/ai/providers/${key}`, { method: "PUT", body: JSON.stringify(payload) }),
+  aiProviderRemove: (key: string) => request<{ ok: boolean }>(`/api/ai/providers/${key}`, { method: "DELETE" }),
+  aiProviderRefreshBalance: (key: string) =>
+    request<{ ok: boolean; manual: boolean; balance_cny: number | null; checked_at?: string; status?: string; note?: string }>(
+      `/api/ai/providers/${key}/refresh-balance`,
+      { method: "POST" }
+    ),
+  aiProviderSetManualBalance: (key: string, balanceCny: number | null) =>
+    request<AiProviderCard>(`/api/ai/providers/${key}/balance-manual`, {
+      method: "POST",
+      body: JSON.stringify({ balance_cny: balanceCny }),
+    }),
+  aiProviderUsage: (key: string) => request<ProviderUsageDetail>(`/api/ai/providers/${key}/usage`),
+  refreshVideoStats: (videoId: string) => request<VideoStatsView>(`/api/videos/${videoId}/stats-refresh`, { method: "POST" }),
 };

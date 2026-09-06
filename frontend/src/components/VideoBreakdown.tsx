@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { BASE, api, type AnalysisResult, type ElementInfo, type FrameInfo, type SegmentInfo, type VideoItem } from "../api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { BASE, api, type AnalysisResult, type ElementInfo, type FrameInfo, type SegmentInfo, type VideoItem, type VideoStatsView } from "../api";
 
 /* ---------------- 工具 ---------------- */
 function fmt(ms: number): string {
@@ -9,6 +9,32 @@ function fmt(ms: number): string {
   const r = Math.floor(s % 60);
   return `${m}:${String(r).padStart(2, "0")}`;
 }
+
+function fmtNum(n: number | null | undefined): string {
+  if (n == null) return "--";
+  const v = Number(n);
+  if (Math.abs(v) >= 1e8) return `${(v / 1e8).toFixed(1)}亿`;
+  if (Math.abs(v) >= 1e4) return `${(v / 1e4).toFixed(1)}万`;
+  return v.toLocaleString();
+}
+
+function fmtDelta(n: number | undefined | null): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  if (n === 0) return "0";
+  return `${n > 0 ? "+" : ""}${n.toLocaleString()}`;
+}
+
+const STAT_FIELDS: Array<[string, string]> = [
+  ["view_count", "播放"],
+  ["like_count", "点赞"],
+  ["collect_count", "收藏"],
+  ["share_count", "转发"],
+  ["comment_count", "评论"],
+  ["danmaku_count", "弹幕"],
+];
+
+const fmtShortTime = (iso: string | null): string =>
+  iso ? new Date(iso).toLocaleString("zh-CN", { hour12: false }) : "—";
 
 const SEG_TYPE_COLORS: Record<string, string> = {
   钩子: "bg-rose-400/15 text-rose-300 border-rose-400/20",
@@ -520,6 +546,134 @@ function TranscriptPanel({
   );
 }
 
+/* ---------------- 作者与互动数据面板 ---------------- */
+function StatsSection({
+  videoId,
+  stats,
+  onRefreshed,
+}: {
+  videoId: string;
+  stats: VideoStatsView | null;
+  onRefreshed: (v: VideoStatsView) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const author = stats?.author;
+  const hasView = !!stats;
+
+  async function refresh() {
+    setBusy(true);
+    setErr("");
+    try {
+      const v = await api.refreshVideoStats(videoId);
+      onRefreshed(v);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="rounded-xl border border-white/5 bg-[#1c1f26] p-5">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="h-3.5 w-1 rounded-full bg-amber-300/70" />
+          <span className="text-xs font-medium uppercase tracking-wider text-zinc-400">作者与互动数据</span>
+        </div>
+        <div className="flex items-center gap-3">
+          {stats?.updated_at && <span className="text-[10px] text-zinc-600">更新于 {fmtShortTime(stats.updated_at)}</span>}
+          <button
+            onClick={() => void refresh()}
+            disabled={busy}
+            className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-400 hover:bg-white/5 disabled:opacity-50"
+          >
+            {busy ? "抓取中…" : "刷新数据"}
+          </button>
+        </div>
+      </div>
+
+      {err && <p className="mb-3 rounded-lg border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-xs text-rose-300">{err}</p>}
+
+      {!hasView ? (
+        <p className="text-sm text-zinc-500">该平台暂未接入互动数据抓取，暂无法展示。</p>
+      ) : (
+        <>
+          {/* 作者 */}
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            {author?.avatar && (
+              <img src={author.avatar} alt="" className="h-10 w-10 rounded-full bg-white/5 object-cover" referrerPolicy="no-referrer" />
+            )}
+            <div>
+              <div className="text-sm font-medium text-zinc-100">{author?.name ?? "未知作者"}</div>
+              <div className="mt-0.5 flex flex-wrap gap-3 text-[11px] text-zinc-500">
+                <span>粉丝 {fmtNum(author?.fans)}</span>
+                <span>获赞 {fmtNum(author?.likes)}</span>
+                {stats.baseline_at && <span>初始于 {fmtShortTime(stats.baseline_at)}</span>}
+              </div>
+            </div>
+          </div>
+
+          {/* 指标对比 */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-white/5 text-[10px] uppercase tracking-wider text-zinc-500">
+                  <th className="py-1.5 pr-3 font-medium">指标</th>
+                  <th className="py-1.5 pr-3 text-right font-medium">初始值</th>
+                  <th className="py-1.5 pr-3 text-right font-medium">当前值</th>
+                  <th className="py-1.5 text-right font-medium">变化</th>
+                </tr>
+              </thead>
+              <tbody>
+                {STAT_FIELDS.map(([k, label]) => {
+                  const b = stats.baseline[k] ?? stats.latest[k] ?? null;
+                  const c = stats.latest[k] ?? stats.baseline[k] ?? null;
+                  const d = stats.diff[k] ?? (b != null && c != null ? Number(c) - Number(b) : null);
+                  if (b == null && c == null) return null;
+                  return (
+                    <tr key={k} className="border-b border-white/[0.03] last:border-0">
+                      <td className="py-2 pr-3 text-zinc-300">{label}</td>
+                      <td className="py-2 pr-3 text-right text-zinc-500">{fmtNum(b)}</td>
+                      <td className="py-2 pr-3 text-right text-zinc-200">{fmtNum(c)}</td>
+                      <td className={`py-2 text-right font-mono ${d == null ? "text-zinc-600" : d > 0 ? "text-emerald-300" : d < 0 ? "text-rose-300" : "text-zinc-500"}`}>
+                        {fmtDelta(d as number)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {stats.warnings?.length > 0 && (
+            <p className="mt-2 text-[10px] text-amber-200/80">{stats.warnings.join("；")}</p>
+          )}
+
+          {/* 热评 */}
+          {stats.comments.length > 0 && (
+            <div className="mt-4">
+              <div className="mb-2 text-[10px] uppercase tracking-wider text-zinc-500">高赞热评 TOP {Math.min(stats.comments.length, 8)}</div>
+              <div className="space-y-2">
+                {stats.comments.slice(0, 8).map((cm) => (
+                  <div key={cm.comment_id} className="rounded-lg bg-white/[0.03] p-3">
+                    <div className="flex items-center gap-2 text-[11px]">
+                      <span className="font-medium text-zinc-300">{cm.user_name}</span>
+                      <span className="rounded bg-amber-300/10 px-1.5 py-0.5 text-[9px] text-amber-200/90">{cm.like_count.toLocaleString()} 赞</span>
+                      {cm.reply_count > 0 && <span className="text-zinc-600">{cm.reply_count} 回复</span>}
+                      {cm.is_top && <span className="rounded bg-white/10 px-1.5 py-0.5 text-[9px] text-zinc-300">置顶</span>}
+                    </div>
+                    <p className="mt-1.5 text-[13px] leading-relaxed text-zinc-400">{cm.content}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 /* ---------------- 主组件 ---------------- */
 export default function VideoBreakdown({ video, result }: { video: VideoItem; result: AnalysisResult }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -529,14 +683,22 @@ export default function VideoBreakdown({ video, result }: { video: VideoItem; re
     frames: FrameInfo[];
   } | null>(null);
   const [elements, setElements] = useState<ElementInfo[]>([]);
+  const [statsView, setStatsView] = useState<VideoStatsView | null>(null);
   const [currentMs, setCurrentMs] = useState(0);
 
   useEffect(() => {
     setDetail(null);
     setElements([]);
+    setStatsView(null);
     setCurrentMs(0);
     if (video.id) {
-      api.getVideoDetail(video.id).then((d) => setDetail(d.detail)).catch(() => setDetail(null));
+      api
+        .getVideoDetail(video.id)
+        .then((d) => {
+          setDetail(d.detail);
+          setStatsView(d.stats ?? null);
+        })
+        .catch(() => setDetail(null));
     }
     setElements(result.layers.find((l) => l.layer === 5)?.elements ?? []);
   }, [video.id, result]);
@@ -571,7 +733,7 @@ export default function VideoBreakdown({ video, result }: { video: VideoItem; re
   ];
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,420px)_1fr]">
+    <div className="grid gap-4 xl:grid-cols-[minmax(300px,400px)_minmax(0,1fr)]">
       {/* 左列：播放器 + 帧证据 + 素材数据 */}
       <div className="lg:sticky lg:top-4 lg:self-start">
         <div className="overflow-hidden rounded-xl border border-white/5 bg-[#1c1f26]">
@@ -602,15 +764,17 @@ export default function VideoBreakdown({ video, result }: { video: VideoItem; re
               {video.media?.has_transcript ? <span>含转写</span> : null}
               {video.category_guess ? <span>{video.category_guess}</span> : null}
             </div>
-            <div className="flex flex-wrap gap-2">
-              {statsLabel.map(([k, label]) =>
-                stats[k] ? (
-                  <span key={k} className="rounded bg-white/5 px-2 py-0.5 text-[10px] text-zinc-400">
-                    {label} {stats[k].toLocaleString()}
-                  </span>
-                ) : null,
-              )}
-            </div>
+            {!statsView && (
+              <div className="flex flex-wrap gap-2">
+                {statsLabel.map(([k, label]) =>
+                  stats[k] ? (
+                    <span key={k} className="rounded bg-white/5 px-2 py-0.5 text-[10px] text-zinc-400">
+                      {label} {stats[k].toLocaleString()}
+                    </span>
+                  ) : null,
+                )}
+              </div>
+            )}
             {detail && detail.frames.length > 0 && (
               <div>
                 <div className="mb-2 text-[10px] uppercase tracking-wider text-zinc-600">关键帧 · 点击跳转</div>
@@ -621,8 +785,9 @@ export default function VideoBreakdown({ video, result }: { video: VideoItem; re
         </div>
       </div>
 
-      {/* 右列：五层详情 */}
+      {/* 右列：互动数据 + 五层详情 */}
       <div className="min-w-0 space-y-6">
+        <StatsSection videoId={video.id} stats={statsView} onRefreshed={(v) => setStatsView(v)} />
         <L1Panel c={l1c} />
         <L2Panel c={l2c} />
         <SegmentsList segments={segments} currentMs={currentMs} onSeek={seekTo} />
