@@ -81,11 +81,17 @@ def _video_public(v: M.Video, extra: dict | None = None) -> dict:
         "url": v.url,
         "title": v.title,
         "author_name": v.author_name,
+        "author_avatar": v.author_avatar,
+        "author_fans": v.author_fans,
+        "author_likes": v.author_likes,
         "cover_url": v.cover_url,
         "duration_ms": v.duration_ms,
         "publish_time": v.publish_time.isoformat() if v.publish_time else None,
         "tags": v.tags or [],
         "stats_snapshot": v.stats_snapshot or {},
+        "stats_updated_at": v.stats_updated_at.isoformat()
+        if v.stats_updated_at
+        else None,
         "subtitle_source": v.subtitle_source,
         "category_guess": v.category_guess,
         "media": {
@@ -310,7 +316,7 @@ async def video_detail(video_id: str, db: AsyncSession = Depends(get_session)):
 
 @router.get("/api/videos/{video_id}/detail")
 async def video_detail_full(video_id: str, db: AsyncSession = Depends(get_session)):
-    """详情页全量素材：视频 public + 全量转写 + 关键帧（带静态 URL）+ meta。"""
+    """详情页全量素材：视频 public + 全量转写 + 关键帧（带静态 URL）+ meta + 互动数据。"""
     video = (
         await db.execute(select(M.Video).where(M.Video.id == video_id))
     ).scalar_one_or_none()
@@ -332,7 +338,45 @@ async def video_detail_full(video_id: str, db: AsyncSession = Depends(get_sessio
         "meta": raw.get("meta") or {},
         "audio": raw.get("audio") or {},
     }
+
+    # 互动数据：自动刷新策略 —— 从未抓取 / 已超过 30 分钟未更新时真实抓取一次；
+    # 其余读库（baseline 永不覆盖，diff 相对首轮展示）
+    from datetime import UTC, datetime, timedelta
+
+    from app.services.stats_refresh import build_stats_view, refresh_video_public
+
+    stale = True
+    if video.stats_updated_at is not None:
+        u = video.stats_updated_at
+        if u.tzinfo is None:
+            u = u.replace(tzinfo=UTC)
+        stale = datetime.now(UTC) - u > timedelta(minutes=30)
+    if video.platform == "bilibili" and stale:
+        view = await refresh_video_public(video, db)
+        if view is None:
+            view = await build_stats_view(video, db=db)
+    else:
+        view = await build_stats_view(video, db=db)
+    public["stats"] = view
     return public
+
+
+@router.post("/api/videos/{video_id}/stats-refresh")
+async def video_stats_refresh(video_id: str, db: AsyncSession = Depends(get_session)):
+    """手动刷新视频互动指标与热评（真实平台接口）。"""
+    video = (
+        await db.execute(select(M.Video).where(M.Video.id == video_id))
+    ).scalar_one_or_none()
+    if video is None:
+        raise HTTPException(status_code=404, detail="视频不存在")
+    if video.platform != "bilibili":
+        raise HTTPException(status_code=422, detail="该平台暂未接入互动数据抓取")
+    from app.services.stats_refresh import refresh_video_public
+
+    view = await refresh_video_public(video, db)
+    if view is None:
+        raise HTTPException(status_code=502, detail="平台接口抓取失败，请稍后重试")
+    return view
 
 
 @router.get("/api/analyses/{analysis_id}")

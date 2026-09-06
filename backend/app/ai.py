@@ -1,6 +1,10 @@
-"""DeepSeek 模型网关 — 统一调用入口
-读取 backend/.env 中的 DEEPSEEK_* 配置
-alias: flash / pro / vision → 实际模型名
+"""AI 模型网关 — 统一调用入口（多服务商集合版）
+
+业务代码只关心档位：flash / pro / vision（或任意模型名）。
+网关从 ai_providers 表（api-key 集合）按 priority 选择已启用、带 key、
+且含对应 kind 模型的服务商完成请求；未配置任何 provider 时回退 .env 的
+DEEPSEEK_* 旧配置（provider 记 deepseek），保证老链路不坏。
+
 每次调用自动向 ai_usage_logs 落一笔用量（独立会话，失败不阻塞主流程）。
 """
 import logging
@@ -19,7 +23,8 @@ from app.core.config import (
 
 logger = logging.getLogger(__name__)
 
-MODELS: dict[str, str] = {
+# 旧 env 回退档位
+ENV_MODELS: dict[str, str] = {
     "flash": DEEPSEEK_MODEL_FLASH,
     "pro": DEEPSEEK_MODEL_PRO,
     "vision": DEEPSEEK_MODEL_VISION,
@@ -41,6 +46,7 @@ async def _usage_cost_cny(alias: str, usage: dict | None) -> float | None:
 
 async def _log_usage(
     *,
+    provider: str,
     alias: str,
     model_name: str | None,
     scene: str,
@@ -66,6 +72,7 @@ async def _log_usage(
                 ref_uuid = None
         async with SessionLocal() as session:
             row = M.AiUsageLog(
+                provider=provider[:32],
                 scene=scene,
                 ref_type=ref_type,
                 ref_id=ref_uuid,
@@ -86,6 +93,50 @@ async def _log_usage(
         logger.warning("记录 AI usage 失败", exc_info=True)
 
 
+async def _resolve_target(
+    model: str,
+    prefer_provider: str | None,
+) -> tuple[str, str, str, str]:
+    """返回 (provider_key, base_url, api_key, model_id)。
+
+    优先 provider 表配置；无可用则回退 env DeepSeek。
+    未知档位 model 按原样模型名走（kind 精确匹配时传别名）。
+    """
+    from app.db import SessionLocal
+    from app.services.ai_provider import resolve_alias
+
+    async with SessionLocal() as session:
+        hit = await resolve_alias(session, model, prefer_provider=prefer_provider)
+        if hit:
+            p_key, model_id, base_url = hit
+            from sqlalchemy import select
+
+            from app import models as M
+
+            p = (
+                await session.execute(
+                    select(M.AiProvider).where(M.AiProvider.key == p_key).limit(1)
+                )
+            ).scalar_one_or_none()
+            if p and p.api_key:
+                # 顺带把该服务商余额自动刷新一次（低频；失败静默）
+                try:
+                    from app.services.ai_provider import auto_refresh_balance
+
+                    await auto_refresh_balance(session, p)
+                except Exception:  # noqa: BLE001
+                    pass
+                return p.key, p.base_url, p.api_key, model_id
+
+    # 回退 env DeepSeek
+    if DEEPSEEK_API_KEY:
+        model_id = ENV_MODELS.get(model, model)
+        return "deepseek", DEEPSEEK_BASE_URL, DEEPSEEK_API_KEY, model_id
+    raise RuntimeError(
+        "未配置可用的 AI 服务商：请在「模型管理」页填入至少一家服务商的 api-key"
+    )
+
+
 async def chat(
     messages: list[dict],
     model: str = "flash",
@@ -96,17 +147,18 @@ async def chat(
     scene: str = "misc",
     ref_type: str | None = None,
     ref_id: str | None = None,
+    provider: str | None = None,
 ) -> dict:
-    """调用 DeepSeek Chat Completions。
+    """调用任一已接入服务商的 Chat Completions（OpenAI 兼容）。
 
-    返回 {reply, reasoning, model, usage}
+    返回 {reply, reasoning, model, usage, provider}
     scene/ref_type/ref_id 仅用于用量记账归类，不影响请求本身。
+    provider 为 None 时按 priority 自动路由；显式传入则固定该服务商。
     """
-    if not DEEPSEEK_API_KEY:
-        raise RuntimeError("DEEPSEEK_API_KEY 未配置（backend/.env）")
-
-    model_id = MODELS.get(model, model)  # 未知 alias 时按原始名传
-    url = DEEPSEEK_BASE_URL.rstrip("/") + "/chat/completions"
+    provider_key, base_url, api_key, model_id = await _resolve_target(
+        model, prefer_provider=provider
+    )
+    url = base_url.rstrip("/") + "/chat/completions"
 
     payload: dict = {"model": model_id, "messages": messages, "stream": False}
     if temperature is not None:
@@ -116,7 +168,7 @@ async def chat(
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
 
-    headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}"}
+    headers = {"Authorization": f"Bearer {api_key}"}
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
@@ -130,8 +182,10 @@ async def chat(
             "reasoning": choice.get("reasoning_content"),
             "model": data.get("model"),
             "usage": data.get("usage"),
+            "provider": provider_key,
         }
         await _log_usage(
+            provider=provider_key,
             alias=model,
             model_name=result["model"],
             scene=scene,
@@ -143,6 +197,7 @@ async def chat(
         return result
     except Exception as exc:  # noqa: BLE001
         await _log_usage(
+            provider=provider_key,
             alias=model,
             model_name=None,
             scene=scene,

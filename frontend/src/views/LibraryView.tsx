@@ -61,7 +61,7 @@ export default function LibraryView({ focusVideoId, onFocusConsumed }: Props) {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-8 py-8">
+    <div className="mx-auto max-w-[1600px] px-8 py-8">
       <header className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-zinc-100">拆解库</h1>
@@ -74,7 +74,7 @@ export default function LibraryView({ focusVideoId, onFocusConsumed }: Props) {
 
       {error && <p className="mb-4 rounded-lg border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-sm text-rose-300">{error}</p>}
 
-      <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
+      <div className="grid gap-6 lg:grid-cols-[300px_minmax(0,1fr)]">
         <div className="flex flex-col gap-2">
           {loading && <div className="text-sm text-zinc-500">加载中…</div>}
           {!loading && videos.length === 0 && (

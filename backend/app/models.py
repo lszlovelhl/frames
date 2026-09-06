@@ -18,6 +18,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
@@ -126,13 +127,22 @@ class Video(TimestampMixin, Base):
     title: Mapped[str] = mapped_column(String(512))
     author_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     author_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    author_avatar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    author_fans: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    author_likes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cover_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     publish_time: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     tags: Mapped[list] = mapped_column(JSONB, default=list)
-    stats_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict)  # 建档时快照
+    stats_snapshot: Mapped[dict] = mapped_column(JSONB, default=dict)  # 首轮抓取基准快照
+    stats_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    stats_baseline_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     subtitle_source: Mapped[str] = mapped_column(String(32), default="")  # 平台CC/语音转写/手动
     raw_files: Mapped[dict] = mapped_column(JSONB, default=dict)  # 本地缓存路径
     category_guess: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -159,6 +169,34 @@ class VideoStat(Base):
     comment_count: Mapped[int] = mapped_column(Integer, default=0)
     danmaku_count: Mapped[int] = mapped_column(Integer, default=0)
     extra: Mapped[dict] = mapped_column(JSONB, default=dict)  # 平台附加指标
+
+
+class VideoComment(Base):
+    """平台热评快照（每次刷新 upsert，保留最近抓取的热评）"""
+
+    __tablename__ = "video_comments"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    video_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("videos.id", ondelete="CASCADE"), index=True
+    )
+    comment_id: Mapped[str] = mapped_column(String(64))  # 平台评论 id（如 rpid）
+    user_id: Mapped[str] = mapped_column(String(64), default="")
+    user_name: Mapped[str] = mapped_column(String(128), default="")
+    user_avatar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content: Mapped[str] = mapped_column(Text, default="")
+    like_count: Mapped[int] = mapped_column(Integer, default=0)
+    reply_count: Mapped[int] = mapped_column(Integer, default=0)
+    is_top: Mapped[bool] = mapped_column(Boolean, default=False)  # 是否 UP 置顶
+    fetched_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("video_id", "comment_id", name="uq_video_comment"),
+    )
 
 
 # ============================================================
@@ -339,6 +377,38 @@ class Annotation(TimestampMixin, Base):
 # F 域 · AI 用量与计费
 # ============================================================
 
+class AiProvider(TimestampMixin, Base):
+    """AI 服务商（api-key 集合）：用量卡片按此聚合展示。
+
+    每服务商持有自己的 base_url + api_key + 模型列表(models JSONB)。
+    业务层请求只传档位 alias(flash/pro/vision/其他)，由网关按
+    provider_priority 顺序取首个已启用且带 key 的服务商内匹配 kind 的模型。
+    """
+
+    __tablename__ = "ai_providers"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    key: Mapped[str] = mapped_column(String(32), unique=True, index=True)  # deepseek/doubao/moonshot/...
+    name: Mapped[str] = mapped_column(String(64))  # 展示名：DeepSeek / 豆包 / Kimi...
+    base_url: Mapped[str] = mapped_column(String(256))  # OpenAI 兼容地址（不含 /chat/completions）
+    api_key: Mapped[str] = mapped_column(Text, default="")
+    models: Mapped[list] = mapped_column(JSONB, default=list)
+    # [{"id": "deepseek-v4-flash", "kind": "flash", "label": "DeepSeek V4 Flash"}]
+    priority: Mapped[int] = mapped_column(Integer, default=100)  # 越小越优先
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    brand_color: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    logo_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    topup_url: Mapped[str | None] = mapped_column(Text, nullable=True)  # 官方充值入口
+    balance_cny: Mapped[float | None] = mapped_column(Float, nullable=True)  # 最近一次查询余额（元）
+    balance_checked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    balance_manual: Mapped[bool] = mapped_column(Boolean, default=False)  # True=手动维护余额
+    balance_warn_threshold: Mapped[float] = mapped_column(Float, default=10.0)  # 不足预警线（元）
+
+
 class AiUsageLog(TimestampMixin, Base):
     """AI 网关每次调用的用量日志（token 数与估算成本，供计费可视化）"""
 
@@ -347,6 +417,7 @@ class AiUsageLog(TimestampMixin, Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
+    provider: Mapped[str] = mapped_column(String(32), default="deepseek", index=True)
     scene: Mapped[str] = mapped_column(String(32), default="misc", index=True)  # breakdown/creation/creation_edit/vision/element_mix/manual...
     ref_type: Mapped[str | None] = mapped_column(String(32), nullable=True)  # analysis/creation/video/...
     ref_id: Mapped[uuid.UUID | None] = mapped_column(
