@@ -27,3 +27,4 @@ pgdata/
 
 # E2E temp screenshots
 tmp_e2e/
+backend/data/media/
