@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import BreakdownView from "./views/BreakdownView";
 import LibraryView from "./views/LibraryView";
 import ElementsView from "./views/ElementsView";
@@ -24,10 +24,67 @@ const NAV: Array<{ key: ViewKey; label: string; icon: string; hint: string }> = 
 export default function App() {
   const [view, setView] = useState<ViewKey>("breakdown");
   const [libraryFocusId, setLibraryFocusId] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 767px)");
+    const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   function openVideoInLibrary(videoId: string) {
     setLibraryFocusId(videoId);
     setView("library");
+  }
+
+  const main = (
+    <main className="min-h-0 flex-1 overflow-y-auto">
+      {view === "breakdown" && <BreakdownView />}
+      {view === "library" && (
+        <LibraryView
+          focusVideoId={libraryFocusId}
+          onFocusConsumed={() => setLibraryFocusId(null)}
+        />
+      )}
+      {view === "elements" && <ElementsView onOpenInLibrary={openVideoInLibrary} />}
+      {view === "create" && <CreateView />}
+      {view === "usage" && <UsageView />}
+      {view === "models" && <ModelsView />}
+      {view === "accounts" && <AccountsView />}
+      {view === "settings" && <SettingsView />}
+    </main>
+  );
+
+  if (isMobile) {
+    return (
+      <div className="flex h-screen flex-col bg-[#14161a] text-zinc-200">
+        <header className="shrink-0 border-b border-white/5 bg-[#0f1114] px-3 pb-2 pt-3">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="text-lg font-semibold tracking-wide text-amber-300">帧间</span>
+            <span className="text-[10px] text-zinc-500">爆款拆解 · 元素飞轮</span>
+          </div>
+          <nav className="no-scrollbar -mx-1 flex gap-1 overflow-x-auto px-1">
+            {NAV.map((n) => (
+              <button
+                key={n.key}
+                onClick={() => setView(n.key)}
+                className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs transition-colors ${
+                  view === n.key
+                    ? "bg-amber-300/15 text-amber-200"
+                    : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                }`}
+              >
+                <span>{n.icon}</span>
+                <span>{n.label}</span>
+              </button>
+            ))}
+          </nav>
+        </header>
+        {main}
+      </div>
+    );
   }
 
   return (
@@ -62,21 +119,7 @@ export default function App() {
       </aside>
 
       {/* 主区 */}
-      <main className="flex-1 overflow-y-auto">
-        {view === "breakdown" && <BreakdownView />}
-        {view === "library" && (
-          <LibraryView
-            focusVideoId={libraryFocusId}
-            onFocusConsumed={() => setLibraryFocusId(null)}
-          />
-        )}
-        {view === "elements" && <ElementsView onOpenInLibrary={openVideoInLibrary} />}
-        {view === "create" && <CreateView />}
-        {view === "usage" && <UsageView />}
-        {view === "models" && <ModelsView />}
-        {view === "accounts" && <AccountsView />}
-        {view === "settings" && <SettingsView />}
-      </main>
+      {main}
     </div>
   );
 }

@@ -558,21 +558,58 @@ function StatsSection({
 }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [auto, setAuto] = useState(false);
+  const [notice, setNotice] = useState("");
+  const latestRef = useRef<VideoStatsView | null>(stats);
+  latestRef.current = stats;
   const author = stats?.author;
   const hasView = !!stats;
 
-  async function refresh() {
-    setBusy(true);
-    setErr("");
+  function diffText(prev: VideoStatsView | null, next: VideoStatsView): string | null {
+    const parts: string[] = [];
+    for (const [k, label] of STAT_FIELDS) {
+      const p = prev?.latest[k] ?? prev?.baseline[k];
+      const n = next.latest[k] ?? next.baseline[k];
+      if (p != null && n != null && Number(n) !== Number(p)) parts.push(`${label} ${fmtDelta(Number(n) - Number(p))}`);
+    }
+    if (prev?.author?.fans != null && next.author?.fans != null && next.author.fans !== prev.author.fans) {
+      parts.push(`粉丝 ${fmtDelta(next.author.fans - prev.author.fans)}`);
+    }
+    if (prev?.author?.likes != null && next.author?.likes != null && next.author.likes !== prev.author.likes) {
+      parts.push(`获赞 ${fmtDelta(next.author.likes - prev.author.likes)}`);
+    }
+    return parts.length > 0 ? parts.join(" · ") : null;
+  }
+
+  async function doRefresh(showBusy: boolean) {
+    if (showBusy) {
+      setBusy(true);
+      setErr("");
+    }
     try {
       const v = await api.refreshVideoStats(videoId);
+      const changed = diffText(latestRef.current, v);
+      latestRef.current = v;
       onRefreshed(v);
+      if (changed) setNotice(`${changed}（${fmtShortTime(v.updated_at)}）`);
     } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+      if (showBusy) setErr(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      if (showBusy) setBusy(false);
     }
   }
+
+  useEffect(() => {
+    if (!auto) return;
+    const t = setInterval(() => void doRefresh(false), 60_000);
+    return () => clearInterval(t);
+  }, [auto, videoId]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(""), 8000);
+    return () => clearTimeout(t);
+  }, [notice]);
 
   return (
     <section className="rounded-xl border border-white/5 bg-[#1c1f26] p-5">
@@ -584,7 +621,17 @@ function StatsSection({
         <div className="flex items-center gap-3">
           {stats?.updated_at && <span className="text-[10px] text-zinc-600">更新于 {fmtShortTime(stats.updated_at)}</span>}
           <button
-            onClick={() => void refresh()}
+            onClick={() => setAuto((a) => !a)}
+            className={`rounded-lg border px-3 py-1.5 text-xs transition ${
+              auto ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-200" : "border-white/10 text-zinc-400 hover:bg-white/5"
+            }`}
+            title="每 60 秒自动抓取，发现数据变化时高亮提醒"
+          >
+            {auto && <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300 align-middle" />}
+            自动刷新
+          </button>
+          <button
+            onClick={() => void doRefresh(true)}
             disabled={busy}
             className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-400 hover:bg-white/5 disabled:opacity-50"
           >
@@ -592,6 +639,16 @@ function StatsSection({
           </button>
         </div>
       </div>
+
+      {notice && (
+        <div className="mb-3 flex items-center gap-2 rounded-lg border border-emerald-300/25 bg-emerald-300/10 px-3 py-2 text-xs text-emerald-200">
+          <span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-emerald-300" />
+          <span className="truncate">检测到数据变化：{notice}</span>
+          <button onClick={() => setNotice("")} className="ml-auto shrink-0 text-emerald-300/50 hover:text-emerald-200">
+            ✕
+          </button>
+        </div>
+      )}
 
       {err && <p className="mb-3 rounded-lg border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-xs text-rose-300">{err}</p>}
 
@@ -685,6 +742,19 @@ export default function VideoBreakdown({ video, result }: { video: VideoItem; re
   const [elements, setElements] = useState<ElementInfo[]>([]);
   const [statsView, setStatsView] = useState<VideoStatsView | null>(null);
   const [currentMs, setCurrentMs] = useState(0);
+  // 左列播放器收窄为竖条：rail=true 后鼠标移入临时展开、移出折叠；点击可固定展开
+  const [rail, setRail] = useState(false);
+  const [hoverOpen, setHoverOpen] = useState(false);
+  // 桌面宽视口才启用双列 + 竖条；窄屏保持单列堆叠
+  const [isWide, setIsWide] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const onChange = (e: MediaQueryListEvent) => setIsWide(e.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   useEffect(() => {
     setDetail(null);
@@ -722,72 +792,109 @@ export default function VideoBreakdown({ video, result }: { video: VideoItem; re
     setElements((prev) => prev.map((e) => (e.id === id ? { ...e, status: action === "accept" ? "accepted" : action === "reject" ? "rejected" : "adjusted", ...(action === "adjust" && patch ? patch : {}) } : e)));
   }
 
-  const stats = (video.stats_snapshot ?? {}) as Record<string, number>;
-  const statsLabel: Array<[string, string]> = [
-    ["play", "播放"],
-    ["like", "点赞"],
-    ["collect", "收藏"],
-    ["share", "转发"],
-    ["comment", "评论"],
-    ["danmaku", "弹幕"],
-  ];
+  const railOpen = !rail || hoverOpen || !isWide;
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(300px,400px)_minmax(0,1fr)]">
-      {/* 左列：播放器 + 帧证据 + 素材数据 */}
-      <div className="lg:sticky lg:top-4 lg:self-start">
-        <div className="overflow-hidden rounded-xl border border-white/5 bg-[#1c1f26]">
-          {videoUrl ? (
-            <video
-              ref={videoRef}
-              src={videoUrl}
-              controls
-              preload="metadata"
-              className="aspect-video w-full bg-black"
-              onTimeUpdate={(e) => setCurrentMs(e.currentTarget.currentTime * 1000)}
-              onSeeked={(e) => setCurrentMs(e.currentTarget.currentTime * 1000)}
-            />
-          ) : (
-            <div className="flex aspect-video w-full items-center justify-center bg-black text-xs text-zinc-600">无本地媒体文件</div>
-          )}
-          <div className="space-y-3 p-3">
-            <div>
-              <div className="text-sm font-medium leading-snug text-zinc-100">{video.title}</div>
-              <div className="mt-0.5 text-[11px] text-zinc-500">
-                {video.author_name ?? "未知作者"} · {video.platform}
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2 text-[10px] text-zinc-500">
-              {video.duration_ms != null ? <span>时长 {fmt(video.duration_ms)}</span> : null}
-              {video.media?.bpm ? <span>BPM {video.media.bpm}</span> : null}
-              {detail ? <span>{detail.frames.length} 关键帧</span> : null}
-              {video.media?.has_transcript ? <span>含转写</span> : null}
-              {video.category_guess ? <span>{video.category_guess}</span> : null}
-            </div>
-            {!statsView && (
-              <div className="flex flex-wrap gap-2">
-                {statsLabel.map(([k, label]) =>
-                  stats[k] ? (
-                    <span key={k} className="rounded bg-white/5 px-2 py-0.5 text-[10px] text-zinc-400">
-                      {label} {stats[k].toLocaleString()}
-                    </span>
-                  ) : null,
+    <div
+      className="grid items-start gap-4"
+      style={{
+        gridTemplateColumns: isWide
+          ? railOpen
+            ? "minmax(360px, 430px) minmax(0, 1fr)"
+            : "52px minmax(0, 1fr)"
+          : "1fr",
+        transition: "grid-template-columns 220ms ease",
+      }}
+    >
+      {/* 左列：播放器 + 作者互动（可收窄为竖条） */}
+      <div
+        className="min-w-0"
+        onMouseEnter={() => isWide && rail && setHoverOpen(true)}
+        onMouseLeave={() => isWide && rail && setHoverOpen(false)}
+      >
+        {rail && !railOpen ? (
+          /* 竖条态 */
+          <button
+            onClick={() => setRail(false)}
+            title="点击固定展开 / 鼠标移入临时展开"
+            className="flex min-h-[460px] w-full flex-col items-center gap-3 rounded-xl border border-white/5 bg-[#1c1f26] px-2 py-3 text-zinc-400 transition-colors hover:bg-[#232733] hover:text-zinc-200"
+          >
+            <span className="text-amber-300/80">▶</span>
+            <span className="text-lg opacity-40">┆</span>
+            {video.cover_url ? (
+              <img src={video.cover_url} alt="" className="w-9 rounded-lg object-cover" referrerPolicy="no-referrer" />
+            ) : (
+              <span className="text-xs opacity-40">▤</span>
+            )}
+            <span className="whitespace-nowrap text-[10px] [writing-mode:vertical-rl] tracking-widest">{video.title || video.platform}</span>
+            <span className="mt-auto whitespace-nowrap text-[9px] text-zinc-600 [writing-mode:vertical-rl]">hover 展开</span>
+          </button>
+        ) : (
+          /* 展开态 */
+          <div className="lg:sticky lg:top-4">
+            <div className="overflow-hidden rounded-xl border border-white/5 bg-[#1c1f26]">
+              <div className="flex items-start justify-between gap-3 px-4 pb-1 pt-4">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium text-zinc-100">{video.title || "未命名视频"}</div>
+                  <div className="mt-0.5 text-[11px] text-zinc-500">
+                    {video.author_name ?? "未知作者"} · {video.platform}
+                  </div>
+                </div>
+                {isWide && (
+                  <button
+                    onClick={() => {
+                      if (rail && hoverOpen) setRail(false);
+                      else setRail(true);
+                    }}
+                    title={rail && hoverOpen ? "固定展开" : "收窄为竖条，鼠标移入展开"}
+                    className="shrink-0 rounded-lg border border-white/10 px-2 py-1 text-[10px] text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                  >
+                    {rail && hoverOpen ? "固定 ◉" : "收窄 ◂"}
+                  </button>
                 )}
               </div>
-            )}
-            {detail && detail.frames.length > 0 && (
-              <div>
-                <div className="mb-2 text-[10px] uppercase tracking-wider text-zinc-600">关键帧 · 点击跳转</div>
-                <FrameStrip frames={detail.frames} currentMs={currentMs} onSeek={seekTo} />
+
+              {videoUrl ? (
+                <video
+                  ref={videoRef}
+                  src={videoUrl}
+                  controls
+                  preload="metadata"
+                  className="aspect-video w-full bg-black"
+                  onTimeUpdate={(e) => setCurrentMs(e.currentTarget.currentTime * 1000)}
+                  onSeeked={(e) => setCurrentMs(e.currentTarget.currentTime * 1000)}
+                />
+              ) : (
+                <div className="flex aspect-video w-full items-center justify-center bg-black text-xs text-zinc-600">无本地媒体文件</div>
+              )}
+
+              <div className="space-y-3 p-3">
+                <div className="flex flex-wrap gap-2 text-[10px] text-zinc-500">
+                  {video.duration_ms != null ? <span>时长 {fmt(video.duration_ms)}</span> : null}
+                  {video.media?.bpm ? <span>BPM {video.media.bpm}</span> : null}
+                  {detail ? <span>{detail.frames.length} 关键帧</span> : null}
+                  {video.media?.has_transcript ? <span>含转写</span> : null}
+                  {video.category_guess ? <span>{video.category_guess}</span> : null}
+                </div>
+                {detail && detail.frames.length > 0 && (
+                  <div>
+                    <div className="mb-2 text-[10px] uppercase tracking-wider text-zinc-600">关键帧 · 点击跳转</div>
+                    <FrameStrip frames={detail.frames} currentMs={currentMs} onSeek={seekTo} />
+                  </div>
+                )}
               </div>
-            )}
+            </div>
+
+            {/* 作者与互动数据放在播放器下部 */}
+            <div className="mt-4">
+              <StatsSection videoId={video.id} stats={statsView} onRefreshed={(v) => setStatsView(v)} />
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* 右列：互动数据 + 五层详情 */}
+      {/* 右列：五层拆解内容 */}
       <div className="min-w-0 space-y-6">
-        <StatsSection videoId={video.id} stats={statsView} onRefreshed={(v) => setStatsView(v)} />
         <L1Panel c={l1c} />
         <L2Panel c={l2c} />
         <SegmentsList segments={segments} currentMs={currentMs} onSeek={seekTo} />
