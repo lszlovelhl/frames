@@ -207,6 +207,16 @@ export interface ElementItem extends ElementInfo {
     author_name: string | null;
     category_guess?: string | null;
   } | null;
+  slots?: Array<{
+    seq: number;
+    slot_role: string;
+    method_code: string;
+    position_ratio_start: number;
+    position_ratio_end: number;
+    duration_ratio: number;
+    expected_function: string;
+    swap_alternatives: string[];
+  }>;
 }
 
 export interface ElementListResp {
