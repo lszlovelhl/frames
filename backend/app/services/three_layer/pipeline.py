@@ -37,6 +37,10 @@ logger = logging.getLogger(__name__)
 
 Progress = Callable[[str, int, str], Awaitable[None]]
 
+# L3 段数契约（与 prompts._TL3 一致）：flash 免费档实测段数 1~4 波动，需强校验 + 自动重试
+L3_SEGMENT_MIN = 6
+L3_SEGMENT_MAX = 14
+
 
 def _placeholder_row() -> SimpleNamespace:
     """占位对象：lib_* 行 flush 前即需写 ref_element_source，先取占位 id，落库后回填。"""
@@ -723,6 +727,33 @@ async def run_three_layer(
     )
     quality["L3"] = q3
     segments_json = (data3.get("segments") or []) if ok3 else []
+    # 段数契约强校验：不足下限（免费档 flash 常见 1~4 段）自动重试一次并附校验反馈
+    if len(segments_json) < L3_SEGMENT_MIN:
+        retry_hint = (
+            f"\n\n【校验反馈】上次返回 {len(segments_json)} 段，未达下限 {L3_SEGMENT_MIN} 段。"
+            f"请重新切分：段落必须按行号边界（#nn）切分，段数 {L3_SEGMENT_MIN}~{L3_SEGMENT_MAX}，"
+            f"覆盖全片、首尾相接、不重叠。"
+        )
+        await report("L3", 66, f"三层链路 · L3 段数不足（{len(segments_json)}<{L3_SEGMENT_MIN}），自动重试…")
+        ok3b, data3b, q3b = await _run_layer(
+            db, video=video, analysis_id=analysis_id, layer=3,
+            user_text=l3_user + retry_hint, model=model,
+            array_keys=LAYER_ARRAY_KEYS[3], max_tokens=16384,
+        )
+        quality["L3_retry"] = {
+            **q3b,
+            "first_count": len(segments_json),
+            "retried": True,
+        }
+        if ok3b:
+            segments_json = data3b.get("segments") or []
+            quality["L3"] = q3b
+            if len(segments_json) >= L3_SEGMENT_MIN:
+                await report("L3", 67, f"三层链路 · L3 重试达标（{len(segments_json)} 段）…")
+    if len(segments_json) > L3_SEGMENT_MAX:
+        warnings.append(
+            f"L3 段数 {len(segments_json)} 超过上限 {L3_SEGMENT_MAX}（保留全部段落，未截断）"
+        )
     if not segments_json:
         segments_json = [
             {"seq": 1, "seg_type": "钩子", "title": title[:12] or "全片", "line_from": 1,
@@ -730,7 +761,7 @@ async def run_three_layer(
              "summary": "全片口播", "hook_point": True, "payoff_point": True,
              "emotion_level": stats["baseline_intensity"] or 0}
         ]
-        warnings.append("L3 未返回可用段落，已按全片兜底")
+        warnings.append("L3 未返回可用段落（重试后仍为空），已按全片兜底")
 
     seg_rows: list[M.ScriptSegment] = []
     for item in segments_json:
@@ -781,6 +812,11 @@ async def run_three_layer(
     await db.commit()
     if not seg_rows:
         return {"ok": False, "error": "L3 段落全部未通过校验", "counts": counts, "verdicts": verdicts}
+    if len(seg_rows) < L3_SEGMENT_MIN:
+        warnings.append(
+            f"L3 落库段数 {len(seg_rows)} 仍低于契约下限 {L3_SEGMENT_MIN}"
+            f"（返回 {len(segments_json)} 段，白名单/时间校验过滤 {len(segments_json) - len(seg_rows)} 段）"
+        )
 
     def segment_of_line(seq: int) -> M.ScriptSegment | None:
         for seg in seg_rows:
@@ -1092,7 +1128,7 @@ async def run_three_layer(
             if not v.accepted:
                 verdicts.append(v.as_dict())
                 continue
-            row, _ = await _upsert_lib(M.LibTopic, code, {**values, "quality_score": v.quality_score, "status": v.status})
+            row, _ = await _upsert_lib(M.LibTopic, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"})
             ref.element_id = row.id
             db.add(ref)
             verdicts.append(v.as_dict())
@@ -1127,7 +1163,7 @@ async def run_three_layer(
             if not v.accepted:
                 verdicts.append(v.as_dict())
                 continue
-            row, _ = await _upsert_lib(M.LibHook, code, {**values, "quality_score": v.quality_score, "status": v.status})
+            row, _ = await _upsert_lib(M.LibHook, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"})
             ref.element_id = row.id
             db.add(ref)
             verdicts.append(v.as_dict())
@@ -1163,7 +1199,7 @@ async def run_three_layer(
             if not v.accepted:
                 verdicts.append(v.as_dict())
                 continue
-            row, _ = await _upsert_lib(M.LibCopywriting, code, {**values, "quality_score": v.quality_score, "status": v.status})
+            row, _ = await _upsert_lib(M.LibCopywriting, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"})
             ref.element_id = row.id
             db.add(ref)
             verdicts.append(v.as_dict())
@@ -1193,7 +1229,7 @@ async def run_three_layer(
             if not v.accepted:
                 verdicts.append(v.as_dict())
                 continue
-            row, _ = await _upsert_lib(M.LibQuote, code, {**values, "quality_score": v.quality_score, "status": v.status})
+            row, _ = await _upsert_lib(M.LibQuote, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"})
             ref.element_id = row.id
             db.add(ref)
             verdicts.append(v.as_dict())
@@ -1233,7 +1269,7 @@ async def run_three_layer(
             if not v.accepted:
                 verdicts.append(v.as_dict())
                 continue
-            row, _ = await _upsert_lib(M.LibMethod, code, {**values, "quality_score": v.quality_score, "status": v.status})
+            row, _ = await _upsert_lib(M.LibMethod, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"})
             ref.element_id = row.id
             db.add(ref)
             verdicts.append(v.as_dict())
@@ -1360,7 +1396,7 @@ async def run_three_layer(
         validator.r14_combo(combo_payload, slot_payload, v)
         verdicts.append(v.as_dict())
         if v.accepted:
-            combo_row, _ = await _upsert_lib(M.LibCombo, code, {**combo_values, "quality_score": v.quality_score, "status": v.status})
+            combo_row, _ = await _upsert_lib(M.LibCombo, code, {**combo_values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"})
             if ref is not None:
                 ref.element_id = combo_row.id
                 db.add(ref)
