@@ -6,6 +6,7 @@ import { LayerBadge, LayersRail } from "../components/ResultPanels";
 interface Props {
   focusVideoId?: string | null;
   onFocusConsumed?: () => void;
+  onCreateWithElements?: (elementIds: string[]) => void;
 }
 
 const PLATFORM_LABEL: Record<string, string> = {
@@ -17,6 +18,11 @@ const PLATFORM_LABEL: Record<string, string> = {
   demo: "演示",
 };
 const PLATFORM_ORDER = ["哔哩哔哩", "抖音", "YouTube", "小红书", "微信视频号", "演示"];
+const CATEGORY_ORDER = [
+  "知识口播", "剧情短剧", "美食", "搞笑", "美妆", "萌宠", "游戏", "音乐舞蹈", "运动健身", "情感",
+  "生活记录", "科技数码", "财经职场", "汽车出行", "文旅非遗", "综艺娱乐", "亲子育儿", "影视解说", "时尚穿搭", "好物测评",
+];
+const UNKNOWN_CATEGORY = "未分类";
 const GROUP_STORE_KEY = "frames:library:collapsedGroups";
 const STATUS_OPTIONS = [
   { value: "all", label: "全部状态" },
@@ -27,7 +33,7 @@ const STATUS_OPTIONS = [
   { value: "none", label: "未拆解" },
 ];
 
-export default function LibraryView({ focusVideoId, onFocusConsumed }: Props) {
+export default function LibraryView({ focusVideoId, onFocusConsumed, onCreateWithElements }: Props) {
   const [videos, setVideos] = useState<VideoItem[]>([]);
   const [selected, setSelected] = useState<VideoItem | null>(null);
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -52,12 +58,30 @@ export default function LibraryView({ focusVideoId, onFocusConsumed }: Props) {
   const [keyword, setKeyword] = useState("");
   const [platformFilter, setPlatformFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  // 分组维度：platform=按平台 / category=按内容赛道
+  const [groupBy, setGroupBy] = useState<"platform" | "category">(() => {
+    try {
+      const raw = localStorage.getItem("frames:library:groupBy");
+      if (raw === "category" || raw === "platform") return raw;
+    } catch {
+      /* ignore */
+    }
+    return "platform";
+  });
+  const persistGroupBy = (g: "platform" | "category") => {
+    try {
+      localStorage.setItem("frames:library:groupBy", g);
+    } catch {
+      /* ignore */
+    }
+  };
 
   // 分组折叠记忆：读 localStorage；无记忆时（首次进入）跟随当前打开的平台，默认收起其它平台
   const userAdjusted = useRef(false);
   const [collapsedGroups, setCollapsedGroups] = useState<string[]>(() => {
     try {
-      const raw = localStorage.getItem(GROUP_STORE_KEY);
+      const raw = localStorage.getItem(`${GROUP_STORE_KEY}:${groupBy}`);
       if (raw) {
         userAdjusted.current = true;
         return JSON.parse(raw) as string[];
@@ -70,13 +94,28 @@ export default function LibraryView({ focusVideoId, onFocusConsumed }: Props) {
 
   const persistGroups = (list: string[]) => {
     try {
-      localStorage.setItem(GROUP_STORE_KEY, JSON.stringify(list));
+      localStorage.setItem(`${GROUP_STORE_KEY}:${groupBy}`, JSON.stringify(list));
     } catch {
       /* ignore */
     }
   };
 
   const labelOf = (v: VideoItem) => PLATFORM_LABEL[v.platform] || v.platform || "其他";
+  const groupKeyOf = (v: VideoItem) => (groupBy === "platform" ? labelOf(v) : v.category_guess || UNKNOWN_CATEGORY);
+
+  const categoryOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const v of videos) {
+      const key = v.category_guess || UNKNOWN_CATEGORY;
+      if (!seen.has(key)) seen.set(key, v.category_guess || UNKNOWN_CATEGORY);
+    }
+    const rank = (k: string) => {
+      const i = CATEGORY_ORDER.indexOf(k);
+      if (k === UNKNOWN_CATEGORY) return 998;
+      return i < 0 ? 997 : i;
+    };
+    return [...seen.entries()].sort((a, b) => rank(a[0]) - rank(b[0]));
+  }, [videos]);
 
   const platformOptions = useMemo(() => {
     const seen = new Map<string, string>();
@@ -95,6 +134,10 @@ export default function LibraryView({ focusVideoId, onFocusConsumed }: Props) {
     const kw = keyword.trim().toLowerCase();
     return videos.filter((v) => {
       if (platformFilter !== "all" && (v.platform || "") !== platformFilter) return false;
+      if (categoryFilter !== "all") {
+        const c = v.category_guess || UNKNOWN_CATEGORY;
+        if (c !== categoryFilter) return false;
+      }
       if (statusFilter === "none") {
         if (v.latest_analysis) return false;
       } else if (statusFilter !== "all") {
@@ -106,16 +149,21 @@ export default function LibraryView({ focusVideoId, onFocusConsumed }: Props) {
       }
       return true;
     });
-  }, [videos, keyword, platformFilter, statusFilter]);
+  }, [videos, keyword, platformFilter, categoryFilter, statusFilter]);
 
   const groups = useMemo(() => {
     const m = new Map<string, VideoItem[]>();
     for (const v of filteredVideos) {
-      const key = labelOf(v);
+      const key = groupKeyOf(v);
       if (!m.has(key)) m.set(key, []);
       m.get(key)!.push(v);
     }
     const rank = (k: string) => {
+      if (groupBy === "category") {
+        if (k === UNKNOWN_CATEGORY) return 998;
+        const i = CATEGORY_ORDER.indexOf(k);
+        return i < 0 ? 997 : i;
+      }
       const i = PLATFORM_ORDER.indexOf(k);
       return i < 0 ? 99 : i;
     };
@@ -125,12 +173,12 @@ export default function LibraryView({ focusVideoId, onFocusConsumed }: Props) {
         label,
         list: [...list].sort((x, y) => y.created_at.localeCompare(x.created_at)),
       }));
-  }, [filteredVideos]);
+  }, [filteredVideos, groupBy, groupKeyOf]);
 
-  // 无历史记忆且用户未手动折叠过时：打开某个视频 → 只展开其平台，其余平台默认收起
-  const collapseOtherPlatforms = (label: string) => {
+  // 无历史记忆且用户未手动折叠过时：打开某个视频 → 只展开其所属组，其余组默认收起
+  const collapseOtherGroups = (label: string) => {
     if (userAdjusted.current) return;
-    const others = [...new Set(videos.map((v) => labelOf(v)).filter((l) => l !== label))];
+    const others = [...new Set(videos.map((v) => groupKeyOf(v)).filter((l) => l !== label))];
     setCollapsedGroups((prev) => {
       if (prev.length === others.length && others.every((x) => prev.includes(x))) return prev;
       return others;
@@ -168,7 +216,7 @@ export default function LibraryView({ focusVideoId, onFocusConsumed }: Props) {
     const v = videos.find((x) => x.id === focusVideoId);
     if (!v) return;
     setSelected(v);
-    collapseOtherPlatforms(labelOf(v));
+    collapseOtherGroups(groupKeyOf(v));
     setResult(null);
     onFocusConsumed?.();
     if (v.latest_analysis) {
@@ -181,7 +229,7 @@ export default function LibraryView({ focusVideoId, onFocusConsumed }: Props) {
 
   async function openAnalysis(v: VideoItem) {
     setSelected(v);
-    collapseOtherPlatforms(labelOf(v));
+    collapseOtherGroups(groupKeyOf(v));
     setResult(null);
     if (v.latest_analysis) {
       try {
@@ -230,6 +278,47 @@ export default function LibraryView({ focusVideoId, onFocusConsumed }: Props) {
           ))}
         </select>
         <select
+          value={categoryFilter}
+          onChange={(e) => setCategoryFilter(e.target.value)}
+          className="rounded-lg border border-white/10 bg-[#1c1f26] px-2.5 py-1.5 text-sm text-zinc-300 focus:border-amber-300/40 focus:outline-none"
+        >
+          <option value="all">全部赛道</option>
+          {categoryOptions.map(([key, label]) => (
+            <option key={key} value={key}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <div className="flex overflow-hidden rounded-lg border border-white/10 text-xs">
+          {(
+            [
+              ["platform", "按平台"],
+              ["category", "按赛道"],
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => {
+                if (groupBy === key) return;
+                setGroupBy(key);
+                persistGroupBy(key);
+                userAdjusted.current = true;
+                try {
+                  const raw = localStorage.getItem(`${GROUP_STORE_KEY}:${key}`);
+                  setCollapsedGroups(raw ? (JSON.parse(raw) as string[]) : []);
+                } catch {
+                  setCollapsedGroups([]);
+                }
+              }}
+              className={`px-2.5 py-1.5 transition ${
+                groupBy === key ? "bg-amber-300/15 text-amber-200" : "bg-[#1c1f26] text-zinc-400 hover:bg-white/5"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
           className="rounded-lg border border-white/10 bg-[#1c1f26] px-2.5 py-1.5 text-sm text-zinc-300 focus:border-amber-300/40 focus:outline-none"
@@ -240,11 +329,12 @@ export default function LibraryView({ focusVideoId, onFocusConsumed }: Props) {
             </option>
           ))}
         </select>
-        {(keyword.trim() || platformFilter !== "all" || statusFilter !== "all") && (
+        {(keyword.trim() || platformFilter !== "all" || categoryFilter !== "all" || statusFilter !== "all") && (
           <button
             onClick={() => {
               setKeyword("");
               setPlatformFilter("all");
+              setCategoryFilter("all");
               setStatusFilter("all");
             }}
             className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
@@ -334,6 +424,9 @@ export default function LibraryView({ focusVideoId, onFocusConsumed }: Props) {
                       >
                         <div className="flex items-center gap-2">
                           <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400">{v.platform}</span>
+                          {v.category_guess && (
+                            <span className="rounded bg-amber-300/10 px-1.5 py-0.5 text-[10px] text-amber-200/90">{v.category_guess}</span>
+                          )}
                           {v.latest_analysis && <LayerBadge status={v.latest_analysis.status} />}
                         </div>
                         <div className="mt-1.5 line-clamp-2 text-sm font-medium text-zinc-200">{v.title}</div>
@@ -361,7 +454,7 @@ export default function LibraryView({ focusVideoId, onFocusConsumed }: Props) {
                 </div>
                 <LayersRail r={result} />
               </div>
-              <VideoBreakdown video={selected!} result={result} />
+              <VideoBreakdown video={selected!} result={result} onCreateWithElements={onCreateWithElements} />
             </div>
           )}
         </div>

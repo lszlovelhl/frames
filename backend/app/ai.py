@@ -5,8 +5,10 @@
 且含对应 kind 模型的服务商完成请求；未配置任何 provider 时回退 .env 的
 DEEPSEEK_* 旧配置（provider 记 deepseek），保证老链路不坏。
 
-每次调用自动向 ai_usage_logs 落一笔用量（独立会话，失败不阻塞主流程）。
+每次调用自动向 ai_usage_logs 落一笔用量（独立会话 + 失败重试 1 次；
+重试仍失败记 ERROR 级日志，不阻塞主流程 —— 见 docs/03-development-log.md 遗留风险修复）。
 """
+import asyncio
 import logging
 
 import httpx
@@ -31,6 +33,14 @@ ENV_MODELS: dict[str, str] = {
 }
 
 
+def _short_body(resp: httpx.Response, limit: int = 300) -> str:
+    """截断服务商返回的错误正文，便于排障（如余额不足/参数超限）。"""
+    try:
+        return resp.text[:limit].replace("\n", " ")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 async def _usage_cost_cny(alias: str, usage: dict | None) -> float | None:
     """按 alias 档位单价估算成本（元）。未知档位返回 None，避免误导。"""
     if not usage:
@@ -42,6 +52,10 @@ async def _usage_cost_cny(alias: str, usage: dict | None) -> float | None:
     pt = int(usage.get("prompt_tokens") or 0)
     ct = int(usage.get("completion_tokens") or 0)
     return round((pt * p_in + ct * p_out) / 1_000_000, 6)
+
+
+USAGE_LOG_RETRY_DELAY = 0.2  # 秒：SQLite 并发写偶发 "database is locked" 后的重试间隔
+USAGE_LOG_MAX_ATTEMPTS = 2  # 首次 + 重试 1 次（与原「仅告警」相比：不再静默丢账）
 
 
 async def _log_usage(
@@ -56,41 +70,68 @@ async def _log_usage(
     ok: bool,
     error: str | None = None,
 ) -> None:
-    """独立会话写 ai_usage_logs；任何异常只告警不上抛。"""
-    try:
-        from uuid import UUID
+    """独立会话写 ai_usage_logs。
 
-        from app import models as M
-        from app.db import SessionLocal
+    失败（如 SQLite 并发 `database is locked`）时退避重试 1 次；
+    重试仍失败则记 ERROR 级日志（含 scene/ref 便于对账补偿），不上抛、不阻塞业务。
+    """
+    from uuid import UUID
 
-        cost = await _usage_cost_cny(alias, usage)
-        ref_uuid = None
-        if ref_id:
-            try:
-                ref_uuid = UUID(ref_id)
-            except ValueError:
-                ref_uuid = None
-        async with SessionLocal() as session:
-            row = M.AiUsageLog(
-                provider=provider[:32],
-                scene=scene,
-                ref_type=ref_type,
-                ref_id=ref_uuid,
-                alias=alias,
-                model=model_name,
-                prompt_tokens=int(usage.get("prompt_tokens") or 0) if usage else 0,
-                completion_tokens=int(usage.get("completion_tokens") or 0)
-                if usage
-                else 0,
-                total_tokens=int(usage.get("total_tokens") or 0) if usage else 0,
-                cost_cny=cost,
-                ok=ok,
-                error=error,
+    from app import models as M
+    from app.db import SessionLocal
+
+    ref_uuid = None
+    if ref_id:
+        try:
+            ref_uuid = UUID(ref_id)
+        except ValueError:
+            ref_uuid = None
+    cost = await _usage_cost_cny(alias, usage)
+
+    for attempt in range(1, USAGE_LOG_MAX_ATTEMPTS + 1):
+        try:
+            async with SessionLocal() as session:
+                row = M.AiUsageLog(
+                    provider=provider[:32],
+                    scene=scene,
+                    ref_type=ref_type,
+                    ref_id=ref_uuid,
+                    alias=alias,
+                    model=model_name,
+                    prompt_tokens=int(usage.get("prompt_tokens") or 0) if usage else 0,
+                    completion_tokens=int(usage.get("completion_tokens") or 0)
+                    if usage
+                    else 0,
+                    total_tokens=int(usage.get("total_tokens") or 0) if usage else 0,
+                    cost_cny=cost,
+                    ok=ok,
+                    error=error,
+                )
+                session.add(row)
+                await session.commit()
+            if attempt > 1:
+                logger.info("AI usage 记账重试成功（第 %s 次）：scene=%s", attempt, scene)
+            return
+        except Exception as exc:  # noqa: BLE001 用量记账失败不应影响业务
+            if attempt < USAGE_LOG_MAX_ATTEMPTS:
+                logger.warning(
+                    "记录 AI usage 失败，%.2fs 后重试：scene=%s error=%s",
+                    USAGE_LOG_RETRY_DELAY,
+                    scene,
+                    exc,
+                )
+                await asyncio.sleep(USAGE_LOG_RETRY_DELAY)
+                continue
+            logger.error(
+                "记录 AI usage 失败（重试后仍失败，本条用量未落库，请按 scene/ref 对账）: "
+                "scene=%s provider=%s ref_type=%s ref_id=%s error=%s",
+                scene,
+                provider,
+                ref_type,
+                ref_id,
+                exc,
+                exc_info=True,
             )
-            session.add(row)
-            await session.commit()
-    except Exception:  # noqa: BLE001 用量记账失败不应影响业务
-        logger.warning("记录 AI usage 失败", exc_info=True)
 
 
 async def _resolve_target(
@@ -173,7 +214,15 @@ async def chat(
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(url, headers=headers, json=payload)
-            resp.raise_for_status()
+            if resp.status_code >= 400:
+                # 带上服务商返回的错误正文（如 "Insufficient Balance" / "max_tokens 超限"），
+                # 否则调用方只能看到干巴巴的 400，无法定位
+                raise httpx.HTTPStatusError(
+                    f"{resp.status_code} {resp.reason_phrase} "
+                    f"{_short_body(resp)} | model={model_id} provider={provider_key}",
+                    request=resp.request,
+                    response=resp,
+                )
             data = resp.json()
 
         choice = data["choices"][0]["message"]
@@ -183,6 +232,8 @@ async def chat(
             "model": data.get("model"),
             "usage": data.get("usage"),
             "provider": provider_key,
+            # finish_reason=length 表示被 max_tokens 截断，上层据此触发续写补全
+            "finish_reason": data["choices"][0].get("finish_reason"),
         }
         await _log_usage(
             provider=provider_key,

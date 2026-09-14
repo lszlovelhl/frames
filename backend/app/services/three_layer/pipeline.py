@@ -1,0 +1,1455 @@
+"""三层分库拆解链路编排：L1 → L6 → raw_*/script_*/lib_* 落库 + 第 7.2 节校验。
+
+与旧五层链路并存：本模块只写三层新表（``raw_*`` / ``script_*`` / ``lib_*`` / ``ref_*``），
+不读不写 ``analyses`` / ``analysis_layers`` / ``segments`` / ``analysis_notes`` / ``elements`` 等旧表，
+保证"严禁删除或清空既有数据与旧表"的约束成立。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import math
+from types import SimpleNamespace
+from typing import Any, Awaitable, Callable, Sequence
+from uuid import uuid4
+
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app import models as M
+from app.services.analysis import load_active_prompt
+from app.services.llm_json import complete_json, count_items
+from app.services.zh import simplify_obj
+
+from . import emotion, validate
+from .prompts import (
+    LAYER_ARRAY_KEYS,
+    LAYER_CODES,
+    LAYER_LABELS,
+    TEMPLATES,
+    THREE_LAYER_CONTRACT,
+)
+from .raw import load_raw_context, persist_raw_layer
+
+logger = logging.getLogger(__name__)
+
+Progress = Callable[[str, int, str], Awaitable[None]]
+
+
+def _placeholder_row() -> SimpleNamespace:
+    """占位对象：lib_* 行 flush 前即需写 ref_element_source，先取占位 id，落库后回填。"""
+    return SimpleNamespace(id=uuid4())
+
+SCHEMAS: dict[int, dict[str, Any]] = {
+    1: {
+        "one_liner": "一句结论",
+        "core_idea": "一句话中心思想",
+        "content_trend": "从X走向Y",
+        "target_audience": "目标人群与处境",
+        "summary": "60~120字摘要",
+        "topic_main": "选题主体",
+        "pain_point": "观众痛点",
+        "value_type": "实用|情绪|娱乐",
+        "hook_type": "受控钩型",
+        "hook_hypothesis": "钩子为什么在3秒内成立",
+        "structure_hypothesis": [{"seq": 1, "title": "段名", "intent": "让观众发生什么变化"}],
+        "narrative_order": "叙事顺序",
+        "estimated_sentence_count": 38,
+        "category": "内容赛道",
+    },
+    2: {
+        "sample_interval_ms": 500,
+        "intensity_series": [[0, 6.5], [500, 7.0]],
+        "shape": "单峰|双峰|递进上升|波浪|骤升缓降|前高后低|平缓",
+        "peak_position_ratio": 0.62,
+        "baseline_intensity": 4.5,
+        "rhythm_note": "节奏说明",
+        "turn_points": [
+            {"seq": 1, "type": "峰|谷|反转|悬念", "line_no": 3, "note": "为什么是关键点"}
+        ],
+    },
+    3: {
+        "segments": [
+            {
+                "seq": 1,
+                "seg_type": "钩子|铺垫|冲突|转折|高潮|干货|CTA",
+                "title": "段标题",
+                "line_from": 1,
+                "line_to": 2,
+                "purpose": "为什么放在这个位置（≥30字）",
+                "summary": "这一段做了什么",
+                "hook_point": True,
+                "payoff_point": False,
+                "emotion_level": 6.5,
+            }
+        ]
+    },
+    4: {
+        "sentences": [
+            {
+                "seq": 1,
+                "line_no": 1,
+                "quote": "逐字原话",
+                "speaker": "口播|字幕|旁白",
+                "sentence_function": "钩子|铺垫|冲突|转折|高潮|干货|CTA|过渡|收尾",
+                "function_reason": "为什么有效、换题材怎么复用（≥30字）",
+                "method_refs": ["hook.negate.misattribution"],
+                "emotion_intensity": 6.5,
+                "is_hook": True,
+                "is_turn": False,
+                "is_peak": False,
+                "variants": ["变体1", "变体2"],
+                "imagination": "想象/联想/构思发散（≥30字）",
+                "evidence": [
+                    {
+                        "evidence_type": "transcript|ocr|frame|audio",
+                        "content": "只写手法与可学点（≥20字）",
+                        "quote": "引用的原话或画面文字",
+                    }
+                ],
+            }
+        ],
+        "note": "句数自检说明（可空）",
+    },
+    5: {
+        "topics": [
+            {
+                "code": "topic.pain.xxx",
+                "name": "选题名",
+                "topic_type": "痛点型|好奇型|利益型|身份型|反常识型",
+                "audience": "人群",
+                "pain_point": "痛点",
+                "angle": "切入角度",
+                "value_type": "实用|情绪|娱乐",
+                "keywords": ["关键词"],
+                "mechanism": "为什么有效（≥30字）",
+                "variants": ["变体1", "变体2"],
+                "imagination": "发散（≥30字）",
+                "source_line_no": 1,
+                "quote": "对应原话",
+            }
+        ],
+        "hooks": [
+            {
+                "code": "hook.negate.warning",
+                "name": "钩子名",
+                "hook_type": "受控钩型",
+                "position": "前3秒|片中|结尾",
+                "sentence_pattern": "句式模板[变量]",
+                "variables": ["变量"],
+                "expected_effect": "预期效果",
+                "mechanism": "≥30字",
+                "variants": ["变体1", "变体2"],
+                "imagination": "≥30字",
+                "source_line_no": 1,
+                "quote": "对应原话",
+            }
+        ],
+        "copywriting": [
+            {
+                "code": "copy.enumerate.detail",
+                "name": "文案名",
+                "copy_type": "口播|字幕|标题|CTA|封面文案",
+                "sentence_pattern": "句式模板",
+                "rhetoric": "设问|排比|对比|夸张|比喻|反问|递进|白描|数字锚定",
+                "example_text": "原片实例",
+                "mechanism": "≥30字",
+                "variants": ["变体1", "变体2"],
+                "imagination": "≥30字",
+                "source_line_no": 1,
+                "quote": "对应原话",
+            }
+        ],
+        "quotes": [
+            {
+                "code": "quote.contrast.core",
+                "text": "金句原句",
+                "structure": "句式结构",
+                "rewrite_template": "改写模板",
+                "applicable_scene": "适用场景",
+                "mechanism": "≥30字",
+                "variants": ["变体1", "变体2"],
+                "imagination": "≥30字",
+                "source_line_no": 1,
+                "quote": "对应原话",
+            }
+        ],
+        "methods": [
+            {
+                "code": "method.struct.conclusion_first",
+                "name": "手法名",
+                "category": "叙事|结构|修辞|视听|节奏|互动|运营",
+                "controlled_tag": "可空",
+                "abstraction_level": "句法级|段落级|全片级",
+                "mechanism": "为什么有效（≥30字）",
+                "usage_steps": "先…→再…→然后…（≥30字）",
+                "counter_example": "什么情况会失效",
+                "variants": ["变体1", "变体2"],
+                "imagination": "≥30字",
+                "source_line_no": 1,
+                "quote": "对应原话",
+            }
+        ],
+    },
+    6: {
+        "combo": {
+            "code": "emo.relatable.escalate",
+            "name": "组合模板名",
+            "intent": "涨粉|带货|种草|引流|科普|情绪共鸣",
+            "core_idea_alignment": "手法如何围绕中心思想组合（≥30字）",
+            "content_trend": "内容走向",
+            "sequence_desc": "槽位序列的组合逻辑",
+            "emotion_shape": "单峰|双峰|递进上升|波浪|骤升缓降|前高后低|平缓",
+            "mechanism": "为什么这个顺序有效（≥30字）",
+            "variants": ["变体1", "变体2"],
+            "imagination": "≥30字",
+        },
+        "slots": [
+            {
+                "seq": 1,
+                "segment_seq": 1,
+                "slot_role": "固定|可替换",
+                "role_reason": "判定理由",
+                "method_code": "method.xxx.yyy",
+                "expected_function": "让观众发生什么（≥20字）",
+                "position_ratio_start": 0.0,
+                "position_ratio_end": 0.25,
+                "duration_ratio": 0.25,
+                "swap_alternatives": ["method.aaa.bbb"],
+            }
+        ],
+        "emotion_curve": [[0.0, 6.5], [0.25, 5.0]],
+    },
+}
+
+
+# ---------------- 工具 ----------------
+
+def _fmt_transcript(sentences: Sequence[dict[str, Any]], *, with_ms: bool = True) -> str:
+    lines = []
+    for s in sentences:
+        head = f"#{int(s['seq']):02d}"
+        if with_ms:
+            head += f" [{int(s['start_ms'])}-{int(s['end_ms'])}ms]"
+        lines.append(f"{head} {s['text']}")
+    return "\n".join(lines)
+
+
+def _fmt_energy(energy: Sequence[dict[str, Any]]) -> str:
+    if not energy:
+        return "（无音频能量采样）"
+    return " ".join(f"{int(e['t_ms'])}:{float(e['energy']):.2f}" for e in energy)
+
+
+def normalize_code(raw: Any) -> str:
+    """把模型输出的 ``code`` 归一化为三段式 ``{类}.{小类}.{短名}``。
+
+    模型常见两种偏差：①写成四段以上（``topic.pain.game.recommendation``）；
+    ②只用两段（``hook.question``）。四段以上时把第 3 段起合并为短名，两段时补 ``misc``，
+    这样既不丢语义也不因格式问题静默丢弃整条积木。无法归一化时返回空串。
+    """
+    parts = [p for p in re.split(r"[.\-/\s]+", str(raw or "").strip().lower()) if p]
+    parts = [re.sub(r"[^a-z0-9_]", "_", p).strip("_") for p in parts]
+    parts = [p for p in parts if p]
+    if len(parts) < 2:
+        return ""
+    if len(parts) == 2:
+        parts = [parts[0], "misc", parts[1]]
+    elif len(parts) > 3:
+        parts = [parts[0], parts[1], "_".join(parts[2:])]
+    code = ".".join(parts[:3])
+    return code if validate.is_code(code) else ""
+
+
+def _line_to_sentence(sentences: Sequence[dict[str, Any]], line_no: Any) -> dict[str, Any] | None:
+    try:
+        seq = int(line_no)
+    except (TypeError, ValueError):
+        return None
+    for s in sentences:
+        if int(s["seq"]) == seq:
+            return s
+    return None
+
+
+def _sentence_at(sentences: Sequence[dict[str, Any]], t_ms: int) -> dict[str, Any] | None:
+    if not sentences:
+        return None
+    for s in sentences:
+        if int(s["start_ms"]) <= t_ms < int(s["end_ms"]):
+            return s
+    return min(sentences, key=lambda s: abs((int(s["start_ms"]) + int(s["end_ms"])) / 2 - t_ms))
+
+
+def _clamp_intensity(v: Any) -> float:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return 0.0
+    return round(max(0.0, min(10.0, f)), 1)
+
+
+def _derive_turn_points(
+    sentences: Sequence[dict[str, Any]],
+    grid: Sequence[int],
+    values: Sequence[float],
+    model_turns: Sequence[dict[str, Any]] = (),
+) -> list[dict[str, Any]]:
+    """曲线统计点（峰/谷/反转/悬念）+ 模型叙事点（带 line_no）合并去重。"""
+    info = emotion.analysis(values, grid)
+    picked: list[dict[str, Any]] = []
+
+    for i in sorted(info["peaks"], key=lambda i: -values[i])[:2]:
+        picked.append({"turn_type": "峰", "t_ms": grid[i], "intensity": values[i]})
+    for i in sorted(info["valleys"], key=lambda i: values[i])[:2]:
+        picked.append({"turn_type": "谷", "t_ms": grid[i], "intensity": values[i]})
+    idx = emotion.direction_change_index(values)
+    if idx is not None:
+        picked.append({"turn_type": "反转", "t_ms": grid[idx], "intensity": values[idx]})
+    idx = emotion.suspension_index(values)
+    if idx is not None:
+        picked.append({"turn_type": "悬念", "t_ms": grid[idx], "intensity": values[idx]})
+
+    pool: dict[str, list[dict[str, Any]]] = {}
+    for t in model_turns or []:
+        tt = str(t.get("type") or t.get("turn_type") or "").strip()
+        if tt in ("峰", "谷", "反转", "悬念"):
+            pool.setdefault(tt, []).append(t)
+
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()
+    for point in picked:
+        note = ""
+        sentence = None
+        candidates = pool.get(point["turn_type"]) or []
+        if candidates:
+            item = candidates.pop(0)
+            note = str(item.get("note") or "")
+            sentence = _line_to_sentence(sentences, item.get("line_no"))
+        if sentence is None:
+            sentence = _sentence_at(sentences, point["t_ms"])
+        key = (point["turn_type"], int(point["t_ms"]))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            {
+                "turn_type": point["turn_type"],
+                "t_ms": int(point["t_ms"]),
+                "intensity": _clamp_intensity(point["intensity"]),
+                "sentence": sentence,
+                "note": note or f"曲线在该点出现{point['turn_type']}（强度 {_clamp_intensity(point['intensity'])}）"
+                + (f"，对应台词「{sentence['text'][:20]}」" if sentence else ""),
+            }
+        )
+    out.sort(key=lambda p: p["t_ms"])
+    return [dict(p, seq=i + 1) for i, p in enumerate(out)][:8]
+
+
+# ---------------- 单层调用 ----------------
+
+async def _run_layer(
+    db: AsyncSession,
+    *,
+    video: M.Video,
+    analysis_id: str,
+    layer: int,
+    user_text: str,
+    model: str,
+    array_keys: Sequence[str],
+    max_tokens: int = 16384,
+) -> tuple[bool, dict[str, Any], dict[str, Any]]:
+    code = LAYER_CODES[layer]
+    template = await load_active_prompt(db, code)
+    if template is None:
+        seed = TEMPLATES.get(code, {})
+        content = seed.get("content", "")
+        logger.warning("提示词 %s 未落库，使用代码内置默认版本", code)
+        system = content + THREE_LAYER_CONTRACT
+        version = 0
+    else:
+        system = template.content + THREE_LAYER_CONTRACT
+        version = template.version
+
+    schema_hint = json.dumps(SCHEMAS[layer], ensure_ascii=False, indent=1)
+    messages = [
+        {"role": "system", "content": system},
+        {
+            "role": "user",
+            "content": f"{user_text}\n\n必须严格输出 JSON 对象，字段结构如下（不得增删字段名，取不到的时间写 0）：\n{schema_hint}",
+        },
+    ]
+
+    last_exc = ""
+    attempts = (0.2, 0.6, 0.2, 0.6)  # 4 次尝试：provider 5xx 多为瞬时故障，缺重试会整层失败
+    for attempt, temperature in enumerate(attempts):
+        if attempt:
+            await asyncio.sleep(min(3 * attempt * attempt, 20))
+        try:
+            data, info = await complete_json(
+                messages,
+                array_keys=list(array_keys),
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=300,
+                scene="three_layer",
+                ref_type="analysis",
+                ref_id=str(analysis_id),
+                max_rounds=3,
+            )
+            if data:
+                data = simplify_obj(data)
+                quality = {
+                    "items": count_items(data, list(array_keys)) if array_keys else 1,
+                    "truncated": bool(info.get("truncated")),
+                    "repaired": bool(info.get("repaired")),
+                    "rounds": info.get("rounds"),
+                    "chars": len(info.get("raw") or ""),
+                    "prompt_version": version,
+                }
+                return True, data, quality
+            last_exc = f"第 {attempt + 1} 次返回空内容"
+        except Exception as exc:  # noqa: BLE001
+            last_exc = str(exc)
+            logger.warning("三层链路 L%s 调用失败（第 %s 次）：%s", layer, attempt + 1, exc)
+    return False, {"layer_error": last_exc}, {"items": 0, "prompt_version": version}
+
+
+# ---------------- 主流程 ----------------
+
+async def purge_three_layer(db: AsyncSession, video_id) -> None:
+    """清掉本片的三层产物（脚本层整片重写 + 本片溯源），积木库行按 code 覆盖不删除。"""
+    await db.execute(delete(M.RefElementSource).where(M.RefElementSource.source_video_id == video_id))
+    script_ids = (
+        await db.execute(select(M.ScriptScript.id).where(M.ScriptScript.video_id == video_id))
+    ).scalars().all()
+    if script_ids:
+        # 显式按依赖顺序清理，不依赖 DB 级 ON DELETE CASCADE（异步连接下 PRAGMA 未必生效）
+        sent_ids = (
+            await db.execute(select(M.ScriptSentence.id).where(M.ScriptSentence.script_id.in_(script_ids)))
+        ).scalars().all()
+        if sent_ids:
+            await db.execute(delete(M.ScriptEvidence).where(M.ScriptEvidence.sentence_id.in_(sent_ids)))
+            await db.execute(delete(M.ScriptTurnPoint).where(M.ScriptTurnPoint.sentence_id.in_(sent_ids)))
+        await db.execute(delete(M.ScriptEmotionCurve).where(M.ScriptEmotionCurve.script_id.in_(script_ids)))
+        await db.execute(delete(M.ScriptSentence).where(M.ScriptSentence.script_id.in_(script_ids)))
+        await db.execute(delete(M.ScriptSegment).where(M.ScriptSegment.script_id.in_(script_ids)))
+        await db.execute(delete(M.ScriptScript).where(M.ScriptScript.id.in_(script_ids)))
+    await db.flush()
+
+
+async def run_three_layer(
+    db: AsyncSession,
+    video: M.Video,
+    *,
+    analysis_id: str,
+    manifest: dict[str, Any] | None = None,
+    ctx: dict[str, Any] | None = None,
+    model: str = "flash",
+    progress: Progress | None = None,
+) -> dict[str, Any]:
+    """执行 L1~L6 并把结果写入三层表，返回落库统计与校验证据。"""
+
+    async def report(stage: str, pct: int, msg: str) -> None:
+        if progress is not None:
+            try:
+                await progress(stage, pct, msg)
+            except Exception:  # noqa: BLE001
+                logger.debug("三层链路进度回调失败", exc_info=True)
+
+    # 先清旧产物再重建原料：script_sentence.raw_sentence_id → raw_transcript_sentence 为 NO ACTION，
+    # 若先删 raw_* 会撞上上一轮遗留的脚本句子外键（IntegrityError），故必须先 purge 本片产物。
+    await purge_three_layer(db, video.id)
+
+    if ctx is None:
+        if manifest:
+            ctx = await persist_raw_layer(db, video, manifest)
+        else:
+            ctx = await load_raw_context(db, video.id)
+            if not ctx["sentences"]:
+                ctx = await persist_raw_layer(db, video, {})
+    if not ctx.get("sentences"):
+        return {"ok": False, "error": "保真原料层无可用转写句子（raw_transcript_sentence 为空），无法执行拆解", "counts": {}, "verdicts": []}
+    raw_sentences: list[dict[str, Any]] = ctx["sentences"]
+    shots: list[dict[str, Any]] = list(ctx["shots"])
+    duration_ms: int = int(ctx["duration_ms"] or video.duration_ms or 0)
+
+    # 短碎片合并：ASR 转写常出现不足 8 字的碎片行（如"这也能为此"），而"句子级还原"口径与
+    # script_sentence.quote 的 DB CHECK（length(trim(quote)) >= 8）都要求完整句。
+    # 这里把连续碎片合并为"句子单元"：时间锚取首尾、文本取拼接、raw_sentence_id 锚首句 id，
+    # 各层提示词与行号口径统一以单元为单位，保证原话引用率 100% 且 quote 可校验。
+    MIN_QUOTE_LEN = 8
+    units: list[dict[str, Any]] = []
+    buf: list[dict[str, Any]] = []
+
+    def _unit_text(group: Sequence[dict[str, Any]]) -> str:
+        return "".join(str(x["text"]).strip() for x in group)
+
+    def _emit(group: list[dict[str, Any]]) -> None:
+        units.append({
+            "id": group[0]["id"],
+            "start_ms": int(group[0]["start_ms"]),
+            "end_ms": int(group[-1]["end_ms"]),
+            "text": _unit_text(group),
+            "raw_ids": [str(x["id"]) for x in group],
+            "raw_seqs": [int(x["seq"]) for x in group],
+        })
+
+    for s in raw_sentences:
+        buf.append(s)
+        if len(_unit_text(buf)) >= MIN_QUOTE_LEN:
+            _emit(buf)
+            buf = []
+    if buf:
+        if units:  # 尾部残句并入前一单元，避免产生不足 8 字的句子
+            tail = buf
+            units[-1]["end_ms"] = int(tail[-1]["end_ms"])
+            units[-1]["text"] = units[-1]["text"] + _unit_text(tail)
+            units[-1]["raw_ids"].extend(str(x["id"]) for x in tail)
+            units[-1]["raw_seqs"].extend(int(x["seq"]) for x in tail)
+        else:
+            _emit(buf)
+    for i, u in enumerate(units, start=1):
+        u["seq"] = i  # 行号按合并后重排，全链路以此为准
+    sentences: list[dict[str, Any]] = units
+    line_map = {int(s["seq"]): s for s in sentences}
+
+    tags = (await db.execute(select(M.LibTag.code, M.LibTag.dimension))).all()
+    raw_by_id = {str(s["id"]): s for s in sentences}
+    # R8 逐字链的原料：未合并的原始转写句（按 seq 升序），用于判定 quote 是否为
+    # 原话连续子串（跨句拼接合法），以及跨句时实际覆盖的 raw 句区间。
+    raw_chain = [
+        {"id": str(s["id"]), "seq": int(s["seq"]), "text": str(s["text"])} for s in raw_sentences
+    ]
+    raw_frag_by_id = {str(s["id"]): s for s in raw_sentences}
+    validator = validate.Validator(
+        duration_ms=duration_ms,
+        raw_by_seq=line_map,
+        raw_by_id=raw_by_id,
+        raw_chain=raw_chain,
+        shot_descs=[s["desc"] for s in shots],
+        whitelists=validate.load_whitelists([(c, d) for c, d in tags]),
+    )
+
+    # 释放写事务，避免长时间持锁阻塞其他连接（ai_usage_logs 等）写入
+    await db.commit()
+    verdicts: list[dict[str, Any]] = []
+    counts: dict[str, int] = {}
+    quality: dict[str, Any] = {}
+    warnings: list[str] = []
+
+    title = str(video.title or "")
+    base_meta = f"标题：{title or '（无）'}\n平台：{ctx['platform']}\n片长：{duration_ms}ms（约 {round(duration_ms / 1000, 1)} 秒）"
+    transcript = _fmt_transcript(sentences)
+
+    # ---------- L1 本片定调 ----------
+    await report("L1", 52, "三层链路 · L1 本片定调…")
+    ok, data1, q1 = await _run_layer(
+        db, video=video, analysis_id=analysis_id, layer=1,
+        user_text=f"【视频元信息】\n{base_meta}\n\n【#03 逐句转写（含毫秒）】\n{transcript}",
+        model=model, array_keys=LAYER_ARRAY_KEYS[1], max_tokens=8192,
+    )
+    quality["L1"] = q1
+    if not ok:
+        return {"ok": False, "error": data1.get("layer_error", "L1 失败"), "counts": counts, "verdicts": verdicts}
+
+    script = M.ScriptScript(
+        video_id=video.id,
+        title=title[:256] or None,
+        platform=ctx["platform"][:32],
+        category=(str(data1.get("category") or "")[:64] or None),
+        duration_ms=duration_ms,
+        core_idea=str(data1.get("core_idea") or "")[:2000] or "（缺失）",
+        content_trend=str(data1.get("content_trend") or "")[:2000] or "（缺失）",
+        target_audience=str(data1.get("target_audience") or "")[:2000] or "（缺失）",
+        summary=str(data1.get("summary") or "")[:4000] or "（缺失）",
+        status="draft",
+    )
+    verdict = validator.validate("script_script", {"core_idea": script.core_idea, "content_trend": script.content_trend, "target_audience": script.target_audience, "summary": script.summary, "duration_ms": duration_ms}, label=f"script:{title[:20]}")
+    if not verdict.accepted:
+        return {"ok": False, "error": "L1 结构校验未通过：" + "；".join(verdict.hard), "counts": counts, "verdicts": [verdict.as_dict()]}
+    db.add(script)
+    await db.flush()
+    counts["script_script"] = 1
+    verdicts.append(verdict.as_dict())
+    await db.commit()
+
+    # ---------- L2 连续情绪曲线 ----------
+    interval_ms = int(data1.get("sample_interval_ms") or 0) or emotion.pick_interval(duration_ms)
+    interval_ms = min(max(interval_ms, 200), emotion.MAX_INTERVAL_MS)
+    grid = emotion.build_grid(duration_ms, interval_ms)
+    await report("L2", 58, f"三层链路 · L2 情绪曲线采样（{len(grid)} 点，间隔 {interval_ms}ms）…")
+    # 分窗推理：单次要求模型一次性输出全片百余个采样点，在免费档上会超时/被网关拒绝；
+    # 改为按时间窗口分批请求，服务端按 t_ms 归并成同一条等间隔连续曲线。
+    chunk_ms = 20000
+    windows: list[tuple[int, int]] = []
+    start = 0
+    while start < duration_ms:
+        windows.append((start, min(duration_ms, start + chunk_ms)))
+        start += chunk_ms
+    if not windows:
+        windows = [(0, duration_ms)]
+    l2_agg: dict[str, Any] = {
+        "chunks": len(windows), "ok_chunks": 0, "layer_errors": [],
+        "model_points": 0, "prompt_version": None, "batches": [],
+    }
+    model_series: dict[int, float] = {}
+    l2_turn_points: list[Any] = []
+    for idx, (w_start, w_end) in enumerate(windows, start=1):
+        part = [s for s in sentences if int(s["end_ms"]) > w_start and int(s["start_ms"]) < w_end] or sentences[:2]
+        part_energy = [
+            e for e in ctx["energy"] if w_start - 3000 <= int(e["t_ms"]) <= w_end + 3000
+        ]
+        l2_user = (
+            f"【采样参数】interval_ms={interval_ms}，sample_count={len(grid)}，片长={duration_ms}ms\n"
+            f"【本批窗口】第 {idx}/{len(windows)} 批：window_start_ms={w_start}，window_end_ms={w_end}。"
+            f"intensity_series 只输出本窗口内按 interval_ms 等间隔的采样点（可含两端，越界点不要输出），"
+            f"每点格式 [t_ms, 强度0~10]。\n\n"
+            f"【#03 逐句转写（含毫秒，行号即 line_no）】\n{_fmt_transcript(part)}\n\n"
+            f"【音频能量采样（t_ms:energy，0~1，限本窗口前后 3 秒）】\n{_fmt_energy(part_energy)}"
+        )
+        await report("L2", 58, f"三层链路 · L2 情绪曲线采样（窗口 {idx}/{len(windows)}）…")
+        ok2, data2, q2 = await _run_layer(
+            db, video=video, analysis_id=analysis_id, layer=2,
+            user_text=l2_user, model=model, array_keys=LAYER_ARRAY_KEYS[2], max_tokens=8192,
+        )
+        if idx == 1:
+            quality["L2"] = q2
+        if ok2:
+            l2_agg["ok_chunks"] += 1
+            l2_agg["prompt_version"] = q2.get("prompt_version")
+            got = 0
+            for point in data2.get("intensity_series") or []:
+                try:
+                    t, v = int(point[0]), _clamp_intensity(point[1])
+                except (TypeError, ValueError, IndexError):
+                    continue
+                if t < w_start or t > w_end:
+                    continue
+                index = emotion.index_of_t(grid, t)
+                if index not in model_series:
+                    model_series[index] = v
+                    got += 1
+            l2_agg["batches"].append({"window": [w_start, w_end], "points": got})
+            l2_turn_points.extend(data2.get("turn_points") or [])
+        else:
+            l2_agg["layer_errors"].append(f"窗口{idx}({w_start}-{w_end}ms)：{data2.get('layer_error')}")
+    l2_agg["model_points"] = len(model_series)
+    quality["L2"] = {**(quality.get("L2") or {}), **l2_agg}
+    ok, data2 = bool(l2_agg["ok_chunks"]), {}
+
+    # 曲线以模型序列为骨架，缺失/越界点用句子强度插值补齐（插值点占比 ≤30% 校验）
+    # 模型未给出序列时，退回"音频能量锚点法"：按句子区间内能量分位映射到 2~8 强度（可复算、非主观命名）
+    fallback_used = ""
+    if not model_series and ctx["energy"]:
+        e_grid = emotion.resample_energy(grid, [(int(e["t_ms"]), float(e["energy"])) for e in ctx["energy"]])
+        e_lo, e_hi = min(e_grid), max(e_grid)
+        for s in sentences:
+            i0 = emotion.index_of_t(grid, int(s["start_ms"]))
+            i1 = emotion.index_of_t(grid, int(s["end_ms"]))
+            seg = e_grid[min(i0, i1): max(i0, i1) + 1] or [e_grid[i0]]
+            ratio = (max(seg) - e_lo) / (e_hi - e_lo) if e_hi > e_lo else 0.5
+            model_series[emotion.index_of_t(grid, int(s["start_ms"]))] = round(2.0 + 6.0 * ratio, 1)
+        fallback_used = "audio_energy"
+
+    spans = [(int(s["start_ms"]), int(s["end_ms"]), float(model_series.get(emotion.index_of_t(grid, int(s["start_ms"])), 4.0))) for s in sentences]
+    interpolated, interp_idx = emotion.sample_from_spans(grid, spans)
+    values = [model_series.get(i, interpolated[i]) for i in range(len(grid))]
+    interp_ratio = round(len(interp_idx) / max(1, len(grid)), 4)
+    method = fallback_used or "model"
+    if ctx["energy"]:
+        energy_values = emotion.resample_energy(grid, [(int(e["t_ms"]), float(e["energy"])) for e in ctx["energy"]])
+        values = emotion.mix_with_energy(values, energy_values)
+        method = fallback_used or "hybrid"
+
+    stats = emotion.analysis(values, grid)
+    curve = M.ScriptEmotionCurve(
+        script_id=script.id,
+        sample_interval_ms=interval_ms,
+        duration_ms=duration_ms,
+        sample_count=len(grid),
+        intensity_series=[[grid[i], round(float(values[i]), 1)] for i in range(len(grid))],
+        series_min=stats["series_min"],
+        series_max=stats["series_max"],
+        shape=stats["shape"],
+        peak_position_ratio=stats["peak_position_ratio"],
+        peak_count=stats["peak_count"],
+        valley_count=stats["valley_count"],
+        baseline_intensity=stats["baseline_intensity"],
+        method=method,
+    )
+    db.add(curve)
+    await db.flush()
+    counts["script_emotion_curve"] = 1
+    quality["curve"] = {
+        "sample_interval_ms": interval_ms,
+        "sample_count": len(grid),
+        "interpolated_points": len(interp_idx),
+        "interpolated_ratio": interp_ratio,
+        "shape": stats["shape"],
+        "peak_count": stats["peak_count"],
+        "valley_count": stats["valley_count"],
+        "peak_position_ratio": stats["peak_position_ratio"],
+        "method": method,
+        "model_points": len(model_series),
+        "fallback": fallback_used,
+        "model_call_ok": bool(ok),
+    }
+    if interp_ratio > 0.30:
+        warnings.append(f"曲线插值点占比 {interp_ratio} 超过 30% 上限（模型序列覆盖不足）")
+    # 冻结曲线口径：L5 各积木循环会复用同名局部变量 values，L6 组合模板需要按位置比取曲线强度，
+    # 因此这里显式保存一份不被后续覆盖的曲线网格与强度序列。
+    curve_grid, curve_values = list(grid), [float(v) for v in values]
+
+    # ---------- L3 段落切分 ----------
+    await report("L3", 64, "三层链路 · L3 段落切分…")
+    l3_user = (
+        f"【L1 结论】\n{json.dumps({k: data1.get(k) for k in ('core_idea','content_trend','target_audience','hook_type','narrative_order')}, ensure_ascii=False)}\n\n"
+        f"【#03 逐句转写（含毫秒，行号即 line_no）】\n{transcript}\n\n片长：{duration_ms}ms"
+    )
+    ok3, data3, q3 = await _run_layer(
+        db, video=video, analysis_id=analysis_id, layer=3,
+        user_text=l3_user, model=model, array_keys=LAYER_ARRAY_KEYS[3], max_tokens=16384,
+    )
+    quality["L3"] = q3
+    segments_json = (data3.get("segments") or []) if ok3 else []
+    if not segments_json:
+        segments_json = [
+            {"seq": 1, "seg_type": "钩子", "title": title[:12] or "全片", "line_from": 1,
+             "line_to": max(1, len(sentences)), "purpose": "模型未返回段落，按全片兜底为一个段落",
+             "summary": "全片口播", "hook_point": True, "payoff_point": True,
+             "emotion_level": stats["baseline_intensity"] or 0}
+        ]
+        warnings.append("L3 未返回可用段落，已按全片兜底")
+
+    seg_rows: list[M.ScriptSegment] = []
+    for item in segments_json:
+        s_first = _line_to_sentence(sentences, item.get("line_from")) or (sentences[0] if sentences else None)
+        s_last = _line_to_sentence(sentences, item.get("line_to")) or s_first
+        if s_first is None:
+            continue
+        start_ms, end_ms, _ = validate.correct_time(
+            s_first["start_ms"], (s_last or s_first)["end_ms"], (int(s_first["start_ms"]), int((s_last or s_first)["end_ms"]))
+        )
+        seg_type = str(item.get("seg_type") or "").strip()
+        if seg_type not in validator.wl.get("seg_type", set()):
+            seg_type = "铺垫"
+        row = M.ScriptSegment(
+            script_id=script.id,
+            seq=int(item.get("seq") or len(seg_rows) + 1),
+            seg_type=seg_type,
+            title=(str(item.get("title") or "")[:128] or None),
+            start_ms=start_ms,
+            end_ms=end_ms,
+            start_sentence_seq=int(s_first["seq"]),
+            end_sentence_seq=int((s_last or s_first)["seq"]),
+            purpose=str(item.get("purpose") or "")[:4000] or "（缺失）",
+            summary=str(item.get("summary") or "")[:4000] or "（缺失）",
+            hook_point=1 if item.get("hook_point") else 0,
+            payoff_point=1 if item.get("payoff_point") else 0,
+            emotion_peak=_clamp_intensity(item.get("emotion_level")),
+        )
+        v = validator.validate(
+            "script_segment",
+            {
+                **item,
+                "start_ms": start_ms,
+                "end_ms": end_ms,
+                "seg_type": seg_type,
+                "start_sentence_seq": int(s_first["seq"]),
+                "end_sentence_seq": int((s_last or s_first)["seq"]),
+            },
+            label=f"seg{row.seq}:{row.title or ''}",
+        )
+        verdicts.append(v.as_dict())
+        if not v.accepted:
+            continue
+        db.add(row)
+        seg_rows.append(row)
+    await db.flush()
+    counts["script_segment"] = len(seg_rows)
+    await db.commit()
+    if not seg_rows:
+        return {"ok": False, "error": "L3 段落全部未通过校验", "counts": counts, "verdicts": verdicts}
+
+    def segment_of_line(seq: int) -> M.ScriptSegment | None:
+        for seg in seg_rows:
+            if seg.start_sentence_seq <= seq <= seg.end_sentence_seq:
+                return seg
+        return seg_rows[-1]
+
+    # ---------- L4 句子级还原 ----------
+    await report("L4", 70, "三层链路 · L4 句子级还原…")
+    seg_brief = json.dumps(
+        [{k: getattr(s, k) for k in ('seq', 'seg_type', 'title', 'start_sentence_seq', 'end_sentence_seq', 'purpose')} for s in seg_rows],
+        ensure_ascii=False,
+    )
+    n_lo = max(len(sentences), math.ceil(duration_ms / 4000))
+    n_hi = max(len(sentences), math.floor(duration_ms / 2400))
+    # 分批调用：单批输出可控，避免长输出被 provider 5xx 直接打回（实测整片一次性输出必失败）
+    chunk_size = 7
+    l4_chunks = [sentences[i:i + chunk_size] for i in range(0, len(sentences), chunk_size)]
+    sentences_json: list[dict[str, Any]] = []
+    q4_agg: dict[str, Any] = {"chunks": len(l4_chunks), "ok_chunks": 0, "items": 0, "layer_errors": []}
+    for idx, part in enumerate(l4_chunks, start=1):
+        await report("L4", 70, f"三层链路 · L4 句子级还原（{idx}/{len(l4_chunks)} 批）…")
+        part_transcript = _fmt_transcript(part)
+        l4_user = (
+            f"【L3 段落】\n{seg_brief}\n\n"
+            f"【#03 逐句转写（含毫秒，行号即 line_no）】\n{part_transcript}\n\n"
+            f"本批仅处理以上 {len(part)} 行（#{int(part[0]['seq']):02d}~#{int(part[-1]['seq']):02d}），"
+            f"逐行覆盖、不得漏行，本批输出句数 = {len(part)}（每行恰好对应 1 句，quote 即该行原话）。"
+            f"全片口径：句数 N ∈ [{n_lo}, {n_hi}]。"
+        )
+        ok4, data4, q4 = await _run_layer(
+            db, video=video, analysis_id=analysis_id, layer=4,
+            user_text=l4_user, model=model, array_keys=LAYER_ARRAY_KEYS[4], max_tokens=16384,
+        )
+        if ok4:
+            items = list(data4.get("sentences") or [])
+            sentences_json.extend(items)
+            q4_agg["ok_chunks"] += 1
+            q4_agg["items"] += len(items)
+            q4_agg["prompt_version"] = q4.get("prompt_version")
+        else:
+            q4_agg["layer_errors"].append(f"第{idx}批：{data4.get('layer_error')}")
+    quality["L4"] = q4_agg
+    if not sentences_json:
+        return {"ok": False, "error": "L4 全部批次调用失败：" + "；".join(map(str, q4_agg["layer_errors"]))[:300],
+                "counts": counts, "verdicts": verdicts}
+    # 按行号归并、seq 重排，保证句序与时间轴一致
+    def _line_key(it: dict[str, Any]) -> tuple[int, int]:
+        raw_line = it.get("line_no")
+        try:
+            line = int(raw_line)
+        except (TypeError, ValueError):
+            line = 10 ** 6
+        try:
+            seq = int(it.get("seq") or 0)
+        except (TypeError, ValueError):
+            seq = 0
+        return (line, seq)
+    sentences_json.sort(key=_line_key)
+    sentences_json = [dict(it, seq=i + 1) for i, it in enumerate(sentences_json)]
+    sentence_rows: list[M.ScriptSentence] = []
+    evidence_rows: list[M.ScriptEvidence] = []
+    pending_evidence: list[tuple[M.ScriptSentence, str, str, int, int, str]] = []
+    for item in sentences_json:
+        raw = _line_to_sentence(sentences, item.get("line_no"))
+        if raw is None:
+            continue
+        quote = str(item.get("quote") or "").strip()
+        start_ms, end_ms, _ = validate.correct_time(raw["start_ms"], raw["end_ms"], (int(raw["start_ms"]), int(raw["end_ms"])))
+        function = str(item.get("sentence_function") or "").strip()
+        if function not in validator.wl.get("sentence_function", set()):
+            function = "过渡"
+        row = M.ScriptSentence(
+            script_id=script.id,
+            segment_id=(segment_of_line(int(raw["seq"])).id if segment_of_line(int(raw["seq"])) else None),
+            seq=int(item.get("seq") or len(sentence_rows) + 1),
+            raw_sentence_id=raw["id"],
+            source_video_id=video.id,
+            quote=quote or str(raw["text"]),
+            start_ms=start_ms,
+            end_ms=end_ms,
+            sentence_function=function,
+            function_reason=str(item.get("function_reason") or "")[:4000] or "（缺失）",
+            method_refs=list(item.get("method_refs") or []),
+            emotion_intensity=_clamp_intensity(item.get("emotion_intensity")),
+            is_hook=1 if item.get("is_hook") else 0,
+            is_turn=1 if item.get("is_turn") else 0,
+            is_peak=1 if item.get("is_peak") else 0,
+            variants=list(item.get("variants") or []),
+            imagination=str(item.get("imagination") or "")[:4000],
+            confidence=None,
+        )
+        v = validator.validate(
+            "script_sentence",
+            {**item, "raw_sentence_id": raw["id"], "source_video_id": video.id, "quote": row.quote,
+             "start_ms": start_ms, "end_ms": end_ms,
+             "emotion_intensity": row.emotion_intensity, "function_reason": row.function_reason,
+             "variants": row.variants, "imagination": row.imagination, "sentence_function": function},
+            label=f"句 {raw['seq']}",
+            raw_text=str(raw["text"]),
+            anchor_ids=raw.get("raw_ids") or (),
+        )
+        verdicts.append(v.as_dict())
+        if not v.accepted:
+            continue
+        db.add(row)
+        sentence_rows.append(row)
+        for ev in (item.get("evidence") or [])[:2]:
+            ev_type = str(ev.get("evidence_type") or "transcript").lower()
+            if ev_type not in validator.wl.get("evidence_type", set()):
+                ev_type = "transcript"
+            ev_quote = str(ev.get("quote") or row.quote)[:4000]
+            ev_verdict = validator.validate("script_evidence", {
+                "evidence_type": ev_type, "quote": ev_quote, "content": ev.get("content"),
+                "start_ms": start_ms, "end_ms": end_ms,
+                "raw_sentence_id": raw["id"], "line_no": raw["seq"],
+            }, label=f"句 {raw['seq']} 证据", raw_text=str(raw["text"]), anchor_ids=raw.get("raw_ids") or ())
+            verdicts.append(ev_verdict.as_dict())
+            if ev_verdict.accepted and str(ev.get("content") or "").strip():
+                # 句子主键由 flush 时的 Python 端默认值生成，此处先登记，flush 后再落库
+                pending_evidence.append((row, ev_type, ev_quote, start_ms, end_ms, raw["id"]))
+    await db.flush()
+    for row, ev_type, ev_quote, ev_start, ev_end, raw_id in pending_evidence:
+        if row.id is None:  # 句子未落库（校验被拒）时跳过其证据
+            continue
+        row_ev = M.ScriptEvidence(
+            script_id=script.id,
+            sentence_id=row.id,
+            evidence_type=ev_type,
+            raw_sentence_id=raw_id if ev_type == "transcript" else None,
+            raw_shot_id=None,
+            source_video_id=video.id,
+            quote=ev_quote,
+            start_ms=ev_start,
+            end_ms=ev_end,
+        )
+        db.add(row_ev)
+        evidence_rows.append(row_ev)
+    await db.flush()
+    counts["script_sentence"] = len(sentence_rows)
+    counts["script_evidence"] = len(evidence_rows)
+    await db.commit()
+    script.sentence_count = len(sentence_rows)
+    r4_verdict = validate.Verdict(row_type="script_script", label="句数粒度区间(R4)")
+    validator.r4_granularity(len(sentence_rows), r4_verdict)
+    verdicts.append(r4_verdict.as_dict())
+    quality["sentence_range"] = list(validator.sentence_range())
+
+    if not sentence_rows:
+        return {"ok": False, "error": "L4 句子全部未通过校验（R8 原话一致/R11 反标签等硬拦截）", "counts": counts, "verdicts": verdicts}
+
+    # 曲线值回填句级强度 + 峰/谷/turn 标记
+    for row in sentence_rows:
+        idx = emotion.index_of_t(grid, row.start_ms)
+        row.emotion_intensity = round(float(values[idx]), 1)
+    peak_sentences = {grid[i] for i in stats["peaks"]}
+    for row in sentence_rows:
+        near = min(peak_sentences, key=lambda t: abs(t - row.start_ms)) if peak_sentences else None
+        if near is not None and abs(near - row.start_ms) <= interval_ms and row.is_peak:
+            row.is_peak = 1
+
+    # 段落情绪峰值回填
+    for seg in seg_rows:
+        seg_values = [
+            row.emotion_intensity for row in sentence_rows
+            if seg.start_sentence_seq <= row.seq <= seg.end_sentence_seq
+        ]
+        if seg_values:
+            seg.emotion_peak = round(max(seg_values), 1)
+
+    # ---------- 转折点 ----------
+    turn_points = _derive_turn_points(sentences, grid, values, l2_turn_points)
+    turn_rows: list[M.ScriptTurnPoint] = []
+    for point in turn_points:
+        sentence_row = None
+        if point["sentence"] is not None:
+            sentence_row = next((r for r in sentence_rows if int(r.seq) == int(point["sentence"]["seq"])), None)
+        row = M.ScriptTurnPoint(
+            script_id=script.id,
+            seq=point["seq"],
+            turn_type=point["turn_type"],
+            t_ms=point["t_ms"],
+            intensity=point["intensity"],
+            sentence_id=sentence_row.id if sentence_row else None,
+            note=point["note"][:4000],
+        )
+        v = validator.validate("script_turn_point", {"turn_type": row.turn_type, "t_ms": row.t_ms, "intensity": row.intensity, "note": row.note})
+        verdicts.append(v.as_dict())
+        if v.accepted:
+            db.add(row)
+            turn_rows.append(row)
+    await db.flush()
+    counts["script_turn_point"] = len(turn_rows)
+    for row in sentence_rows:
+        if any(t.sentence_id == row.id and t.turn_type in ("反转", "悬念") for t in turn_rows):
+            row.is_turn = 1
+
+    # ---------- L5 积木提炼 ----------
+    await report("L5", 80, "三层链路 · L5 积木提炼（六类分库）…")
+    l5_user = (
+        "【L4 句级脚本（seq / 原话 / 机制 / 手法引用 / 强度）】\n"
+        + json.dumps(
+            [
+                {
+                    "seq": r.seq, "quote": r.quote, "function": r.sentence_function,
+                    "function_reason": r.function_reason, "method_refs": r.method_refs,
+                    "emotion_intensity": r.emotion_intensity,
+                }
+                for r in sentence_rows
+            ],
+            ensure_ascii=False,
+        )
+        + f"\n\n【中心思想】{script.core_idea}\n【内容走向】{script.content_trend}\n【目标人群】{script.target_audience}"
+    )
+    # 按内容类型分库分批调用：单批输出可控，避免长输出被 provider 5xx 打回
+    lib_targets = (
+        ("topics", "选题库"), ("hooks", "钩子库"), ("copywriting", "文案库"),
+        ("quotes", "金句库"), ("methods", "手法库"),
+    )
+    data5: dict[str, Any] = {}
+    q5_agg: dict[str, Any] = {"arrays": {}, "prompt_version": None, "errors": []}
+    for key, label in lib_targets:
+        await report("L5", 80, f"三层链路 · L5 积木提炼（{label}）…")
+        ok_part, part, q5 = await _run_layer(
+            db, video=video, analysis_id=analysis_id, layer=5,
+            user_text=l5_user + f"\n\n【本次任务】只输出 {key} 数组（{label}），其它数组一律不要输出。",
+            model=model, array_keys=[key], max_tokens=16384,
+        )
+        q5_agg["prompt_version"] = q5.get("prompt_version")
+        if ok_part:
+            data5[key] = list(part.get(key) or [])
+            q5_agg["arrays"][key] = len(data5[key])
+        else:
+            q5_agg["errors"].append(f"{label}：{part.get('layer_error')}")
+    quality["L5"] = q5_agg
+    ok5 = any(q5_agg["arrays"].values())
+
+    lib_counts: dict[str, int] = {}
+    topic_rows: list[M.Any] = []
+    hook_rows: list[M.Any] = []
+    copy_rows: list[M.Any] = []
+    quote_rows: list[M.Any] = []
+    method_rows: list[M.Any] = []
+
+    def _ref(source_line: Any, lib_row: Any, element_table: str) -> M.RefElementSource | None:
+        raw = _line_to_sentence(sentences, source_line)
+        if raw is None:
+            return None
+        sent_row = next((r for r in sentence_rows if int(r.seq) == int(raw["seq"])), None)
+        return M.RefElementSource(
+            element_table=element_table,
+            element_id=lib_row.id,
+            source_script_id=script.id,
+            source_video_id=video.id,
+            source_sentence_id=(sent_row.id if sent_row else None),
+            source_segment_id=(segment_of_line(int(raw["seq"])).id if segment_of_line(int(raw["seq"])) else None),
+            quote=str(raw["text"])[:4000],
+            start_ms=int(raw["start_ms"]),
+            end_ms=int(raw["end_ms"]),
+            source_platform=ctx["platform"][:32] if ctx["platform"] else None,
+        )
+
+    async def _upsert_lib(model_cls, code: str, values: dict[str, Any]):
+        existing = (
+            await db.execute(select(model_cls).where(model_cls.code == code))
+        ).scalar_one_or_none()
+        if existing is None:
+            row = model_cls(code=code, **values)
+            db.add(row)
+            await db.flush()
+            return row, False
+        for k, v in values.items():
+            setattr(existing, k, v)
+        await db.flush()
+        return existing, True
+
+    topic_rows: list[M.Any] = []
+    if ok5:
+        for item in data5.get("topics") or []:
+            code = str(item.get("code") or "").strip().lower()
+            if not validate.is_code(code):
+                continue
+            values = dict(
+                name=str(item.get("name") or code)[:128],
+                topic_type=str(item.get("topic_type") or "痛点型"),
+                audience=str(item.get("audience") or ""),
+                pain_point=str(item.get("pain_point") or ""),
+                angle=str(item.get("angle") or ""),
+                value_type=str(item.get("value_type") or "情绪"),
+                applicable_category=(str(script.category or "")[:64] or None),
+                keywords=list(item.get("keywords") or []),
+                mechanism=str(item.get("mechanism") or "")[:4000],
+                variants=list(item.get("variants") or []),
+                imagination=str(item.get("imagination") or "")[:4000],
+                status="active",
+                quality_score=None,
+            )
+            if values["value_type"] not in validator.wl.get("value_type", set()):
+                values["value_type"] = "情绪"
+            if values["topic_type"] not in validator.wl.get("topic_type", set()):
+                values["topic_type"] = "痛点型"
+            refs = []
+            tmp = type("_Tmp", (), {"id": None})()
+            tmp.id = __import__("uuid").uuid4()
+            ref = _ref(item.get("source_line_no"), tmp, "lib_topic")
+            if ref is None:
+                continue
+            v = validator.validate("lib_topic", {**item, **values}, label=code, refs=[{"quote": ref.quote, "start_ms": ref.start_ms, "end_ms": ref.end_ms}])
+            if not v.accepted:
+                verdicts.append(v.as_dict())
+                continue
+            row, _ = await _upsert_lib(M.LibTopic, code, {**values, "quality_score": v.quality_score, "status": v.status})
+            ref.element_id = row.id
+            db.add(ref)
+            verdicts.append(v.as_dict())
+            topic_rows.append(row)
+        lib_counts["lib_topic"] = len(topic_rows)
+
+        for item in data5.get("hooks") or []:
+            code = str(item.get("code") or "").strip().lower()
+            if not validate.is_code(code):
+                continue
+            hook_type = str(item.get("hook_type") or "结果前置")
+            values = dict(
+                name=str(item.get("name") or code)[:128],
+                hook_type=hook_type,
+                position=str(item.get("position") or "前3秒"),
+                sentence_pattern=str(item.get("sentence_pattern") or ""),
+                variables=list(item.get("variables") or []),
+                expected_effect=str(item.get("expected_effect") or ""),
+                mechanism=str(item.get("mechanism") or "")[:4000],
+                variants=list(item.get("variants") or []),
+                imagination=str(item.get("imagination") or "")[:4000],
+                status="active",
+                quality_score=None,
+            )
+            if values["position"] not in validator.wl.get("hook_position", set()):
+                values["position"] = "前3秒"
+            tmp = _placeholder_row()
+            ref = _ref(item.get("source_line_no"), tmp, "lib_hook")
+            if ref is None:
+                continue
+            v = validator.validate("lib_hook", {**item, **values}, label=code, refs=[{"quote": ref.quote, "start_ms": ref.start_ms, "end_ms": ref.end_ms}])
+            if not v.accepted:
+                verdicts.append(v.as_dict())
+                continue
+            row, _ = await _upsert_lib(M.LibHook, code, {**values, "quality_score": v.quality_score, "status": v.status})
+            ref.element_id = row.id
+            db.add(ref)
+            verdicts.append(v.as_dict())
+            hook_rows.append(row)
+        lib_counts["lib_hook"] = len(hook_rows)
+
+        for item in data5.get("copywriting") or []:
+            code = str(item.get("code") or "").strip().lower()
+            if not validate.is_code(code):
+                continue
+            rhetoric = str(item.get("rhetoric") or "")
+            if rhetoric and rhetoric not in validator.wl.get("rhetoric", set()):
+                rhetoric = ""
+            values = dict(
+                name=str(item.get("name") or code)[:128],
+                copy_type=str(item.get("copy_type") or "口播"),
+                sentence_pattern=str(item.get("sentence_pattern") or ""),
+                rhetoric=rhetoric,
+                example_text=str(item.get("example_text") or "")[:4000],
+                mechanism=str(item.get("mechanism") or "")[:4000],
+                variants=list(item.get("variants") or []),
+                imagination=str(item.get("imagination") or "")[:4000],
+                status="active",
+                quality_score=None,
+            )
+            if values["copy_type"] not in validator.wl.get("copy_type", set()):
+                values["copy_type"] = "口播"
+            tmp = _placeholder_row()
+            ref = _ref(item.get("source_line_no"), tmp, "lib_copywriting")
+            if ref is None:
+                continue
+            v = validator.validate("lib_copywriting", {**item, **values}, label=code, refs=[{"quote": ref.quote, "start_ms": ref.start_ms, "end_ms": ref.end_ms}])
+            if not v.accepted:
+                verdicts.append(v.as_dict())
+                continue
+            row, _ = await _upsert_lib(M.LibCopywriting, code, {**values, "quality_score": v.quality_score, "status": v.status})
+            ref.element_id = row.id
+            db.add(ref)
+            verdicts.append(v.as_dict())
+            copy_rows.append(row)
+        lib_counts["lib_copywriting"] = len(copy_rows)
+
+        for item in data5.get("quotes") or []:
+            code = str(item.get("code") or "").strip().lower()
+            if not validate.is_code(code):
+                continue
+            values = dict(
+                text=str(item.get("text") or "")[:4000],
+                structure=str(item.get("structure") or ""),
+                rewrite_template=str(item.get("rewrite_template") or ""),
+                applicable_scene=str(item.get("applicable_scene") or ""),
+                mechanism=str(item.get("mechanism") or "")[:4000],
+                variants=list(item.get("variants") or []),
+                imagination=str(item.get("imagination") or "")[:4000],
+                status="active",
+                quality_score=None,
+            )
+            tmp = _placeholder_row()
+            ref = _ref(item.get("source_line_no"), tmp, "lib_quote")
+            if ref is None:
+                continue
+            v = validator.validate("lib_quote", {**item, **values}, label=code, refs=[{"quote": ref.quote, "start_ms": ref.start_ms, "end_ms": ref.end_ms}])
+            if not v.accepted:
+                verdicts.append(v.as_dict())
+                continue
+            row, _ = await _upsert_lib(M.LibQuote, code, {**values, "quality_score": v.quality_score, "status": v.status})
+            ref.element_id = row.id
+            db.add(ref)
+            verdicts.append(v.as_dict())
+            quote_rows.append(row)
+        lib_counts["lib_quote"] = len(quote_rows)
+
+        for item in data5.get("methods") or []:
+            code = str(item.get("code") or "").strip().lower()
+            if not validate.is_code(code):
+                continue
+            category = str(item.get("category") or "结构")
+            if category not in validator.wl.get("method_category", set()):
+                category = "结构"
+            level = str(item.get("abstraction_level") or "段落级")
+            if level not in validator.wl.get("abstraction_level", set()):
+                level = "段落级"
+            values = dict(
+                name=str(item.get("name") or code)[:128],
+                category=category,
+                controlled_tag=str(item.get("controlled_tag") or "")[:32],
+                is_emergent=0,
+                emergent_parent_code=None,
+                mechanism=str(item.get("mechanism") or "")[:4000],
+                abstraction_level=level,
+                usage_steps=str(item.get("usage_steps") or "")[:4000],
+                counter_example=str(item.get("counter_example") or "")[:4000],
+                variants=list(item.get("variants") or []),
+                imagination=str(item.get("imagination") or "")[:4000],
+                status="active",
+                quality_score=None,
+            )
+            tmp = _placeholder_row()
+            ref = _ref(item.get("source_line_no"), tmp, "lib_method")
+            if ref is None:
+                continue
+            v = validator.validate("lib_method", {**item, **values}, label=code, refs=[{"quote": ref.quote, "start_ms": ref.start_ms, "end_ms": ref.end_ms}])
+            if not v.accepted:
+                verdicts.append(v.as_dict())
+                continue
+            row, _ = await _upsert_lib(M.LibMethod, code, {**values, "quality_score": v.quality_score, "status": v.status})
+            ref.element_id = row.id
+            db.add(ref)
+            verdicts.append(v.as_dict())
+            method_rows.append(row)
+        lib_counts["lib_method"] = len(method_rows)
+    await db.flush()
+    counts.update(lib_counts)
+    await db.commit()
+
+    # ---------- L6 组合模板还原 ----------
+    for _t in ("lib_topic", "lib_hook", "lib_copywriting", "lib_quote", "lib_method", "lib_combo", "lib_combo_slot"):
+        counts.setdefault(_t, 0)
+    await report("L6", 90, "三层链路 · L6 组合模板还原…")
+    method_codes = [r.code for r in method_rows]
+    l6_user = (
+        f"【L3 段落（seq/类型/标题/覆盖句区间/时长）】\n"
+        + json.dumps(
+            [
+                {
+                    "seq": s.seq, "seg_type": s.seg_type, "title": s.title,
+                    "start_sentence_seq": s.start_sentence_seq, "end_sentence_seq": s.end_sentence_seq,
+                    "start_ms": s.start_ms, "end_ms": s.end_ms, "emotion_peak": s.emotion_peak,
+                }
+                for s in seg_rows
+            ],
+            ensure_ascii=False,
+        )
+        + f"\n\n【L5 手法库清单】\n{json.dumps(method_codes, ensure_ascii=False) if method_codes else '（无）'}"
+        + f"\n\n【情绪曲线】采样间隔 {interval_ms}ms，形状 {stats['shape']}，峰值落点 {stats['peak_position_ratio']}，"
+        + f"峰值 {stats['series_max']}，基线 {stats['baseline_intensity']}"
+        + f"\n【中心思想】{script.core_idea}\n【内容走向】{script.content_trend}"
+        + "\n要求：槽位与段落一一对应（segment_seq 必须取自上面的 seq），槽位区间首尾相接覆盖 [0,1]。"
+    )
+    ok6, data6, q6 = await _run_layer(
+        db, video=video, analysis_id=analysis_id, layer=6,
+        user_text=l6_user, model=model, array_keys=LAYER_ARRAY_KEYS[6], max_tokens=16384,
+    )
+    quality["L6"] = q6
+
+    combo_data = dict(data6.get("combo") or {})
+    slots_json = list(data6.get("slots") or [])
+    combo_row = None
+    slot_rows: list[M.LibComboSlot] = []
+    if combo_data and slots_json:
+        # 槽位区间以段落真实时长占比兜底（无缝无重叠由 segment 顺序保证）
+        seg_total = sum(max(1, s.end_ms - s.start_ms) for s in seg_rows) or 1
+        cursor = 0.0
+        fixed = swap = 0
+        for i, item in enumerate(sorted(slots_json, key=lambda x: float(x.get("position_ratio_start") or 0)), start=1):
+            seg = next((s for s in seg_rows if int(s.seq) == int(item.get("segment_seq") or i)), seg_rows[min(i - 1, len(seg_rows) - 1)])
+            share = round(max(1, seg.end_ms - seg.start_ms) / seg_total, 4)
+            start_ratio = round(cursor, 4)
+            cursor = 1.0 if i == len(slots_json) else round(min(1.0, cursor + share), 4)
+            role = str(item.get("slot_role") or "").strip()
+            if role not in ("固定", "可替换"):
+                role = "可替换"
+            if role == "固定":
+                fixed += 1
+            else:
+                swap += 1
+            slot_rows.append(
+                M.LibComboSlot(
+                    combo_id=None,  # flush 后回填
+                    seq=i,
+                    slot_role=role,
+                    method_id=None,
+                    method_code=str(item.get("method_code") or f"method.seq.{i}")[:64],
+                    expected_function=str(item.get("expected_function") or "")[:4000] or "（缺失）",
+                    position_ratio_start=start_ratio,
+                    position_ratio_end=cursor,
+                    duration_ratio=round(cursor - start_ratio, 4),
+                    swap_alternatives=list(item.get("swap_alternatives") or []),
+                )
+            )
+
+        code = str(combo_data.get("code") or "").strip().lower() or f"combo.auto.{script.id.hex[:6]}"
+        if not validate.is_code(code):
+            code = f"combo.auto.{script.id.hex[:6]}"
+        curve_points: list[list[float]] = []
+        for i, slot in enumerate(slot_rows):
+            end_ms = int(seg_rows[min(i, len(seg_rows) - 1)].end_ms) if seg_rows else duration_ms
+            idx = emotion.index_of_t(curve_grid, end_ms)
+            curve_points.append([round(float(slot.position_ratio_end), 4), round(float(curve_values[idx]), 1)])
+        if isinstance(data6.get("emotion_curve"), list) and len(data6["emotion_curve"]) == len(slot_rows):
+            curve_points = data6["emotion_curve"]
+        shape = str(combo_data.get("emotion_shape") or stats["shape"])
+        if shape not in validator.wl.get("shape", set()):
+            shape = stats["shape"]
+        intent = str(combo_data.get("intent") or "情绪共鸣")
+        if intent not in validator.wl.get("intent", set()):
+            intent = "情绪共鸣"
+        duration_ratio = [round(float(s.duration_ratio), 4) for s in slot_rows]
+        combo_values = dict(
+            name=str(combo_data.get("name") or code)[:128],
+            intent=intent,
+            core_idea_alignment=str(combo_data.get("core_idea_alignment") or "")[:4000] or "（缺失）",
+            content_trend=str(combo_data.get("content_trend") or script.content_trend)[:4000],
+            sequence_desc=str(combo_data.get("sequence_desc") or "")[:4000] or "（缺失）",
+            emotion_shape=shape,
+            emotion_curve=curve_points,
+            duration_ratio=duration_ratio,
+            applicable_category=(str(script.category or "")[:64] or None),
+            slot_count=len(slot_rows),
+            fixed_slot_count=fixed,
+            swap_slot_count=swap,
+            mechanism=str(combo_data.get("mechanism") or "")[:4000],
+            variants=list(combo_data.get("variants") or []),
+            imagination=str(combo_data.get("imagination") or "")[:4000],
+            status="active",
+            quality_score=None,
+        )
+        combo_payload = {**combo_data, **combo_values, "emotion_curve": curve_points}
+        slot_payload = [
+            {
+                "slot_role": s.slot_role,
+                "position_ratio_start": s.position_ratio_start,
+                "position_ratio_end": s.position_ratio_end,
+            }
+            for s in slot_rows
+        ]
+        ref = _ref(seg_rows[0].start_sentence_seq if seg_rows else None, _placeholder_row(), "lib_combo")
+        ref_payload = [{"quote": ref.quote, "start_ms": ref.start_ms, "end_ms": ref.end_ms}] if ref is not None else []
+        v = validator.validate("lib_combo", combo_payload, label=code, refs=ref_payload)
+        validator.r14_combo(combo_payload, slot_payload, v)
+        verdicts.append(v.as_dict())
+        if v.accepted:
+            combo_row, _ = await _upsert_lib(M.LibCombo, code, {**combo_values, "quality_score": v.quality_score, "status": v.status})
+            if ref is not None:
+                ref.element_id = combo_row.id
+                db.add(ref)
+            # 组合模板按 code 覆盖重写：先清掉该 combo 的旧槽位，避免 (combo_id, seq) 唯一约束冲突
+            await db.execute(delete(M.LibComboSlot).where(M.LibComboSlot.combo_id == combo_row.id))
+            await db.flush()
+            for slot in slot_rows:
+                slot.combo_id = combo_row.id
+                db.add(slot)
+            await db.flush()
+            counts["lib_combo"] = 1
+            counts["lib_combo_slot"] = len(slot_rows)
+    else:
+        warnings.append("L6 未返回可用组合模板（lib_combo 未写入）")
+
+    # 汇总
+    verdict_list = verdicts
+    rejected = [v for v in verdict_list if v.get("status") == "rejected"]
+    draft = [v for v in verdict_list if v.get("status") == "draft"]
+
+    # R8 逐字口径统计（与上一版对比的关键证据）：
+    # - verbatim：quote 去噪后是原料链（raw_transcript_sentence 按 seq 拼接）的连续子串，
+    #   跨句拼接（span > 1）同样计入，因为它仍是 100% 原话；
+    # - single_raw：旧口径，quote 只与"锚定的那一条 raw 碎片"比对，跨句拼接必然掉分，
+    #   保留该口径仅用于和上一版的 24/26 对账。
+    def _quote_span_of(text: str) -> dict[str, Any] | None:
+        return validator.quote_span(text) if str(text or "").strip() else None
+
+    sent_total = max(1, len(sentence_rows))
+    verbatim_rows = [r for r in sentence_rows if _quote_span_of(r.quote)]
+    cross_rows = [r for r in verbatim_rows if (_quote_span_of(r.quote) or {}).get("span", 1) > 1]
+    single_raw_ok = [
+        r
+        for r in sentence_rows
+        if str(r.quote).strip()
+        and validate.similarity(
+            validate.normalize_quote(str(r.quote)),
+            validate.normalize_quote(str(raw_frag_by_id.get(str(r.raw_sentence_id), {}).get("text") or "")),
+        )
+        >= 0.9
+    ]
+    rule_hard: dict[str, int] = {}
+    rule_soft: dict[str, int] = {}
+    for v in verdict_list:
+        for msg in v.get("hard") or []:
+            key = str(msg).split(" ")[0]
+            rule_hard[key] = rule_hard.get(key, 0) + 1
+        for msg in v.get("soft") or []:
+            key = str(msg).split(" ")[0]
+            rule_soft[key] = rule_soft.get(key, 0) + 1
+
+    evidence = {
+        "counts": counts,
+        "quality": quality,
+        "curve": quality.get("curve"),
+        "sentence_range": quality.get("sentence_range"),
+        "quote_nonnull_rate": round(
+            sum(1 for r in sentence_rows if r.quote.strip()) / max(1, len(sentence_rows)), 4
+        ),
+        # 新口径：quote 是原料链上的连续子串（允许跨句拼接）
+        "quoted_from_raw_rate": round(len(verbatim_rows) / sent_total, 4),
+        "quote_verbatim_rate": round(len(verbatim_rows) / sent_total, 4),
+        "quote_verbatim_detail": {
+            "total": len(sentence_rows),
+            "verbatim": len(verbatim_rows),
+            "cross_sentence": len(cross_rows),
+            "cross_sentence_examples": [
+                {
+                    "seq": int(r.seq),
+                    "raw_seqs": (_quote_span_of(r.quote) or {}).get("raw_seqs"),
+                    "quote": str(r.quote)[:40],
+                }
+                for r in cross_rows[:8]
+            ],
+        },
+        # 旧口径（仅供与上一版 24/26 对账）：quote 与锚定单条 raw 碎片的相似度
+        "quoted_from_raw_rate_single_raw": round(len(single_raw_ok) / sent_total, 4),
+        "rule_stats": {"hard": rule_hard, "soft": rule_soft},
+        "validation": {
+            "total_rows": len(verdict_list),
+            "rejected": len(rejected),
+            "draft": len(draft),
+            "active": len(verdict_list) - len(rejected) - len(draft),
+            "soft_total": sum(len(v.get("soft") or []) for v in verdict_list),
+            "rejected_rows": rejected[:20],
+            "draft_rows": draft[:20],
+        },
+        "warnings": warnings,
+        "lib_counts": lib_counts,
+        "turn_point_count": len(turn_rows),
+        "verdicts": verdict_list,
+    }
+    script.summary = script.summary or ""
+    script.quality_score = round(
+        sum(float(v.get("quality_score") or 100) for v in verdict_list) / max(1, len(verdict_list)), 2
+    )
+    script.status = "active" if not rejected else "draft"
+    await db.flush()
+    return {"ok": True, "script_id": script.id, **evidence}

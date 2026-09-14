@@ -159,6 +159,15 @@ async def resolve_alias(
             continue
         if not p.api_key:
             continue
+        # 余额守卫：已知余额 ≤0 的服务商（如未充值的 DeepSeek）调用必然 400，
+        # 直接跳过改用后续可用的免费服务商，避免"创作台/拆解突然全线失败"
+        if (
+            not prefer_provider
+            and p.balance_cny is not None
+            and p.balance_cny <= 0
+        ):
+            logger.info("跳过余额不足的服务商 %s（余额 %.4f），改用后续可用服务商", p.key, p.balance_cny)
+            continue
         exact = next(
             (m for m in (p.models or []) if m.get("kind") == alias), None
         )

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BASE, api, type AnalysisResult, type ElementInfo, type FrameInfo, type SegmentInfo, type VideoItem, type VideoStatsView } from "../api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { BASE, api, type AnalysisResult, type ElementInfo, type FrameInfo, type SegmentInfo, type VideoItem, type VideoStatsHistoryPoint, type VideoStatsHistoryView, type VideoStatsView } from "../api";
 
 /* ---------------- 工具 ---------------- */
 function fmt(ms: number): string {
@@ -479,26 +479,38 @@ function ElementsPanel({
   segments,
   onSeek,
   onReview,
+  onCreateWithElements,
 }: {
   elements: ElementInfo[];
   segments: SegmentInfo[];
   onSeek: (ms: number) => void;
   onReview: (id: string, action: "accept" | "reject" | "adjust", patch?: Partial<Pick<ElementInfo, "category" | "name" | "description" | "formula">>) => Promise<void>;
+  onCreateWithElements?: (elementIds: string[]) => void;
 }) {
   if (elements.length === 0) return null;
   const counts = elements.reduce<Record<string, number>>((acc, e) => {
     acc[e.status] = (acc[e.status] ?? 0) + 1;
     return acc;
   }, {});
+  const creatable = elements.filter((e) => e.status !== "rejected").map((e) => e.id);
   return (
     <Card
       label={`L5 提炼元素 · ${elements.length} 张`}
       extra={
-        <div className="flex gap-2 text-[10px] text-zinc-500">
+        <div className="flex items-center gap-2 text-[10px] text-zinc-500">
           {counts.accepted ? <span className="text-emerald-300">已采纳 {counts.accepted}</span> : null}
           {counts.adjusted ? <span className="text-sky-300">已纠错 {counts.adjusted}</span> : null}
           {counts.rejected ? <span className="text-rose-300">已驳回 {counts.rejected}</span> : null}
           {counts.draft ? <span>待审 {counts.draft}</span> : null}
+          {onCreateWithElements && creatable.length > 0 && (
+            <button
+              onClick={() => onCreateWithElements(creatable)}
+              className="ml-1 rounded-md border border-emerald-300/20 bg-emerald-400/10 px-2 py-1 text-[10px] text-emerald-200 hover:bg-emerald-400/20"
+              title={`带本片 ${creatable.length} 个元素去创作台，AI 基于它们生成脚本`}
+            >
+              用这些元素创作 ✎
+            </button>
+          )}
         </div>
       }
     >
@@ -547,6 +559,149 @@ function TranscriptPanel({
 }
 
 /* ---------------- 作者与互动数据面板 ---------------- */
+const TREND_META: Record<string, { label: string; color: string }> = {
+  view_count: { label: "播放", color: "#fbbf24" },
+  like_count: { label: "点赞", color: "#f87171" },
+  collect_count: { label: "收藏", color: "#38bdf8" },
+  share_count: { label: "转发", color: "#c084fc" },
+  comment_count: { label: "评论", color: "#34d399" },
+  danmaku_count: { label: "弹幕", color: "#fb923c" },
+  coin_count: { label: "硬币", color: "#fde047" },
+};
+
+function fmtAxisTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return `${d.getMonth() + 1}/${d.getDate()} ${hm}`;
+}
+
+/* 自绘 SVG 折线：各指标独立 min-max 归一，时间轴线性分布，端点圆点标注 */
+function StatsTrendChart({ history }: { history: VideoStatsHistoryView }) {
+  const W = 660;
+  const H = 230;
+  const pad = { top: 28, right: 16, bottom: 30, left: 16 };
+  const iw = W - pad.left - pad.right;
+  const ih = H - pad.top - pad.bottom;
+  const pts = history.points;
+  if (pts.length < 2) return null;
+
+  const t0 = new Date(pts[0].fetched_at).getTime();
+  const t1 = new Date(pts[pts.length - 1].fetched_at).getTime();
+  const span = Math.max(t1 - t0, 1);
+  const xAt = (i: number): number => {
+    if (t1 === t0) return pad.left + (i / (pts.length - 1)) * iw;
+    return pad.left + ((new Date(pts[i].fetched_at).getTime() - t0) / span) * iw;
+  };
+
+  const drawable = history.series_keys.filter((k) => {
+    const key = k as keyof VideoStatsHistoryPoint;
+    return pts.filter((p) => typeof p[key] === "number").length >= 2;
+  });
+  if (drawable.length === 0) return null;
+
+  const series = drawable.map((k) => {
+    const key = k as keyof VideoStatsHistoryPoint;
+    const meta = TREND_META[k] ?? { label: k, color: "#a1a1aa" };
+    const vals = pts.map((p) => p[key] as number | null);
+    const nums = vals.filter((v): v is number => typeof v === "number");
+    const min = Math.min(...nums);
+    const max = Math.max(...nums);
+    const midY = pad.top + ih / 2;
+    const yAt = (v: number): number => (min === max ? midY : pad.top + (1 - (v - min) / (max - min)) * ih);
+    // 中间可能存在 null 断点（如早期无硬币数据）→ 按连续段拆线
+    const segs: Array<Array<{ x: number; y: number }>> = [];
+    let cur: Array<{ x: number; y: number }> = [];
+    pts.forEach((p, i) => {
+      const v = p[key];
+      if (typeof v === "number") {
+        cur.push({ x: xAt(i), y: yAt(v) });
+      } else if (cur.length > 0) {
+        segs.push(cur);
+        cur = [];
+      }
+    });
+    if (cur.length > 0) segs.push(cur);
+    return { key: k, label: meta.label, color: meta.color, last: nums[nums.length - 1], segs };
+  });
+
+  let firstRef = 0;
+  for (let i = 0; i < pts.length; i++) {
+    if (pts[i].phase === "baseline") {
+      firstRef = i;
+      break;
+    }
+  }
+  let lastRef = pts.length - 1;
+  for (let i = pts.length - 1; i >= 0; i--) {
+    if (pts[i].phase === "latest") {
+      lastRef = i;
+      break;
+    }
+  }
+
+  return (
+    <div>
+      <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
+        {series.map((s) => (
+          <span key={s.key} className="inline-flex items-center gap-1.5 text-[11px] text-zinc-400">
+            <span className="inline-block h-0.5 w-4 rounded-full" style={{ backgroundColor: s.color }} />
+            {s.label}
+            <span className="font-mono text-zinc-200">{fmtNum(s.last)}</span>
+          </span>
+        ))}
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label="互动数据趋势图">
+        {/* 横向网格 */}
+        {[0.25, 0.5, 0.75].map((r) => (
+          <line key={r} x1={pad.left} x2={W - pad.right} y1={pad.top + ih * r} y2={pad.top + ih * r} stroke="rgba(255,255,255,0.05)" strokeWidth={1} />
+        ))}
+        <line x1={pad.left} x2={W - pad.right} y1={pad.top + ih} y2={pad.top + ih} stroke="rgba(255,255,255,0.12)" strokeWidth={1} />
+        {/* 首/末参考线 */}
+        {firstRef !== lastRef && (
+          <>
+            <line x1={xAt(firstRef)} x2={xAt(firstRef)} y1={pad.top} y2={pad.top + ih} stroke="rgba(255,255,255,0.16)" strokeWidth={1} strokeDasharray="3 4" />
+            <line x1={xAt(lastRef)} x2={xAt(lastRef)} y1={pad.top} y2={pad.top + ih} stroke="rgba(255,255,255,0.16)" strokeWidth={1} strokeDasharray="3 4" />
+            <text x={xAt(firstRef)} y={pad.top - 8} fontSize={10} fill="#71717a" textAnchor={xAt(firstRef) < 60 ? "start" : "middle"}>
+              初始 {fmtAxisTime(pts[firstRef].fetched_at)}
+            </text>
+            <text x={xAt(lastRef)} y={pad.top - 8} fontSize={10} fill="#e4e4e7" textAnchor={xAt(lastRef) > W - 90 ? "end" : "middle"}>
+              当前 {fmtAxisTime(pts[lastRef].fetched_at)}
+            </text>
+          </>
+        )}
+        {/* 各序列折线 */}
+        {series.map((s) =>
+          s.segs.map((seg, si) => {
+            const d = seg.map((p, pi) => `${pi === 0 ? "M" : "L"}${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
+            return (
+              <path key={`${s.key}-${si}`} d={d} fill="none" stroke={s.color} strokeWidth={1.8} strokeLinejoin="round" strokeLinecap="round" opacity={0.92} />
+            );
+          })
+        )}
+        {/* 端点圆点 */}
+        {series.map((s) =>
+          s.segs.map((seg, si) => {
+            const dots = [seg[0]];
+            const segLast = seg[seg.length - 1];
+            if (segLast !== seg[0]) dots.push(segLast);
+            return dots.map((p, di) => (
+              <circle key={`${s.key}-${si}-${di}`} cx={p.x} cy={p.y} r={3} fill={s.color} stroke="#0c0e13" strokeWidth={1.2} />
+            ));
+          })
+        )}
+        {/* 首末时间标签 */}
+        <text x={pad.left} y={H - 8} fontSize={10} fill="#71717a" textAnchor="start">
+          {fmtAxisTime(pts[0].fetched_at)}
+        </text>
+        <text x={W - pad.right} y={H - 8} fontSize={10} fill="#71717a" textAnchor="end">
+          {fmtAxisTime(pts[pts.length - 1].fetched_at)} · {pts.length} 次快照
+        </text>
+      </svg>
+    </div>
+  );
+}
+
 function StatsSection({
   videoId,
   stats,
@@ -560,10 +715,27 @@ function StatsSection({
   const [err, setErr] = useState("");
   const [auto, setAuto] = useState(false);
   const [notice, setNotice] = useState("");
+  const [history, setHistory] = useState<VideoStatsHistoryView | null>(null);
   const latestRef = useRef<VideoStatsView | null>(stats);
   latestRef.current = stats;
   const author = stats?.author;
   const hasView = !!stats;
+
+  // 历史时序：详情载入或每次 stats 更新（手动/自动刷新）后重拉，保证曲线含最新快照
+  useEffect(() => {
+    let alive = true;
+    api
+      .getVideoStatsHistory(videoId)
+      .then((h) => {
+        if (alive) setHistory(h);
+      })
+      .catch(() => {
+        if (alive) setHistory(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [videoId, stats?.updated_at]);
 
   function diffText(prev: VideoStatsView | null, next: VideoStatsView): string | null {
     const parts: string[] = [];
@@ -706,6 +878,20 @@ function StatsSection({
             <p className="mt-2 text-[10px] text-amber-200/80">{stats.warnings.join("；")}</p>
           )}
 
+          {/* 互动数据历史趋势 */}
+          {history !== null && (
+            <div className="mt-4 rounded-lg bg-white/[0.03] p-3">
+              <div className="mb-2 text-[10px] uppercase tracking-wider text-zinc-500">互动数据趋势</div>
+              {history.points.length < 2 ? (
+                <p className="text-xs leading-relaxed text-zinc-500">
+                  历史快照不足（当前 {history.points.length} 个时间点），至少累计 2 次刷新后才能绘制趋势曲线。
+                </p>
+              ) : (
+                <StatsTrendChart history={history} />
+              )}
+            </div>
+          )}
+
           {/* 热评 */}
           {stats.comments.length > 0 && (
             <div className="mt-4">
@@ -731,8 +917,45 @@ function StatsSection({
   );
 }
 
+/* A+B 降级播放器区：无原片（auto 清理 / 未保留本地片）时展示关键帧 + 回源 */
+function NoLocalMediaBox({ video, frames }: { video: VideoItem; frames: FrameInfo[] }) {
+  const cleaned = !!video.media?.cleaned;
+  const heroFrame = frames.find((f) => f.url);
+  const hero = heroFrame?.url ?? video.cover_url;
+  const src = hero ? (hero.startsWith("http") ? hero : `${BASE}${hero}`) : null;
+  return (
+    <div className="relative aspect-video w-full overflow-hidden bg-[#14161a]">
+      {src ? (
+        <img src={src} alt="关键帧预览" className="h-full w-full object-cover opacity-60" />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center text-xs text-zinc-600">暂无本地关键帧</div>
+      )}
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/80 to-transparent" />
+      <div className="absolute inset-x-0 bottom-0 flex flex-wrap items-center gap-2 p-3">
+        <span className="rounded bg-amber-300/90 px-2 py-0.5 text-[10px] font-semibold text-zinc-900">
+          {cleaned ? "原片已清理" : "无本地原片"}
+        </span>
+        <span className="rounded bg-white/10 px-2 py-0.5 text-[10px] text-zinc-300">已降级为关键帧预览</span>
+        {video.media?.audio_track_url ? (
+          <span className="rounded bg-white/10 px-2 py-0.5 text-[10px] text-zinc-400">保留音轨 m4a</span>
+        ) : null}
+      </div>
+      {video.url ? (
+        <a
+          href={video.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="absolute right-3 top-3 rounded-lg border border-white/15 bg-black/60 px-3 py-1.5 text-[11px] text-zinc-200 backdrop-blur transition hover:border-amber-300/40 hover:text-amber-200"
+        >
+          回源打开原视频 ↗
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
 /* ---------------- 主组件 ---------------- */
-export default function VideoBreakdown({ video, result }: { video: VideoItem; result: AnalysisResult }) {
+export default function VideoBreakdown({ video, result, onCreateWithElements }: { video: VideoItem; result: AnalysisResult; onCreateWithElements?: (elementIds: string[]) => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [detail, setDetail] = useState<{
     transcript_text: string;
@@ -834,13 +1057,42 @@ export default function VideoBreakdown({ video, result }: { video: VideoItem; re
           <div className="lg:sticky lg:top-4">
             <div className="overflow-hidden rounded-xl border border-white/5 bg-[#1c1f26]">
               <div className="flex items-start justify-between gap-3 px-4 pb-1 pt-4">
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium text-zinc-100">{video.title || "未命名视频"}</div>
-                  <div className="mt-0.5 text-[11px] text-zinc-500">
-                    {video.author_name ?? "未知作者"} · {video.platform}
+                  <div className="mt-1 flex items-center gap-2">
+                    {video.author_avatar ? (
+                      <img
+                        src={video.author_avatar}
+                        alt=""
+                        className="h-5 w-5 shrink-0 rounded-full bg-white/10 object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : null}
+                    <span className="text-[11px] text-zinc-400" title={video.author_id ?? undefined}>
+                      {video.author_name ?? "未知作者"}
+                    </span>
+                    <span className="text-[11px] text-zinc-600">· {video.platform}</span>
+                  </div>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-zinc-600">
+                    {video.publish_time ? <span>发布于 {fmtShortTime(video.publish_time)}</span> : null}
+                    {video.subtitle_source ? (
+                      <span className="rounded bg-white/5 px-1.5 py-px text-zinc-500">字幕：{video.subtitle_source}</span>
+                    ) : null}
                   </div>
                 </div>
-                {isWide && (
+                <div className="flex shrink-0 items-center gap-2">
+                  {video.url ? (
+                    <a
+                      href={video.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="打开平台原视频"
+                      className="rounded-lg border border-white/10 px-2 py-1 text-[10px] text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                    >
+                      回源 ↗
+                    </a>
+                  ) : null}
+                  {isWide && (
                   <button
                     onClick={() => {
                       if (rail && hoverOpen) setRail(false);
@@ -851,7 +1103,8 @@ export default function VideoBreakdown({ video, result }: { video: VideoItem; re
                   >
                     {rail && hoverOpen ? "固定 ◉" : "收窄 ◂"}
                   </button>
-                )}
+                  )}
+                  </div>
               </div>
 
               {videoUrl ? (
@@ -865,7 +1118,7 @@ export default function VideoBreakdown({ video, result }: { video: VideoItem; re
                   onSeeked={(e) => setCurrentMs(e.currentTarget.currentTime * 1000)}
                 />
               ) : (
-                <div className="flex aspect-video w-full items-center justify-center bg-black text-xs text-zinc-600">无本地媒体文件</div>
+                <NoLocalMediaBox video={video} frames={detail?.frames ?? []} />
               )}
 
               <div className="space-y-3 p-3">
@@ -875,6 +1128,13 @@ export default function VideoBreakdown({ video, result }: { video: VideoItem; re
                   {detail ? <span>{detail.frames.length} 关键帧</span> : null}
                   {video.media?.has_transcript ? <span>含转写</span> : null}
                   {video.category_guess ? <span>{video.category_guess}</span> : null}
+                  {video.tags && video.tags.length > 0
+                    ? video.tags.slice(0, 8).map((t) => (
+                        <span key={t} className="rounded border border-amber-300/20 bg-amber-300/5 px-1.5 py-px text-[9px] text-amber-200/80">
+                          #{t}
+                        </span>
+                      ))
+                    : null}
                 </div>
                 {detail && detail.frames.length > 0 && (
                   <div>
@@ -899,9 +1159,67 @@ export default function VideoBreakdown({ video, result }: { video: VideoItem; re
         <L2Panel c={l2c} />
         <SegmentsList segments={segments} currentMs={currentMs} onSeek={seekTo} />
         <NotesList notes={notes} onSeek={seekTo} />
-        <ElementsPanel elements={elements} segments={segments} onSeek={seekTo} onReview={reviewElement} />
+        <ElementsPanel elements={elements} segments={segments} onSeek={seekTo} onReview={reviewElement} onCreateWithElements={onCreateWithElements} />
         {detail && <TranscriptPanel segments={detail.transcript_segments} text={detail.transcript_text} onSeek={seekTo} />}
+        <AuditCard result={result} />
       </div>
     </div>
+  );
+}
+
+function AuditField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-0.5 text-[10px] uppercase tracking-wide text-zinc-600">{label}</div>
+      <div className="break-words text-xs text-zinc-300">{children}</div>
+    </div>
+  );
+}
+
+/** B5 审计信息：折叠区展示 analyses/analysis_layers 的 AI 生产与人工复核字段 */
+function AuditCard({ result }: { result: AnalysisResult }) {
+  const top: Array<[string, React.ReactNode]> = [];
+  if (result.ai_confidence != null) top.push(["AI 置信度", `${Math.round(result.ai_confidence * 100)}%`]);
+  if (result.reviewed_by_user != null) top.push(["人工复核", result.reviewed_by_user ? "已完成" : "未复核"]);
+  const layerEntries = result.layers
+    .map((l) => ({ l, has: l.model != null || l.prompt_version != null || l.raw_response != null }))
+    .filter((x) => x.has);
+
+  return (
+    <details className="group rounded-xl border border-white/5 bg-[#1c1f26]">
+      <summary className="cursor-pointer select-none px-4 py-3 text-xs text-zinc-400 transition-colors hover:text-zinc-200">
+        <span className="mr-2 text-[10px] text-zinc-600 group-open:rotate-90 inline-block transition-transform">▶</span>
+        审计信息
+        <span className="ml-2 text-[10px] text-zinc-600">AI 置信度 · 人工复核 · 模型与提示词版本</span>
+      </summary>
+      <div className="border-t border-white/5 px-4 py-3">
+        {top.length > 0 ? (
+          <div className="grid grid-cols-2 gap-3 pb-3 sm:grid-cols-4">{top.map(([k, v]) => <AuditField key={k} label={k}>{v}</AuditField>)}</div>
+        ) : (
+          <div className="pb-3 text-xs text-zinc-500">该次分析暂未记录顶层置信度/复核信息</div>
+        )}
+        {layerEntries.length === 0 ? (
+          <div className="text-xs text-zinc-600">各层均无 model / prompt_version / raw_response 审计字段</div>
+        ) : (
+          <div className="space-y-2">
+            {layerEntries.map(({ l }, idx) => (
+              <div key={`${l.layer}-${idx}`} className="rounded-lg bg-black/20 p-2.5">
+                <div className="mb-1 text-[10px] text-zinc-500">L{l.layer} · {l.role_view}</div>
+                <div className="flex flex-wrap gap-x-5 gap-y-2">
+                  {l.model != null && <AuditField label="模型">{String(l.model)}</AuditField>}
+                  {l.prompt_version != null && <AuditField label="提示词版本">{String(l.prompt_version)}</AuditField>}
+                  {l.raw_response != null && (
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-0.5 text-[10px] uppercase tracking-wide text-zinc-600">原始响应</div>
+                      <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-[#14161a] px-2 py-1.5 font-mono text-[10px] leading-relaxed text-zinc-400">{String(l.raw_response)}</pre>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </details>
   );
 }

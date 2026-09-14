@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import models as M
 from app.ai import chat
 from app.db import get_session
+from app.services import billing
 from app.services.ai_provider import PROVIDER_TEMPLATES
 
 router = APIRouter(prefix="/api/ai", tags=["ai"])
@@ -50,8 +51,9 @@ async def list_models(db: AsyncSession = Depends(get_session)):
 
 
 @router.post("/chat")
-async def ai_chat(req: ChatReq):
+async def ai_chat(req: ChatReq, db: AsyncSession = Depends(get_session)):
     """通用对话入口（拆解/创作能力后续在此基础上封装）"""
+    acc, points = await billing.precheck(db, "chat")
     try:
         result = await chat(
             messages=[m.model_dump() for m in req.messages],
@@ -62,4 +64,9 @@ async def ai_chat(req: ChatReq):
         )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"AI 网关调用失败: {exc}") from exc
+    await billing.consume(
+        db, account=acc, action="chat", points=points,
+        ref_type=None, ref_id=None, note="通用对话",
+    )
+    await db.commit()
     return result

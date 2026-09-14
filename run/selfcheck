@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# frames selfcheck 入口包装（macOS / Linux）— 见 docs/11-local-packaging.md §7
+# 用法：run/selfcheck [--json] [--port 8000] [--skip-net]
+# 优先级：backend/.venv 解释器 → PATH python3 → PATH python
+set -euo pipefail
+
+RUN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKEND_DIR="$(cd "$RUN_DIR/../backend" && pwd)"
+SCRIPT="$BACKEND_DIR/scripts/selfcheck.py"
+
+if [ -x "$BACKEND_DIR/.venv/bin/python" ]; then
+  PY="$BACKEND_DIR/.venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+  PY="$(command -v python3)"
+elif command -v python >/dev/null 2>&1; then
+  PY="$(command -v python)"
+else
+  echo "[selfcheck] 未找到 Python 解释器（需要 3.11+）" >&2
+  exit 2
+fi
+
+exec "$PY" "$SCRIPT" "$@"

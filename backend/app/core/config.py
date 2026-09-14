@@ -11,10 +11,15 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BACKEND_DIR / ".env")
 
 # --- 数据库 ---
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql+asyncpg://zhuolittlelong@localhost:5432/frames_dev",
-)
+# 本地单体默认 SQLite（backend/data/frames.db）；PG 连接串仅迁移/回滚时经 DATABASE_URL 环境变量覆盖
+_DATA_DIR = BACKEND_DIR / "data"
+_DATA_DIR.mkdir(parents=True, exist_ok=True)
+SQLITE_DB_PATH = _DATA_DIR / "frames.db"
+_SQLITE_URL = f"sqlite+aiosqlite:///{SQLITE_DB_PATH.as_posix()}"
+DATABASE_URL = os.getenv("DATABASE_URL", _SQLITE_URL)
+
+# 旧 PostgreSQL 连接串（迁移/回滚参考，勿作默认）
+PG_LEGACY_URL = "postgresql+asyncpg://zhuolittlelong@localhost:5432/frames_dev"
 
 # --- 本地媒体缓存（视频/音频/抽帧/BGM） ---
 MEDIA_DIR = BACKEND_DIR / "data" / "media"

@@ -2,12 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { api, type AiProviderCard } from "../api";
 
 const KIND_OPTIONS = ["pro", "vision", "flash", "other"] as const;
-const KIND_LABEL: Record<string, string> = {
-  pro: "统一拆解档（多模态五层）",
-  vision: "画面理解 / 多模态",
-  flash: "备用（快速问答）",
-  other: "自定义模型",
-};
 
 /* ---------------- 接入 / 编辑表单 ---------------- */
 function ProviderForm({
@@ -83,10 +77,12 @@ function ProviderForm({
     }
   }
 
+  const heading = isEdit ? `编辑 · ${name}` : name ? `接入 ${name}` : "接入新 AI 服务商";
+
   return (
     <div className="rounded-xl border border-white/10 bg-[#1c1f26] p-5">
       <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-zinc-100">{isEdit ? `编辑 · ${initial!.name}` : initial ? `接入 ${initial.name}` : "接入新 AI 服务商"}</h3>
+        <h3 className="text-sm font-semibold text-zinc-100">{heading}</h3>
         <button onClick={onCancel} className="text-xs text-zinc-500 hover:text-zinc-300">取消</button>
       </div>
 

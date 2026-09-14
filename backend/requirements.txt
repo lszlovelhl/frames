@@ -20,3 +20,10 @@ uvicorn==0.52.4
 uvloop==0.22.1
 watchfiles==1.2.0
 websockets==17.1
+aiosqlite==0.22.1
+# AI / 媒体链路（yt_dlp 为 downloader.py 模块级 import，同时是 prepare_sidecars 预检项；
+# 见 docs/11-local-packaging.md §5.2）
+httpx==0.28.1
+yt-dlp==2026.8.19
+bilix==0.18.9
+faster-whisper==1.2.1

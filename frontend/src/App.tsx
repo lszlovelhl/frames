@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import JobMonitor from "./components/JobMonitor";
 import BreakdownView from "./views/BreakdownView";
 import LibraryView from "./views/LibraryView";
 import ElementsView from "./views/ElementsView";
@@ -7,14 +8,18 @@ import UsageView from "./views/UsageView";
 import ModelsView from "./views/ModelsView";
 import SettingsView from "./views/SettingsView";
 import AccountsView from "./views/AccountsView";
+import PromptsView from "./views/PromptsView";
+import ProductsView from "./views/ProductsView";
 
-type ViewKey = "breakdown" | "library" | "elements" | "create" | "usage" | "models" | "accounts" | "settings";
+type ViewKey = "breakdown" | "library" | "elements" | "create" | "products" | "prompts" | "usage" | "models" | "accounts" | "settings";
 
 const NAV: Array<{ key: ViewKey; label: string; icon: string; hint: string }> = [
   { key: "breakdown", label: "拆解工作台", icon: "▸", hint: "新建素材并跑五层拆解" },
   { key: "library", label: "拆解库", icon: "▤", hint: "历史素材与拆解结果" },
   { key: "elements", label: "元素库", icon: "◇", hint: "跨片元素检索与质控" },
-  { key: "create", label: "创作台", icon: "✎", hint: "对话式创作 · @元素库素材生成脚本" },
+  { key: "products", label: "产品库", icon: "◈", hint: "主流产品参数卖点 · 创作带入种草" },
+  { key: "create", label: "创作台", icon: "✎", hint: "对话式创作 · @元素/产品生成脚本" },
+  { key: "prompts", label: "提示词", icon: "¶", hint: "分层/创作提示词模板 · 版本管理" },
   { key: "usage", label: "AI 用量", icon: "◍", hint: "服务商卡片 · 用量 · 余额预警" },
   { key: "models", label: "模型管理", icon: "⌘", hint: "接入各家模型 · api-key 管理" },
   { key: "accounts", label: "采集账号", icon: "◎", hint: "平台登录态管理" },
@@ -24,6 +29,8 @@ const NAV: Array<{ key: ViewKey; label: string; icon: string; hint: string }> = 
 export default function App() {
   const [view, setView] = useState<ViewKey>("breakdown");
   const [libraryFocusId, setLibraryFocusId] = useState<string | null>(null);
+  const [createSeed, setCreateSeed] = useState<string[] | null>(null);
+  const [createSeedProducts, setCreateSeedProducts] = useState<string[] | null>(null);
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches,
   );
@@ -39,17 +46,42 @@ export default function App() {
     setView("library");
   }
 
+  function openCreateWithElements(elementIds: string[]) {
+    setCreateSeedProducts(null);
+    setCreateSeed(elementIds);
+    setView("create");
+  }
+
+  function openCreateWithProducts(productIds: string[]) {
+    setCreateSeed(null);
+    setCreateSeedProducts(productIds);
+    setView("create");
+  }
+
   const main = (
     <main className="min-h-0 flex-1 overflow-y-auto">
-      {view === "breakdown" && <BreakdownView />}
+      {view === "breakdown" && <BreakdownView onOpenVideo={openVideoInLibrary} />}
       {view === "library" && (
         <LibraryView
           focusVideoId={libraryFocusId}
           onFocusConsumed={() => setLibraryFocusId(null)}
+          onCreateWithElements={openCreateWithElements}
         />
       )}
-      {view === "elements" && <ElementsView onOpenInLibrary={openVideoInLibrary} />}
-      {view === "create" && <CreateView />}
+      {view === "elements" && (
+        <ElementsView
+          onOpenInLibrary={openVideoInLibrary}
+          onCreateWithElements={openCreateWithElements}
+        />
+      )}
+      {view === "products" && <ProductsView onCreateWithProducts={openCreateWithProducts} />}
+      {view === "create" && (
+        <CreateView
+          seedElementIds={createSeed ?? undefined}
+          seedProductIds={createSeedProducts ?? undefined}
+        />
+      )}
+      {view === "prompts" && <PromptsView />}
       {view === "usage" && <UsageView />}
       {view === "models" && <ModelsView />}
       {view === "accounts" && <AccountsView />}
@@ -83,6 +115,7 @@ export default function App() {
           </nav>
         </header>
         {main}
+        <JobMonitor onOpenVideo={openVideoInLibrary} />
       </div>
     );
   }
@@ -120,6 +153,7 @@ export default function App() {
 
       {/* 主区 */}
       {main}
+      <JobMonitor onOpenVideo={openVideoInLibrary} />
     </div>
   );
 }
