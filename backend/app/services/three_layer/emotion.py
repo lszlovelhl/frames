@@ -148,21 +148,29 @@ def mix_with_energy(
 
 
 def peaks_valleys(values: Sequence[float]) -> tuple[list[int], list[int]]:
-    """峰/谷下标：局部极值 + 幅度阈值 0.4 × (max − min)（6.3 节）。"""
+    """峰/谷下标：局部极值 + 幅度阈值 0.4 × (max − min)（6.3 节）。
+
+    先在平滑副本上做 3 点滑动均值再找极值：hybrid 曲线在 500ms 采样下逐点抖动
+    会识别出大量噪声峰（实测 229 点出 65 峰），平滑后只保留有意义的节奏峰谷。
+    阈值仍按原始序列的幅度计算，避免被平滑压掉峰高。
+    """
     n = len(values)
     if n < 3:
         return [], []
     series_max, series_min = max(values), min(values)
     thresh = 0.4 * (series_max - series_min)
+    smoothed = [float(values[i]) for i in range(n)]
+    for i in range(1, n - 1):
+        smoothed[i] = (float(values[i - 1]) + 2.0 * float(values[i]) + float(values[i + 1])) / 4.0
     peaks: list[int] = []
     valleys: list[int] = []
     for i in range(1, n - 1):
-        v, prev, nxt = values[i], values[i - 1], values[i + 1]
+        v, prev, nxt = smoothed[i], smoothed[i - 1], smoothed[i + 1]
         if v >= prev and v >= nxt and (v > prev or v > nxt):
-            if v - series_min >= thresh:
+            if values[i] - series_min >= thresh:
                 peaks.append(i)
         if v <= prev and v <= nxt and (v < prev or v < nxt):
-            if series_max - v >= thresh:
+            if series_max - values[i] >= thresh:
                 valleys.append(i)
     return peaks, valleys
 
