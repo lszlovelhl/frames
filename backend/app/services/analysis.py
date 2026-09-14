@@ -41,6 +41,8 @@ THREE_LAYER_EVIDENCE_KEYS = (
     "lib_counts",
     "validation",
     "warnings",
+    "quality",
+    "curve",
     "error",
 )
 
