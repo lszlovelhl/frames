@@ -109,8 +109,12 @@ async def list_provider_cards(db: AsyncSession = Depends(get_session)):
             and not p.balance_manual
             and (svc.template(p.key) or {}).get("balance_api")
         ):
-            stale = p.balance_checked_at is None or (
-                datetime.now(dt_tz.utc) - p.balance_checked_at
+            # SQLite 读回的 balance_checked_at 为 naive，须补 UTC 再相减（避免 aware-naive TypeError）
+            checked = p.balance_checked_at
+            if checked is not None and checked.tzinfo is None:
+                checked = checked.replace(tzinfo=dt_tz.utc)
+            stale = checked is None or (
+                datetime.now(dt_tz.utc) - checked
             ).total_seconds() > 1800
             if stale:
                 try:

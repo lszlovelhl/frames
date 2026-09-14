@@ -23,8 +23,24 @@ __pycache__/
 *.log
 *.sqlite
 *.db
+*.db-shm
+*.db-wal
+*.dump
 pgdata/
 
-# E2E temp screenshots
-tmp_e2e/
+# 运行时状态（PID/元信息/运行时配置）
+backend/data/uvicorn.pid
+backend/data/uvicorn.meta.json
+backend/data/runtime_config.json
+
+# 数据目录（备份/模型权重/媒体/登录态 cookies，均不入库）
+backend/data/backup/
+backend/data/models/
 backend/data/media/
+backend/data/cookies/
+
+# 临时与备份文件
+*.bak
+backend/scripts/tmp_*
+tmp_e2e/
+tmp_ui_check/

@@ -11,9 +11,38 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sqlalchemy import select  # noqa: E402
 
 from app import models as M  # noqa: E402
+from app.core.prompts import (  # noqa: E402
+    DEFAULT_CREATION_GUIDE_BRIEF_PROMPT,
+    DEFAULT_CREATION_GUIDE_FULL_PROMPT,
+    DEFAULT_CREATION_MAIN_PROMPT,
+)
 from app.db import Base, SessionLocal, engine  # noqa: E402
 
 PROMPTS: list[dict] = [
+    {
+        "code": "creation_guide_brief",
+        "name": "创作台：指南速览（任务卡+策略）",
+        "layer": None,
+        "role_scope": ["编导"],
+        "platform_scope": [],
+        "content": DEFAULT_CREATION_GUIDE_BRIEF_PROMPT,
+    },
+    {
+        "code": "creation_guide_full",
+        "name": "创作台：指南完整章节补全",
+        "layer": None,
+        "role_scope": ["编导"],
+        "platform_scope": [],
+        "content": DEFAULT_CREATION_GUIDE_FULL_PROMPT,
+    },
+    {
+        "code": "creation_main_chat",
+        "name": "创作台：对话主提示词",
+        "layer": None,
+        "role_scope": ["编导"],
+        "platform_scope": [],
+        "content": DEFAULT_CREATION_MAIN_PROMPT,
+    },
     {
         "code": "layer1_topline",
         "name": "L1 顶层预判（定位钩子与主线）",

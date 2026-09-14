@@ -1,4 +1,13 @@
-"""元素质控路由：L5 提炼元素的采纳 / 驳回 / 纠错 + AI 组合/变异。"""
+"""元素质控路由：分层积木库元素的采纳 / 驳回 / 纠错 + AI 组合/变异。
+
+第 7 章清空已 DROP 旧表 ``elements`` / ``element_versions``，元素来源改为三层
+分库第三层积木库（lib_*）与 AI 组合产物表（lib_mix_draft）。本路由不再直接触达
+ORM，全部读写委托给统一读写层 ``app.services.element_library``：
+
+- 元素 id：``"{table}:{uuid}"`` 复合格式（兼容裸露 uuid）；
+- 质控四态：draft / accepted / adjusted / rejected，落在各表 review_status 列；
+- AI 组合/变异产物：落 ``lib_mix_draft``（draft 待质控）。
+"""
 
 import json
 from typing import Literal
@@ -6,12 +15,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import models as M
 from app.ai import chat
 from app.db import get_session
+from app.services import billing, element_library
 
 router = APIRouter()
 
@@ -27,23 +35,15 @@ class ElementReviewBody(BaseModel):
 async def review_element(
     element_id: str, body: ElementReviewBody, db: AsyncSession = Depends(get_session)
 ):
-    element = (
-        await db.execute(select(M.Element).where(M.Element.id == element_id))
-    ).scalar_one_or_none()
-    if element is None:
-        raise HTTPException(status_code=404, detail="元素不存在")
-
-    status_map = {"accept": "accepted", "reject": "rejected", "adjust": "adjusted"}
-    element.status = status_map[body.action]
-
-    if body.action == "adjust" and body.patch:
-        for key in ("category", "name", "description", "formula"):
-            val = body.patch.get(key)
-            if isinstance(val, str) and val.strip():
-                setattr(element, key, val.strip())
-
-    await db.commit()
-    return {"id": str(element.id), "status": element.status}
+    """元素质控四态流转：accept / reject / adjust（走三层分库读写层）。"""
+    try:
+        return await element_library.review_element(
+            db, element_id, body.action, body.patch
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/api/elements")
@@ -55,114 +55,26 @@ async def list_elements(
     limit: int = 300,
     db: AsyncSession = Depends(get_session),
 ):
-    """跨片元素库聚合检索：按状态/分类/关键词/来源拆解过滤，未处理元素优先。"""
-    conds: list = []
-    if status and status != "all":
-        conds.append(M.Element.status == status)
-    if category and category != "all":
-        conds.append(M.Element.category == category)
-    if q and q.strip():
-        kw = f"%{q.strip()}%"
-        conds.append(
-            or_(
-                M.Element.name.ilike(kw),
-                M.Element.description.ilike(kw),
-                M.Element.formula.ilike(kw),
-            )
-        )
+    """跨积木库元素聚合检索：按状态/分类/关键词/来源拆解过滤，未处理元素优先。
+
+    analysis_id 传入 BreakdownJob.id（等价旧的 analysis_id），命中该次拆解来源
+    视频的元素；组件内已按来源视频回填 analysis_id 字段。
+    """
+    data = await element_library.list_elements(
+        db, status=status, category=category, q=q, limit=limit
+    )
     if analysis_id:
         try:
-            conds.append(M.Element.analysis_id == UUID(analysis_id))
+            jid = UUID(analysis_id)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="analysis_id 非法") from exc
-
-    total = (
-        await db.execute(select(func.count()).select_from(M.Element).where(*conds))
-    ).scalar()
-    status_rows = (
-        await db.execute(
-            select(M.Element.status, func.count())
-            .where(*conds)
-            .group_by(M.Element.status)
-        )
-    ).all()
-    status_counts = {s: c for s, c in status_rows}
-
-    # 待处理 draft 最优先 → 已纠错 → 已采纳 → 已驳回，便于集中质控
-    order = case(
-        (M.Element.status == "draft", 0),
-        (M.Element.status == "adjusted", 1),
-        (M.Element.status == "accepted", 2),
-        (M.Element.status == "rejected", 3),
-        else_=4,
-    )
-    els = (
-        (
-            await db.execute(
-                select(M.Element)
-                .where(*conds)
-                .order_by(order, M.Element.updated_at.desc())
-                .limit(limit)
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-    # 创作数据回流：统计每个元素被多少个创作项目引用（Creations.core_elements）
-    usage_counts: dict[str, int] = {}
-    usage_rows = await db.execute(select(M.Creation.core_elements))
-    for (arr,) in usage_rows.all():
-        if not arr:
-            continue
-        seen: set[str] = set()
-        for item in arr:
-            if not isinstance(item, dict):
-                continue
-            eid = item.get("element_id")
-            if eid and eid not in seen:
-                seen.add(eid)
-                usage_counts[eid] = usage_counts.get(eid, 0) + 1
-
-    a_ids = {str(e.analysis_id) for e in els if e.analysis_id}
-    video_by_analysis: dict = {}
-    if a_ids:
-        rows = await db.execute(
-            select(M.Analysis.id, M.Video.id, M.Video.title, M.Video.platform, M.Video.author_name)
-            .join(M.Video, M.Video.id == M.Analysis.video_id)
-            .where(M.Analysis.id.in_([UUID(x) for x in a_ids]))
-        )
-        for aid, vid, vt, vp, va in rows.all():
-            video_by_analysis[str(aid)] = {
-                "id": str(vid),
-                "title": vt,
-                "platform": vp,
-                "author_name": va,
-            }
-
-    items = []
-    for e in els:
-        items.append(
-            {
-                "id": str(e.id),
-                "analysis_id": str(e.analysis_id) if e.analysis_id else None,
-                "usage_count": usage_counts.get(str(e.id), 0),
-                "category": e.category,
-                "name": e.name,
-                "description": e.description,
-                "formula": e.formula,
-                "source_type": e.source_type,
-                "confidence": e.confidence,
-                "role_view": e.role_view,
-                "evidence": e.evidence,
-                "status": e.status,
-                "tags": e.tags or [],
-                "created_at": e.created_at.isoformat() if e.created_at else None,
-                "updated_at": e.updated_at.isoformat() if e.updated_at else None,
-                "video": video_by_analysis.get(str(e.analysis_id)),
-            }
-        )
-    return {"total": total, "status_counts": status_counts, "items": items}
+        items = [it for it in data["items"] if it.get("analysis_id") == str(jid)]
+        counts: dict[str, int] = {}
+        for it in items:
+            st = it.get("status") or "draft"
+            counts[st] = counts.get(st, 0) + 1
+        return {"total": len(items), "status_counts": counts, "items": items}
+    return data
 
 
 class ElementMixBody(BaseModel):
@@ -172,68 +84,41 @@ class ElementMixBody(BaseModel):
     instruction: str | None = None
 
 
-def _el_card(e: M.Element) -> str:
+def _el_card(e: dict) -> str:
     return (
-        f"- [{e.category}] {e.name}\n"
-        f"  作用：{e.description or '—'}\n"
-        f"  公式/做法：{e.formula or '—'}"
+        f"- [{e['category']}] {e['name']}\n"
+        f"  作用：{e['description'] or '—'}\n"
+        f"  公式/做法：{e['formula'] or '—'}"
     )
-
-
-def _serialize_element(e: M.Element) -> dict:
-    return {
-        "id": str(e.id),
-        "analysis_id": str(e.analysis_id) if e.analysis_id else None,
-        "usage_count": 0,
-        "category": e.category,
-        "name": e.name,
-        "description": e.description,
-        "formula": e.formula,
-        "source_type": e.source_type,
-        "confidence": e.confidence,
-        "role_view": e.role_view,
-        "evidence": e.evidence,
-        "status": e.status,
-        "tags": e.tags or [],
-        "created_at": e.created_at.isoformat() if e.created_at else None,
-        "updated_at": e.updated_at.isoformat() if e.updated_at else None,
-        "video": None,
-    }
 
 
 @router.post("/api/elements/mix")
 async def mix_elements(
     body: ElementMixBody, db: AsyncSession = Depends(get_session)
 ):
-    """元素变异 / 组合：调 pro 模型产出可直接入库的新元素（draft，待质控）。"""
-    ids: list[UUID] = []
-    for raw in body.element_ids:
-        try:
-            ids.append(UUID(raw))
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=f"非法元素 id: {raw}") from exc
-
+    """元素变异 / 组合：调 pro 模型产出可直接入库的新元素（lib_mix_draft，待质控）。"""
     if body.mode == "mix":
-        if len(ids) < 2:
+        if len(body.element_ids) < 2:
             raise HTTPException(status_code=400, detail="组合至少选择 2 个元素")
     else:
-        if len(ids) != 1:
+        if len(body.element_ids) != 1:
             raise HTTPException(status_code=400, detail="变异请选择 1 个母版元素")
 
-    els = (
-        (
-            await db.execute(
-                select(M.Element).where(M.Element.id.in_(ids))
+    els = await element_library.load_elements(db, body.element_ids)
+    if not els:
+        raise HTTPException(status_code=404, detail="源元素不存在")
+    missing = [x for x in body.element_ids if x not in {e["id"] for e in els}]
+    if missing:
+        # 复合 id / 裸露 uuid 均可能命中，按 uid 再兜一次
+        ids = {e["id"] for e in els}
+        uids = {e["id"].split(":", 1)[-1] for e in els}
+        unresolved = [x for x in missing if x not in ids and x.split(":", 1)[-1] not in uids]
+        if unresolved:
+            raise HTTPException(
+                status_code=404, detail=f"部分源元素不存在：{', '.join(unresolved)}"
             )
-        )
-        .scalars()
-        .all()
-    )
-    if len(els) != len(ids):
-        raise HTTPException(status_code=404, detail="部分源元素不存在")
-    # 稳定排序：按传入顺序
-    order_map = {str(e.id): i for i, e in enumerate(els)}
-    els.sort(key=lambda e: order_map[str(e.id)])
+
+    acc, points = await billing.precheck(db, "chat")
 
     src_text = "\n".join(_el_card(e) for e in els)
     user_parts = [f"源元素：\n{src_text}"]
@@ -273,7 +158,7 @@ async def mix_elements(
             timeout=180,
             scene="element_mix",
             ref_type="element",
-            ref_id=str(els[0].id),
+            ref_id=els[0]["id"].split(":", 1)[-1],
         )
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"AI 生成失败: {exc}") from exc
@@ -296,36 +181,40 @@ async def mix_elements(
     if not gen:
         raise HTTPException(status_code=502, detail="AI 未返回可用元素，请重试")
 
-    tag_marks = [str(e.name)[:20] for e in els]
-    created: list[M.Element] = []
-    for item in gen:
-        if not isinstance(item, dict):
-            continue
-        name = str(item.get("name") or "").strip()
-        if not name:
-            continue
-        category = str(item.get("category") or (els[0].category if body.mode == "vary" else "综合")).strip()[:32] or "综合"
-        desc = str(item.get("description") or "").strip()
-        formula = str(item.get("formula") or "").strip()
-        if not formula and not desc:
-            continue
-        e = M.Element(
-            analysis_id=None,
-            category=category,
-            name=name[:100],
-            description=desc[:1000],
-            formula=formula[:2000],
-            source_type="combo",
-            confidence=0.5,
-            role_view="编导",
-            status="draft",
-            tags=[
-                "ai_mix",
-                f"mode:{body.mode}",
-                f"源自:{'; '.join(tag_marks)}",
-            ],
-        )
-        db.add(e)
-        created.append(e)
+    tag_marks = [e["name"][:20] for e in els]
+    items = await element_library.create_mix_drafts(
+        db, gen, mode=body.mode, source_names=tag_marks
+    )
+    if not items:
+        raise HTTPException(status_code=502, detail="AI 未返回可用元素，请重试")
+
+    await billing.consume(
+        db, account=acc, action="chat", points=points,
+        ref_type="element", ref_id=None,
+        note=f"AI 元素组合/变异（源：{'; '.join(tag_marks)}）",
+    )
     await db.commit()
-    return {"items": [_serialize_element(e) for e in created]}
+    return {"items": items}
+
+
+@router.get("/api/elements/{element_id}/versions")
+async def element_versions(
+    element_id: str, db: AsyncSession = Depends(get_session)
+):
+    """元素演化版本历史。
+
+    注意：旧 ``element_versions`` 表已随第 7 章清空 DROP，三层分库的积木库元素
+    不再保留"母版 → 变异/换壳/组合"的版本链（AI 组合产物按 draft 独立落
+    ``lib_mix_draft``，来源写入 ``ref_element_ids``）。此接口保留原协议形状，
+    元素存在时返回空版本列表，元素不存在时仍返回 404。
+    """
+    els = await element_library.load_elements(db, [element_id])
+    if not els:
+        raise HTTPException(status_code=404, detail="元素不存在")
+    el = els[0]
+    return {
+        "element_id": el["id"],
+        "element_name": el["name"],
+        "items": [],
+        "note": "三层分库不保留元素版本链（旧 element_versions 表已清除）；AI 组合产物见 lib_mix_draft",
+    }

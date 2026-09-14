@@ -1,6 +1,6 @@
 """视觉模型：批量抽帧画面理解 → 分段画面简报。
 
-分批（每批 ≤4 帧）送 deepseek-v4-flash-vision-exp，返回精简 JSON：
+分批（每批 ≤4 帧）送智谱 glm-4v-flash，返回精简 JSON：
 {frames: [{seq, desc, text_overlay, emotion, style}]}
 desc 只描述"画面里有什么/发生了什么"，不推断好坏。
 """
@@ -27,6 +27,34 @@ _SYSTEM = """你是爆款视频拆解团队的\"画面观察员\"。你只描述
 
 def _encode(path: str) -> str:
     return base64.b64encode(Path(path).read_bytes()).decode()
+
+
+def _normalize(raw: str) -> list[dict]:
+    """兼容模型返回形态：可能是 dict{frames:[...]} / 数组 / 单帧对象 / 代码块包裹。"""
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.startswith("json"):
+            text = text[4:]
+    data = json.loads(text)
+
+    def _frames_of(item):
+        if isinstance(item, dict):
+            inner = item.get("frames")
+            if isinstance(inner, list):
+                return [x for x in inner if isinstance(x, dict)]
+            if {"seq", "desc"} & set(item):
+                return [item]
+        return []
+
+    if isinstance(data, list):
+        out: list[dict] = []
+        for it in data:
+            out.extend(_frames_of(it))
+        return out
+    if isinstance(data, dict):
+        return _frames_of(data)
+    return []
 
 
 async def _describe_batch(frames: list[dict]) -> dict:
@@ -65,7 +93,7 @@ async def _describe_batch(frames: list[dict]) -> dict:
                 messages=messages,
                 model="vision",
                 temperature=0.1 if attempt == 0 else 0.4,
-                max_tokens=2048,
+                max_tokens=1024,  # glm-4v-flash 上限 1024，超限返回 400(code 1210)
                 json_mode=True,
                 timeout=180,
                 scene="vision",
@@ -73,8 +101,9 @@ async def _describe_batch(frames: list[dict]) -> dict:
             raw = result.get("reply") or ""
             if not raw.strip():
                 continue
-            data = json.loads(raw)
-            return data if isinstance(data, dict) else {}
+            items = _normalize(raw)
+            if items:
+                return {"frames": items}
         except Exception as exc:  # noqa: BLE001
             logger.warning("vision batch 失败 attempt%s: %s", attempt + 1, exc)
     return {}

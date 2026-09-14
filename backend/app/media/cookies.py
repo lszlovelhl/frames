@@ -31,7 +31,7 @@ PLATFORMS = [
     {"platform": "douyin", "label": "抖音", "login_url": "https://www.douyin.com/", "need_login": True, "downloadable": True},
     {"platform": "youtube", "label": "YouTube", "login_url": "https://accounts.google.com/Login", "need_login": False, "downloadable": True},
     {"platform": "xiaohongshu", "label": "小红书", "login_url": "https://www.xiaohongshu.com", "need_login": True, "downloadable": False},
-    {"platform": "wechat", "label": "微信视频号", "login_url": "https://channels.weixin.qq.com", "need_login": True, "downloadable": False},
+    {"platform": "wechat", "label": "微信视频号", "login_url": "https://yuanbao.tencent.com", "need_login": True, "downloadable": True},
 ]
 
 
@@ -78,7 +78,7 @@ def _basic_structure_ok(platform: str) -> bool:
         "xiaohongshu": ("web_session", "a1", "webId"),
         "bilibili": ("SESSDATA", "bili_jct", "buvid3"),
         "youtube": ("SID", "HSID", "SSID", "__Secure-1PSID"),
-        "wechat": ("wxsid", "data_ticket"),
+        "wechat": ("wxsid", "data_ticket", "hy_token"),  # hy_token 为元宝解析接口登录态字段
     }
     needles = keys.get(platform, ())
     return any(k in text for k in needles)
@@ -117,11 +117,56 @@ def list_status() -> list[dict]:
     return out
 
 
+def _ensure_netscape(text: str) -> str:
+    """兼容输入：若为浏览器扩展导出的 JSON 数组（EditThisCookie 等），转换为 Netscape 格式。"""
+    s = text.lstrip()
+    if not s.startswith("["):
+        return text
+    try:
+        arr = json.loads(text)
+    except json.JSONDecodeError:
+        return text
+    lines = ["# Netscape HTTP Cookie File"]
+    for c in arr:
+        domain = str(c.get("domain", "")).strip()
+        if not domain or not c.get("name"):
+            continue
+        host_only = c.get("hostOnly")
+        # Netscape 规则：includeSubdomains(TRUE) 的域须以 . 开头，否则不带点
+        if host_only is True:
+            domain = domain.lstrip(".")
+            include_flag = "FALSE"
+        else:
+            if not domain.startswith("."):
+                domain = "." + domain.lstrip(".")
+            include_flag = "TRUE"
+        secure = bool(c.get("secure"))
+        exp = c.get("expirationDate") or c.get("expires") or 0
+        try:
+            exp_i = int(float(exp))
+        except (TypeError, ValueError):
+            exp_i = 0
+        lines.append(
+            "\t".join(
+                [
+                    domain,
+                    include_flag,
+                    str(c.get("path") or "/"),
+                    "TRUE" if secure else "FALSE",
+                    str(exp_i),
+                    str(c.get("name", "")),
+                    str(c.get("value", "")),
+                ]
+            )
+        )
+    return "\n".join(lines)
+
+
 def save_cookies(platform: str, text: str) -> dict:
-    """保存/更新登录态（Netscape cookies.txt 文本）。"""
+    """保存/更新登录态（Netscape cookies.txt 文本，兼容浏览器扩展导出的 JSON 数组自动转换）。"""
     if platform not in {p["platform"] for p in PLATFORMS}:
         raise ValueError(f"不支持平台 {platform}")
-    text = text.strip()
+    text = _ensure_netscape(text).strip()
     if not text:
         raise ValueError("内容为空")
     COOKIE_DIR.mkdir(parents=True, exist_ok=True)

@@ -10,13 +10,15 @@ import wave
 from pathlib import Path
 from typing import Any
 
+from app.media import ffbin
+
 logger = logging.getLogger(__name__)
 
 
 def mean_volume_db(video_path: str) -> float | None:
     try:
         out = subprocess.run(
-            ["ffmpeg", "-i", video_path, "-af", "volumedetect", "-f", "null", "-"],
+            [ffbin.ffmpeg_bin(), "-i", video_path, "-af", "volumedetect", "-f", "null", "-"],
             capture_output=True, text=True,
         )
         for line in out.stderr.splitlines():

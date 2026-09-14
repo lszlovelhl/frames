@@ -6,6 +6,7 @@ import {
   type ProviderBalanceStatus,
   type AiUsageRecentItem,
 } from "../api";
+import BillingPanel from "./BillingPanel";
 
 const SCENE_LABEL: Record<string, string> = {
   breakdown: "五层拆解",
@@ -402,6 +403,9 @@ export default function UsageView() {
           </button>
         </div>
       </header>
+
+      {/* 点数计费账户 */}
+      <BillingPanel />
 
       {error && <p className="mb-4 rounded-lg border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-sm text-rose-300">{error}</p>}
       {loading && <p className="text-sm text-zinc-500">加载中…</p>}

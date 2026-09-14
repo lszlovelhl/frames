@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   api,
   type ElementItem,
+  type ElementVersionEntry,
 } from "../api";
 const STATUS_META: Record<string, { label: string; cls: string; btn: string }> = {
   draft: { label: "待质控", cls: "bg-zinc-400/15 text-zinc-300", btn: "" },
@@ -11,6 +12,11 @@ const STATUS_META: Record<string, { label: string; cls: string; btn: string }> =
 };
 
 const CATEGORIES = ["选题", "钩子", "结构", "话术", "情绪", "视觉", "剪辑手法", "声音设计", "运营策略"];
+const CATEGORY_ORDER = [
+  "知识口播", "剧情短剧", "美食", "搞笑", "美妆", "萌宠", "游戏", "音乐舞蹈", "运动健身", "情感",
+  "生活记录", "科技数码", "财经职场", "汽车出行", "文旅非遗", "综艺娱乐", "亲子育儿", "影视解说", "时尚穿搭", "好物测评",
+];
+const UNKNOWN_CATEGORY = "未分类";
 const STATUS_TABS: Array<{ key: string; label: string }> = [
   { key: "all", label: "全部" },
   { key: "draft", label: "待质控" },
@@ -21,13 +27,15 @@ const STATUS_TABS: Array<{ key: string; label: string }> = [
 
 interface Props {
   onOpenInLibrary?: (videoId: string) => void;
+  onCreateWithElements?: (elementIds: string[]) => void;
 }
 
 type SortMode = "quality" | "usage";
 
-export default function ElementsView({ onOpenInLibrary }: Props) {
+export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: Props) {
   const [status, setStatus] = useState("all");
   const [category, setCategory] = useState("all");
+  const [trackFilter, setTrackFilter] = useState("all");
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   const [sortBy, setSortBy] = useState<SortMode>("quality");
@@ -39,7 +47,7 @@ export default function ElementsView({ onOpenInLibrary }: Props) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [mixTask, setMixTask] = useState<{ mode: "mix" | "vary"; ids: string[] } | null>(null);
+  const [verOpen, setVerOpen] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q.trim()), 400);
@@ -80,6 +88,23 @@ export default function ElementsView({ onOpenInLibrary }: Props) {
   const totalDraft = counts.draft ?? 0;
   const selectedItems = list.filter((e) => selected.has(e.id));
 
+  // 来源赛道选项：聚合元素源视频的赛道（未标注赛道归"未分类"）
+  const trackOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const e of list) {
+      const c = e.video?.category_guess || UNKNOWN_CATEGORY;
+      if (!seen.has(c)) seen.set(c, c);
+    }
+    const rank = (k: string) => {
+      if (k === UNKNOWN_CATEGORY) return 998;
+      const i = CATEGORY_ORDER.indexOf(k);
+      return i < 0 ? 997 : i;
+    };
+    return [...seen.entries()].sort((a, b) => rank(a[0]) - rank(b[0]));
+  }, [list]);
+
+  const shown = trackFilter === "all" ? list : list.filter((e) => (e.video?.category_guess || UNKNOWN_CATEGORY) === trackFilter);
+
   function toggleSelect(id: string) {
     setSelected((prev) => {
       const s = new Set(prev);
@@ -89,9 +114,13 @@ export default function ElementsView({ onOpenInLibrary }: Props) {
     });
   }
 
-  function exitSelection() {
-    setSelectionMode(false);
-    setSelected(new Set());
+  function toggleVersions(id: string) {
+    setVerOpen((prev) => {
+      const s = new Set(prev);
+      if (s.has(id)) s.delete(id);
+      else s.add(id);
+      return s;
+    });
   }
 
   return (
@@ -135,20 +164,12 @@ export default function ElementsView({ onOpenInLibrary }: Props) {
           )}
           <div className="ml-auto flex items-center gap-2">
             <button
-              disabled={selected.size !== 1}
-              onClick={() => selected.size === 1 && setMixTask({ mode: "vary", ids: [...selected] })}
-              className="rounded-lg border border-violet-300/20 bg-violet-400/10 px-3 py-1.5 text-xs text-violet-200 hover:bg-violet-400/20 disabled:cursor-not-allowed disabled:opacity-40"
-              title="以选中的 1 个元素为基底，AI 生成同方向的变体元素"
+              disabled={selected.size < 1 || !onCreateWithElements}
+              onClick={() => selected.size >= 1 && onCreateWithElements?.([...selected])}
+              className="rounded-lg border border-emerald-300/20 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200 hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-40"
+              title="带着选中的元素跳去创作台，让 AI 基于它们生成脚本"
             >
-              以此变异
-            </button>
-            <button
-              disabled={selected.size < 2}
-              onClick={() => selected.size >= 2 && setMixTask({ mode: "mix", ids: [...selected] })}
-              className="rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-1.5 text-xs text-amber-200 hover:bg-amber-300/20 disabled:cursor-not-allowed disabled:opacity-40"
-              title="将选中的 2+ 个元素碰撞组合，生成融合新元素"
-            >
-              组合生成
+              去创作台 ✎
             </button>
           </div>
         </div>
@@ -185,6 +206,17 @@ export default function ElementsView({ onOpenInLibrary }: Props) {
           ))}
         </select>
         <select
+          value={trackFilter}
+          onChange={(e) => setTrackFilter(e.target.value)}
+          title="按元素来源视频的内容赛道筛选"
+          className="rounded-lg border border-white/10 bg-[#1c1f26] px-2.5 py-1.5 text-sm text-zinc-300 outline-none"
+        >
+          <option value="all">全部赛道</option>
+          {trackOptions.map(([key, label]) => (
+            <option key={key} value={key}>{label}</option>
+          ))}
+        </select>
+        <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value as SortMode)}
           title="排序方式"
@@ -202,7 +234,7 @@ export default function ElementsView({ onOpenInLibrary }: Props) {
       </div>
 
       {loading && <div className="text-sm text-zinc-500">加载中…</div>}
-      {!loading && list.length === 0 && (
+      {!loading && shown.length === 0 && (
         <div className="rounded-xl border border-dashed border-white/10 p-8 text-center text-sm text-zinc-500">
           {status === "draft" ? "没有待质控元素，全部处理完了" : "没有符合条件的元素"}
         </div>
@@ -210,8 +242,8 @@ export default function ElementsView({ onOpenInLibrary }: Props) {
 
       <div className="flex flex-col gap-3">
         {(sortBy === "usage"
-          ? [...list].sort((a, b) => (b.usage_count ?? 0) - (a.usage_count ?? 0))
-          : list
+          ? [...shown].sort((a, b) => (b.usage_count ?? 0) - (a.usage_count ?? 0))
+          : shown
         ).map((e) => {
           const st = STATUS_META[e.status] ?? STATUS_META.draft;
           const busy = busyId === e.id;
@@ -243,13 +275,18 @@ export default function ElementsView({ onOpenInLibrary }: Props) {
                   </span>
                 )}
                 {e.video && (
-                  <button
-                    onClick={() => onOpenInLibrary?.(e.video!.id)}
-                    className="max-w-[300px] truncate text-zinc-500 underline-offset-2 hover:text-amber-300 hover:underline"
-                    title="在拆解库打开该素材"
-                  >
-                    {e.video.platform} · {e.video.title}
-                  </button>
+                  <>
+                    {e.video.category_guess && (
+                      <span className="rounded bg-amber-300/10 px-1.5 py-0.5 text-amber-200/90">{e.video.category_guess}</span>
+                    )}
+                    <button
+                      onClick={() => onOpenInLibrary?.(e.video!.id)}
+                      className="max-w-[300px] truncate text-zinc-500 underline-offset-2 hover:text-amber-300 hover:underline"
+                      title="在拆解库打开该素材"
+                    >
+                      {e.video.platform} · {e.video.title}
+                    </button>
+                  </>
                 )}
                 <span className="ml-auto text-zinc-600">
                   {e.confidence != null ? `置信 ${Math.round(e.confidence * 100)}%` : ""}
@@ -298,10 +335,17 @@ export default function ElementsView({ onOpenInLibrary }: Props) {
                 >
                   纠错
                 </button>
+                <button
+                  onClick={() => toggleVersions(e.id)}
+                  className={`rounded border px-2 py-1 text-[11px] ${verOpen.has(e.id) ? "border-violet-300/30 bg-violet-400/15 text-violet-200" : "border-white/10 text-zinc-400 hover:border-violet-300/30 hover:text-violet-300"}`}
+                >
+                  {verOpen.has(e.id) ? "收起演化" : "演化版本"}
+                </button>
                 {e.role_view && e.role_view !== "全员" && (
                   <span className="ml-auto self-center text-[10px] text-zinc-600">角色视角：{e.role_view}</span>
                 )}
               </div>
+              {verOpen.has(e.id) && <ElementVersionsPanel element={e} />}
             </article>
           );
         })}
@@ -360,126 +404,83 @@ function AdjustModal({ e, onClose, onSave }: { e: ElementItem; onClose: () => vo
   );
 }
 
-/* ---------------- 变异 / 组合生成 ---------------- */
-function MixModal({
-  mode,
-  sources,
-  onClose,
-  onDone,
-}: {
-  mode: "mix" | "vary";
-  sources: ElementItem[];
-  onClose: () => void;
-  onDone: (fresh: boolean) => void;
-}) {
-  const [instruction, setInstruction] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [result, setResult] = useState<ElementItem[] | null>(null);
+const CHANGE_KIND_LABEL: Record<string, string> = {
+  create: "创建",
+  derive: "派生",
+  refine: "换壳",
+  vary: "变异",
+  mix: "组合",
+  clone: "克隆",
+  fix: "纠错",
+};
 
-  const isMix = mode === "mix";
+function fmtTimeLocal(s?: string | null): string {
+  if (!s) return "—";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return String(s);
+  return d.toLocaleString("zh-CN", { hour12: false });
+}
 
-  async function run() {
-    if (busy) return;
-    setBusy(true);
-    setError("");
-    try {
-      const data = await api.mixElements(mode, sources.map((s) => s.id), instruction || undefined);
-      setResult(data.items ?? []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
+/** A3 演化版本时间线：按 element_id 拉取版本历史，标注被哪个创作引用 */
+function ElementVersionsPanel({ element }: { element: ElementItem }) {
+  const [data, setData] = useState<{ element_name: string; items: ElementVersionEntry[] } | null>(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    setData(null);
+    setErr("");
+    api
+      .getElementVersions(element.id)
+      .then((d) => {
+        if (alive) {
+          setData(d);
+        }
+      })
+      .catch((e) => {
+        if (alive) setErr(e instanceof Error ? e.message : String(e));
+      });
+    return () => {
+      alive = false;
+    };
+  }, [element.id]);
+
+  if (err) return <div className="mt-2 rounded bg-rose-400/10 px-2 py-1.5 text-[10px] text-rose-300">{err}</div>;
+  if (!data) return <div className="mt-2 rounded bg-black/20 px-2 py-2 text-[10px] text-zinc-600">版本加载中…</div>;
+  if (data.items.length === 0)
+    return <div className="mt-2 rounded bg-black/20 px-2 py-2 text-[10px] text-zinc-600">暂无演化版本</div>;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => !busy && onClose()}>
-      <div
-        className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/10 bg-[#191c21] p-5"
-        onClick={(ev) => ev.stopPropagation()}
-      >
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-zinc-100">{isMix ? "组合生成新元素" : "变异生成变体元素"}</h3>
-          <button onClick={onClose} disabled={busy} className="text-zinc-500 hover:text-zinc-300 disabled:opacity-40">×</button>
-        </div>
-
-        {/* 源元素 */}
-        <div className="mb-4 flex flex-wrap gap-2">
-          {sources.map((s) => (
-            <span key={s.id} className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-[#1f2228] px-2.5 py-1.5 text-xs text-zinc-300">
-              <span className="rounded bg-sky-400/10 px-1 py-0.5 text-[10px] text-sky-300">{s.category}</span>
-              {s.name}
-            </span>
-          ))}
-        </div>
-
-        {/* 指令 */}
-        <label className="mb-3 block">
-          <span className="text-xs text-zinc-500">
-            {isMix
-              ? "组合方向（可选）：希望碰撞融合出什么？例如：把“3秒破冰钩子”和“身份标签共鸣”组合成适合知识博主的开场"
-              : "变异方向（可选）：想强化 / 换场景 / 换人群？例如：从口播换成图文、从短视频换到中视频"}
-          </span>
-          <textarea
-            value={instruction}
-            onChange={(ev) => setInstruction(ev.target.value)}
-            rows={2}
-            placeholder={isMix ? "描述你想融合出的新元素方向…" : "描述变异方向，留空则由 AI 自由发散…"}
-            className="mt-1.5 w-full rounded-lg border border-white/10 bg-[#1f2228] px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-violet-300/30"
-          />
-        </label>
-
-        {error && <p className="mb-3 rounded-lg border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-sm text-rose-300">{error}</p>}
-
-        {busy && <div className="mb-3 text-sm text-zinc-400">AI 正在生成元素草稿…</div>}
-
-        {/* 结果 */}
-        {result && result.length > 0 && (
-          <div className="mb-4 flex flex-col gap-2.5">
-            <div className="text-xs text-zinc-500">
-              已生成 {result.length} 个{isMix ? "组合" : "变体"}元素（source_type={isMix ? "combo" : "vary"}），已入库为待质控草稿：
+    <div className="mt-2 space-y-0 rounded-lg border border-white/5 bg-black/20 px-3 py-2.5">
+      <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-600">演化版本时间线</div>
+      <ol className="relative ml-2 space-y-2.5 border-l border-white/10 pl-3">
+        {data.items.map((v) => (
+          <li key={v.id} className="relative">
+            <span className="absolute -left-[17.5px] top-1 h-2 w-2 rounded-full border-2 border-[#20232a] bg-violet-300/80" />
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="rounded bg-violet-400/15 px-1.5 py-px font-mono text-[9px] text-violet-200">v{v.version_seq}</span>
+              <span className="rounded bg-zinc-400/10 px-1.5 py-px text-[9px] text-zinc-300">
+                {CHANGE_KIND_LABEL[v.change_kind] ?? v.change_kind}
+              </span>
+              <span className="text-[9px] text-zinc-600">{fmtTimeLocal(v.created_at)}</span>
+              {v.used_by_creation_id && (
+                <span className="rounded bg-amber-300/10 px-1.5 py-px text-[9px] text-amber-200">
+                  被创作「{v.used_by_creation_title ?? v.used_by_creation_id.slice(0, 8)}」引用
+                </span>
+              )}
             </div>
-            {result.map((r) => (
-              <div key={r.id} className="rounded-xl border border-white/10 bg-[#1f2228] p-3">
-                <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                  <span className="rounded bg-sky-400/10 px-1.5 py-0.5 text-sky-300">{r.category}</span>
-                  <span className="rounded bg-zinc-400/15 px-1.5 py-0.5 text-zinc-300">待质控</span>
-                </div>
-                <div className="mt-1.5 text-sm font-medium text-zinc-100">{r.name}</div>
-                {r.description && <p className="mt-1 text-xs leading-relaxed text-zinc-400">{r.description}</p>}
-                {r.formula && (
-                  <p className="mt-1.5 whitespace-pre-wrap rounded-lg bg-black/20 px-3 py-2 font-mono text-[11px] leading-relaxed text-emerald-200/80">{r.formula}</p>
-                )}
+            {v.new_formula && (
+              <div className="mt-1 whitespace-pre-wrap break-words rounded bg-[#14161a] px-2 py-1 font-mono text-[10px] leading-relaxed text-zinc-400">
+                {v.new_formula}
               </div>
-            ))}
-          </div>
-        )}
-
-        <div className="mt-2 flex justify-end gap-2">
-          {result && result.length > 0 ? (
-            <button
-              onClick={() => onDone(true)}
-              className="rounded-lg bg-amber-300 px-4 py-1.5 text-sm font-medium text-zinc-900 hover:bg-amber-200"
-            >
-              完成，刷新列表
-            </button>
-          ) : (
-            <>
-              <button onClick={onClose} disabled={busy} className="rounded-lg px-3 py-1.5 text-sm text-zinc-400 hover:bg-white/5 disabled:opacity-40">
-                取消
-              </button>
-              <button
-                onClick={() => void run()}
-                disabled={busy}
-                className="rounded-lg bg-violet-400/20 px-4 py-1.5 text-sm font-medium text-violet-200 hover:bg-violet-400/30 disabled:opacity-40"
-              >
-                {isMix ? `组合 ${sources.length} 个元素` : "生成变异"}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+            )}
+            {v.note && <div className="mt-0.5 text-[10px] leading-relaxed text-zinc-500">{v.note}</div>}
+          </li>
+        ))}
+      </ol>
+      {element.status === "accepted" && data.items.length === 0 && (
+        <div className="mt-1 text-[10px] text-zinc-600">该元素为母版，尚无派生版本</div>
+      )}
     </div>
   );
 }

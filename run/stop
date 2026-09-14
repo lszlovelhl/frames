@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# frames 停止入口（macOS / Linux）— 见 docs/13-app-launcher.md
+# 用法：run/stop
+set -euo pipefail
+
+RUN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKEND_DIR="$(cd "$RUN_DIR/../backend" && pwd)"
+SCRIPT="$BACKEND_DIR/scripts/launcher.py"
+
+if [ -x "$BACKEND_DIR/.venv/bin/python" ]; then
+  PY="$BACKEND_DIR/.venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+  PY="$(command -v python3)"
+elif command -v python >/dev/null 2>&1; then
+  PY="$(command -v python)"
+else
+  echo "[stop] 未找到 Python 解释器（需要 3.11+）" >&2
+  exit 2
+fi
+
+exec "$PY" "$SCRIPT" stop "$@"
