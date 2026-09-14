@@ -191,6 +191,7 @@ def serialize(
     video: dict | None = None,
     job_id: str | None = None,
     usage_count: int = 0,
+    slots: list[dict] | None = None,
 ) -> dict:
     """统一序列化为前端 ElementItem 形状（字段名与旧 elements 接口一致）。"""
     return {
@@ -212,6 +213,8 @@ def serialize(
         "video": video,
         # 三层分库专属：来源表 + 来源脚本，供创作链路与调试使用
         "element_table": table,
+        # 组合模板专属：槽位序列（手法/位置/时长/角色/可替换项），供前端"拿来就改"呈现
+        "slots": slots or [],
     }
 
 
@@ -350,6 +353,39 @@ async def usage_counts(db: AsyncSession) -> dict[str, int]:
     return counts
 
 
+async def _combo_slots_map(db: AsyncSession, pairs: list[tuple[str, UUID]]) -> dict[str, list[dict]]:
+    """组合模板槽位：lib_combo 元素 → 槽位序列（手法/区间/角色/时长/可替换项）。"""
+    combo_ids = [pid for name, pid in pairs if name == "lib_combo"]
+    if not combo_ids:
+        return {}
+    slots = (
+        (
+            await db.execute(
+                select(M.LibComboSlot)
+                .where(M.LibComboSlot.combo_id.in_(combo_ids))
+                .order_by(M.LibComboSlot.combo_id, M.LibComboSlot.seq)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    out: dict[str, list[dict]] = {}
+    for s in slots:
+        out.setdefault(str(s.combo_id), []).append(
+            {
+                "seq": s.seq,
+                "slot_role": s.slot_role,
+                "method_code": s.method_code,
+                "position_ratio_start": s.position_ratio_start,
+                "position_ratio_end": s.position_ratio_end,
+                "duration_ratio": s.duration_ratio,
+                "expected_function": s.expected_function,
+                "swap_alternatives": s.swap_alternatives or [],
+            }
+        )
+    return out
+
+
 async def list_elements(
     db: AsyncSession,
     *,
@@ -405,6 +441,7 @@ async def list_elements(
     videos = await _video_map(db, pairs)
     jobs = await _job_map(db, videos)
     usage = await usage_counts(db)
+    combo_slots = await _combo_slots_map(db, pairs)
 
     items = []
     for name, r in picked:
@@ -418,6 +455,7 @@ async def list_elements(
                 video=video,
                 job_id=jobs.get(video["id"]) if video else None,
                 usage_count=usage.get(eid, 0),
+                slots=combo_slots.get(str(r.id), []),
             )
         )
     return {"total": total, "status_counts": status_counts, "items": items}
@@ -458,6 +496,7 @@ async def load_elements(db: AsyncSession, ids: list[str]) -> list[dict]:
     evidence = await _evidence_map(db, pairs)
     videos = await _video_map(db, pairs)
     jobs = await _job_map(db, videos)
+    combo_slots = await _combo_slots_map(db, pairs)
 
     out: list[dict] = []
     for table, uid in resolved:
@@ -478,6 +517,7 @@ async def load_elements(db: AsyncSession, ids: list[str]) -> list[dict]:
                 evidence=evidence.get(eid, []),
                 video=video,
                 job_id=jobs.get(video["id"]) if video else None,
+                slots=combo_slots.get(str(rid), []),
             )
         )
     return out

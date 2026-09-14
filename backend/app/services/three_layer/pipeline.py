@@ -817,6 +817,17 @@ async def run_three_layer(
             f"L3 落库段数 {len(seg_rows)} 仍低于契约下限 {L3_SEGMENT_MIN}"
             f"（返回 {len(segments_json)} 段，白名单/时间校验过滤 {len(segments_json) - len(seg_rows)} 段）"
         )
+    # 段落连续性校验：契约要求"覆盖全片、首尾相接、不重叠"（_TL3 第 1 条）。
+    # 模型给出非法 line 号时 _line_to_sentence 会静默兜底到首句，产生 0 起/重叠段，
+    # 直接污染 L6 组合模板的槽位覆盖——这里显式检测并在 L6 前告警。
+    _cont = sorted(seg_rows, key=lambda s: (s.start_ms, s.seq))
+    for _a, _b in zip(_cont, _cont[1:]):
+        if _b.start_ms < _a.end_ms:
+            warnings.append(
+                f"L3 段落时间重叠：段{_a.seq}({_a.start_ms}-{_a.end_ms}ms) 与 段{_b.seq}"
+                f"({_b.start_ms}-{_b.end_ms}ms)（模型 line 号非法致兜底，L6 槽位覆盖可能不完整）"
+            )
+            break
 
     def segment_of_line(seq: int) -> M.ScriptSegment | None:
         for seg in seg_rows:

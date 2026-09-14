@@ -302,6 +302,41 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
                 </details>
               )}
 
+              {e.slots && e.slots.length > 0 && (
+                <div className="mt-2.5">
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-xs text-zinc-500">组合槽位（拿来就改）</span>
+                    <span className="text-[11px] text-zinc-600">
+                      {e.slots.filter((s) => s.slot_role === "固定").length} 固定 ·{" "}
+                      {e.slots.filter((s) => s.slot_role === "可替换").length} 可替换
+                    </span>
+                  </div>
+                  <div className="mt-1.5 flex flex-col gap-1">
+                    {e.slots.map((s) => (
+                      <div key={s.seq} className="rounded-lg bg-black/20 px-3 py-1.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-medium text-zinc-300">
+                            {s.seq}. <code className="text-sky-300/80">{s.method_code}</code>
+                          </span>
+                          <span className="text-zinc-500">
+                            {s.slot_role} · {Math.round(s.position_ratio_start * 100)}%→
+                            {Math.round(s.position_ratio_end * 100)}%
+                          </span>
+                        </div>
+                        {s.expected_function && (
+                          <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{s.expected_function}</p>
+                        )}
+                        {s.swap_alternatives && s.swap_alternatives.length > 0 && (
+                          <p className="mt-0.5 text-[11px] text-zinc-600">
+                            可换：{s.swap_alternatives.join(" / ")}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {e.evidence && e.evidence.length > 0 && (
                 <div className="mt-2 flex flex-col gap-1.5 border-l-2 border-amber-300/20 pl-3">
                   {e.evidence.slice(0, 2).map((ev, i) => (
