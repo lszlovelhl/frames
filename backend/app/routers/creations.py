@@ -170,6 +170,60 @@ def _media_cards(
     return ("\n".join(lines), pool) if lines else ("", [])
 
 
+async def _source_curves_text(db: AsyncSession, elements: list[dict]) -> str:
+    """按被引用元素反查来源拆解的连续情绪曲线，生成节奏参考文本。
+
+    曲线（script_emotion_curve.intensity_series）是创作复用关键：形状/峰谷位置/
+    基线强度用于给"时长与节奏编排"建议，规避平台同质化判定。无来源曲线时返回空串。
+    """
+    ids: list[tuple[str, str]] = []
+    for e in elements:
+        eid = e.get("id") or ""
+        if ":" in eid:
+            table, _, uid = eid.partition(":")
+            ids.append((table, uid))
+    if not ids:
+        return ""
+    uids = [uid for _, uid in ids]
+    script_ids = list(
+        (
+            await db.execute(
+                select(M.RefElementSource.source_script_id)
+                .where(M.RefElementSource.element_id.in_(uids))
+                .distinct()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    script_ids = [s for s in script_ids if s]
+    if not script_ids:
+        return ""
+    curves = (
+        (
+            await db.execute(
+                select(M.ScriptEmotionCurve)
+                .where(M.ScriptEmotionCurve.script_id.in_(script_ids))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    lines = []
+    for cv in curves:
+        series = cv.intensity_series or []
+        step = max(1, len(series) // 5)
+        picks = [series[i] for i in range(0, len(series), step)][:6]
+        pts = " → ".join(f"{t}ms:{v}" for t, v in picks)
+        lines.append(
+            f"- 来源节奏曲线：形状 {cv.shape}，强度区间 {cv.series_min}~{cv.series_max}，"
+            f"基线 {cv.baseline_intensity}，峰值 {cv.peak_count} 个（落点全片 "
+            f"{round((cv.peak_position_ratio or 0) * 100)}% 处），采样间隔 {cv.sample_interval_ms}ms；"
+            f"代表点：{pts}"
+        )
+    return "\n".join(lines) if lines else ""
+
+
 def _system_base(
     platform: str | None, intent: str | None
 ) -> list[str]:
@@ -196,6 +250,12 @@ async def _guide_brief(
     extra = _system_base(platform, intent)
     if media_text:
         extra.append("可引用素材清单（引用其中来源时在对应章节 trace 中按名称标注，不得编造不存在的来源）：\n" + media_text)
+    curve_text = await _source_curves_text(db, elements)
+    if curve_text:
+        extra.append(
+            "来源拆解的情绪节奏曲线（创作时参考其形状/峰谷位置/基线来安排节奏与时长，"
+            "规避平台同质化判定，可在「节奏编排」「逐段脚本」等章节引用）：\n" + curve_text
+        )
     if extra:
         sys_msg += "\n\n【本次创作上下文】\n" + "\n".join(extra)
     sys_msg += "\n\n" + CREATION_OUTPUT_CONTRACT
@@ -913,6 +973,12 @@ async def guide_generate(req: GuideGenerateReq, db: AsyncSession = Depends(get_s
         )
     if media_text:
         extra.append("可引用素材清单（引用其中来源时在对应章节 trace 中按名称标注，不得编造不存在的来源）：\n" + media_text)
+    curve_text = await _source_curves_text(db, elements)
+    if curve_text:
+        extra.append(
+            "来源拆解的情绪节奏曲线（「逐段脚本」「节奏编排」等章节请参考其形状/峰谷位置/基线"
+            "来安排时长与节奏，规避平台同质化判定）：\n" + curve_text
+        )
     if extra:
         sys_msg += "\n\n【本次创作上下文】\n" + "\n".join(extra)
     sys_msg += "\n\n" + CREATION_OUTPUT_CONTRACT

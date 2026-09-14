@@ -666,6 +666,12 @@ async def run_three_layer(
         method = fallback_used or "hybrid"
 
     stats = emotion.analysis(values, grid)
+    degenerate = (stats["series_max"] or 0) - (stats["series_min"] or 0) < 1.5
+    if degenerate:
+        warnings.append(
+            f"情绪曲线近乎平直（强度区间 {stats['series_min']}~{stats['series_max']}，"
+            f"形状 {stats['shape']}，模型覆盖 {len(model_series)}/{len(grid)} 点）"
+        )
     curve = M.ScriptEmotionCurve(
         script_id=script.id,
         sample_interval_ms=interval_ms,
@@ -697,6 +703,7 @@ async def run_three_layer(
         "model_points": len(model_series),
         "fallback": fallback_used,
         "model_call_ok": bool(ok),
+        "degenerate": degenerate,
     }
     if interp_ratio > 0.30:
         warnings.append(f"曲线插值点占比 {interp_ratio} 超过 30% 上限（模型序列覆盖不足）")
