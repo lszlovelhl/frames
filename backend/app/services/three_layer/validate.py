@@ -620,3 +620,83 @@ def score_rows(verdicts: Sequence[Verdict]) -> dict[str, Any]:
         "rejected_rows": [v.as_dict() for v in rejected],
         "draft_rows": [v.as_dict() for v in drafted],
     }
+
+
+# ---------------------------------------------------------------- 元素质量基线验收
+
+ELEMENT_BASELINE_RULE = "hard=0 且 观后感/变体/机制 soft 率 ≤ 25%"
+ELEMENT_BASELINE_SOFT_LIMIT = 0.25
+
+
+def element_baseline(verdicts: Sequence[dict]) -> dict:
+    """元素质量基线验收（批量判定）：一条拆解产出的积木元素整体是否达标。
+
+    口径（用户偏好，Marvis 知识库 preference）：
+    - 落库元素必须是从视频提炼的"方法论/表现手法"，而非画面描述或观后感；
+    - 必须带证据链（原话 + 秒数）、机制（为什么有效）、变体（发散迁移方向 2~3 个）；
+    - 证据链与结构严校验（hard 违规 = 0），创意可发散（soft 率 ≤ 25% 达标）。
+
+    输入为 pipeline 的 verdicts（as_dict 后的列表，含 row_type/hard/soft/label）。
+    仅统计 lib_* 元素行（不含 script_* 行）。
+    """
+    rows = [v for v in verdicts if str(v.get("row_type") or "").startswith("lib_")]
+    out: dict[str, Any] = {
+        "rule": ELEMENT_BASELINE_RULE,
+        "total": len(rows),
+        "by_type": {},
+        "hard_rows": [],
+        "label_rows": [],
+        "variant_rows": [],
+        "mechanism_rows": [],
+        "evidence_rows": [],
+        "rates": {},
+        "pass": None,
+        "reason": "",
+    }
+    if not rows:
+        out["pass"] = False
+        out["reason"] = "无元素产出（L5 未返回可用积木）"
+        return out
+    for v in rows:
+        rt = str(v.get("row_type") or "")
+        out["by_type"][rt] = out["by_type"].get(rt, 0) + 1
+        hard = [str(m) for m in (v.get("hard") or [])]
+        soft = [str(m) for m in (v.get("soft") or [])]
+        item = {"label": str(v.get("label") or ""), "row_type": rt}
+        if hard:
+            out["hard_rows"].append({**item, "issues": hard[:4]})
+        if any(m.startswith("R11") for m in hard + soft):
+            out["label_rows"].append({**item, "issues": [m for m in hard + soft if m.startswith("R11")][:2]})
+        if any(m.startswith("R12") for m in soft):
+            out["variant_rows"].append({**item, "issues": [m for m in soft if m.startswith("R12")][:2]})
+        if any(m.startswith("R13") for m in soft):
+            out["mechanism_rows"].append({**item, "issues": [m for m in soft if m.startswith("R13")][:2]})
+        if any(m.startswith("R9") for m in hard):
+            out["evidence_rows"].append({**item, "issues": [m for m in hard if m.startswith("R9")][:2]})
+
+    n = max(1, len(rows))
+    rates = {
+        "hard": round(len(out["hard_rows"]) / n, 4),
+        "label": round(len(out["label_rows"]) / n, 4),
+        "variant": round(len(out["variant_rows"]) / n, 4),
+        "mechanism": round(len(out["mechanism_rows"]) / n, 4),
+        "evidence": round(len(out["evidence_rows"]) / n, 4),
+    }
+    out["rates"] = rates
+    out["pass"] = (
+        len(out["hard_rows"]) == 0
+        and rates["label"] <= ELEMENT_BASELINE_SOFT_LIMIT
+        and rates["variant"] <= ELEMENT_BASELINE_SOFT_LIMIT
+        and rates["mechanism"] <= ELEMENT_BASELINE_SOFT_LIMIT
+    )
+    if out["pass"]:
+        out["reason"] = "通过：无 hard 违规，观后感/变体/机制 soft 率均在 25% 内"
+    else:
+        reasons = []
+        if len(out["hard_rows"]):
+            reasons.append(f"hard 违规 {len(out['hard_rows'])} 条")
+        for k, label in (("label", "观后感"), ("variant", "变体"), ("mechanism", "机制")):
+            if rates[k] > ELEMENT_BASELINE_SOFT_LIMIT:
+                reasons.append(f"{label} soft 率 {rates[k]:.0%} > 25%")
+        out["reason"] = "未通过：" + "；".join(reasons)
+    return out

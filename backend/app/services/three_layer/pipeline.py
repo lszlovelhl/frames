@@ -1487,6 +1487,7 @@ async def run_three_layer(
         "warnings": warnings,
         "lib_counts": lib_counts,
         "turn_point_count": len(turn_rows),
+        "element_baseline": validate.element_baseline(verdict_list),
         "verdicts": verdict_list,
     }
     script.summary = script.summary or ""

@@ -43,6 +43,7 @@ THREE_LAYER_EVIDENCE_KEYS = (
     "warnings",
     "quality",
     "curve",
+    "element_baseline",
     "error",
 )
 
