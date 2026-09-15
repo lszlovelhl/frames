@@ -1279,6 +1279,22 @@ async def run_three_layer(
                     "基线强度": getattr(curve, "baseline_intensity", 0),
                     "采样点": curve_pts[::4],
                 },
+                "画面场景记忆": [
+                    {
+                        "时间ms": [s.get("start_ms"), s.get("end_ms")],
+                        "主体": s.get("subject"), "动作": s.get("action"),
+                        "风格": s.get("style"), "画面文字": s.get("text_overlay"),
+                        "叙事注记": s.get("change_note"),
+                    }
+                    for s in ((manifest or {}).get("scenes") or [])[:15]
+                ],
+                "画面动态事件": [
+                    {
+                        "类型": e.get("event_type"), "时间ms": e.get("t_ms"),
+                        "强度": e.get("intensity"), "说明": e.get("note"),
+                    }
+                    for e in (((manifest or {}).get("frame_plan") or {}).get("dynamic_events")) or []
+                ],
                 "段落": [
                     {
                         "seq": s.seq, "类型": s.seg_type, "标题": s.title,

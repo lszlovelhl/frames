@@ -148,7 +148,7 @@ async def persist_raw_layer(
     subtitle_source = "ocr" if src_mode == "ocr_only" else "asr"
 
     # 幂等：先清本片原料行
-    for model in (M.RawTranscriptSentence, M.RawShot, M.RawAudioEnergySample, M.RawDynamicEvent):
+    for model in (M.RawTranscriptSentence, M.RawShot, M.RawAudioEnergySample, M.RawDynamicEvent, M.RawScene):
         await db.execute(delete(model).where(model.video_id == video.id))
 
     row_manifest = (
@@ -245,6 +245,23 @@ async def persist_raw_layer(
                 duration_ms=int(item.get("duration_ms") or 0),
                 intensity=float(item.get("intensity") or 0),
                 note=str(item.get("note") or "")[:200] or None,
+            )
+        )
+
+    # 场景记忆：模型把全部逐帧简报合并成的场景时间轴（完整视频记忆的场景层）
+    scenes = manifest.get("scenes") or []
+    for idx, sc in enumerate(scenes, start=1):
+        db.add(
+            M.RawScene(
+                video_id=video.id,
+                seq=idx,
+                start_ms=int(sc.get("start_ms") or 0),
+                end_ms=int(sc.get("end_ms") or 0),
+                subject=str(sc.get("subject") or "")[:80],
+                action=str(sc.get("action") or "")[:80],
+                style=str(sc.get("style") or "")[:32] or None,
+                text_overlay=str(sc.get("text_overlay") or "")[:120] or None,
+                change_note=str(sc.get("change_note") or "")[:120] or None,
             )
         )
 

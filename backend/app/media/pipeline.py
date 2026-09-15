@@ -27,7 +27,7 @@ from app.media.transcribe import (
     segments_to_timestamped_text,
     transcribe,
 )
-from app.media.vision import describe_frames
+from app.media.vision import describe_frames, merge_scenes
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +193,14 @@ async def run_pipeline(
             manifest["frames"] = await describe_frames(manifest["frames"])
             done_cnt = sum(1 for f in manifest["frames"] if f.get("desc"))
             await _emit(progress, "vision", "done", f"{done_cnt}/{len(manifest['frames'])} 帧")
+            # 4.5 场景记忆：模型把全部逐帧简报合并成场景时间轴（完整视频记忆的场景层）
+            dyn = ((manifest.get("frame_plan") or {}).get("dynamic_events")) or []
+            scenes = await merge_scenes(manifest["frames"], dyn)
+            if scenes:
+                manifest["scenes"] = scenes
+                await _emit(progress, "vision", "done", f"{done_cnt}/{len(manifest['frames'])} 帧 · {len(scenes)} 场景")
+            else:
+                warnings.append("场景记忆未产出（merge_scenes 返回空）")
         except Exception as exc:  # noqa: BLE001
             warnings.append(f"画面理解失败：{exc}")
             await _emit(progress, "vision", "failed", str(exc)[:200])
