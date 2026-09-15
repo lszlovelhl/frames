@@ -1155,6 +1155,7 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
 
       {/* 右列：五层拆解内容 */}
       <div className="min-w-0 space-y-6">
+        <FullScriptPanel fullScript={result.full_script} />
         <L1Panel c={l1c} />
         <L2Panel c={l2c} />
         <SegmentsList segments={segments} currentMs={currentMs} onSeek={seekTo} />
@@ -1162,6 +1163,22 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
         <ElementsPanel elements={elements} segments={segments} onSeek={seekTo} onReview={reviewElement} onCreateWithElements={onCreateWithElements} />
         {detail && <TranscriptPanel segments={detail.transcript_segments} text={detail.transcript_text} onSeek={seekTo} />}
         <AuditCard result={result} />
+      </div>
+    </div>
+  );
+}
+
+/** 完整脚本还原：L4.5 成文脚本（Markdown，白底卡片 + 等宽排版） */
+function FullScriptPanel({ fullScript }: { fullScript?: string }) {
+  if (!fullScript) return null;
+  return (
+    <div className="rounded-xl border border-emerald-300/20 bg-gradient-to-br from-emerald-300/5 to-transparent p-4">
+      <div className="flex items-center justify-between">
+        <div className="text-[11px] uppercase tracking-wider text-emerald-200/70">完整脚本 · 编导还原</div>
+        <span className="rounded bg-emerald-400/10 px-1.5 py-0.5 text-[10px] text-emerald-300">L4.5</span>
+      </div>
+      <div className="mt-2 max-h-[560px] overflow-auto rounded-lg bg-[#14161a] p-3">
+        <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-zinc-200">{fullScript}</pre>
       </div>
     </div>
   );
