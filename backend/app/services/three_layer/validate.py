@@ -120,6 +120,54 @@ def similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, re.sub(r"\s+", "", a or ""), re.sub(r"\s+", "", b or "")).ratio()
 
 
+# ---------------- 深度检测（R15：内容单薄 / 套话） ----------------
+
+# 机制套话模式：命中且未点名具体机制词 → 判浅（观后感近亲）
+_MECH_CLICHES: tuple[tuple[str, str], ...] = (
+    (r"激发.{0,8}(好奇|兴趣|共鸣|想象力|联想|关注)", "激发好奇/兴趣/共鸣类套话"),
+    (r"(吸引|抓住).{0,6}(注意|眼球|目光|视线)", "吸引注意力类套话"),
+    (r"引发.{0,6}(思考|讨论|共鸣|关注)", "引发思考/共鸣类套话"),
+    (r"(增强|加深|强化).{0,6}(记忆|印象|好感|兴趣)", "增强记忆类套话"),
+    (r"(满足|迎合).{0,6}(需求|心理|期待|猎奇)", "满足需求类套话"),
+)
+# 具体机制名词（点名机制即不算套话）
+_MECH_NOUNS: tuple[str, ...] = (
+    "反常识", "认知失调", "信息缺口", "好奇缺口", "损失厌恶", "损失规避", "沉没成本",
+    "从众", "锚定", "峰终", "首因", "近因", "稀缺", "紧迫感", "身份认同", "归属感",
+    "共情", "代入感", "悬念", "信息差", "冲突", "反转", "情绪传染", "社交货币",
+    "仪式感", "猎奇", "禁忌", "意外感", "惊喜", "情绪落差", "期待落差", "选择悖论",
+    "曝光效应", "心理账户", "即时反馈", "延迟满足", "确定性", "控制感", "新鲜感", "反差",
+)
+
+# 想象套话模式：场景置换式/空泛式
+_IMAG_CLICHES: tuple[tuple[str, str], ...] = (
+    (r"(迁移|应用|运用|移植|扩展|延伸|复制)到.{0,24}(领域|场景|平台|行业|品类|赛道|内容|账号)", "场景置换式套话"),
+    (r"^(可|可以|能够|也可|还能)(迁移|应用|推广|移植).{0,12}$", "空泛套话"),
+)
+
+
+def is_shallow_mechanism(text: str, min_len: int = 60) -> bool:
+    """机制是否单薄：< min_len 字，或命中套话模式但未点名具体机制。"""
+    text = text or ""
+    if len(text) < min_len:
+        return True
+    if any(re.search(pat, text) for pat, _ in _MECH_CLICHES):
+        if not any(n in text for n in _MECH_NOUNS):
+            return True
+    return False
+
+
+def is_shallow_imagination(text: str, min_len: int = 50) -> bool:
+    """想象是否单薄：< min_len 字，或场景置换式/空泛套话。"""
+    text = text or ""
+    if len(text) < min_len:
+        return True
+    for pat, _ in _IMAG_CLICHES:
+        if re.search(pat, text) and len(text) < 100:
+            return True
+    return False
+
+
 # R8 逐字比对前先做"去噪规范化"：只丢空白与标点，保留全部实义字符（含数字、
 # 英文与别字）。ASR 原文本身没有标点，模型产出常自带标点，若不去噪会把
 # "剧情、多人、士兵模式" 与 "剧情多人士兵模式" 误判成不一致。
@@ -505,6 +553,21 @@ class Validator:
         if _empty(row.get("counter_example")):
             v.soft.append("R13 缺反例 counter_example")
 
+    def r15_depth(self, row: dict[str, Any], v: Verdict) -> None:
+        """R15 内容单薄：机制/想象是否"短句标签"或"套话"，而非法论级内容。"""
+        m = str(row.get("mechanism") or "")
+        if m and is_shallow_mechanism(m):
+            v.soft.append(
+                f"R15 机制单薄：{len(m)} 字"
+                + ("" if len(m) < 60 else "（套话未点名具体机制，如反常识冲突/信息缺口/损失厌恶）")
+            )
+        img = str(row.get("imagination") or "")
+        if img and is_shallow_imagination(img):
+            v.soft.append(
+                f"R15 想象单薄：{len(img)} 字"
+                + ("" if len(img) < 50 else "（场景置换式套话，未落到具体改编动作）")
+            )
+
     def r14_combo(self, combo: dict[str, Any], slots: Sequence[dict[str, Any]], v: Verdict) -> None:
         if not slots:
             v.hard.append("R14 组合无槽位")
@@ -581,6 +644,7 @@ class Validator:
             self.r10_scene_copy(row, v)
             self.r11_label(row, v)
             self.r12_divergence(row, v)
+            self.r15_depth(row, v)
             if row_type == "lib_method":
                 self.r13_mechanism(row, v)
             self.r9_refs(refs, v)
@@ -624,7 +688,7 @@ def score_rows(verdicts: Sequence[Verdict]) -> dict[str, Any]:
 
 # ---------------------------------------------------------------- 元素质量基线验收
 
-ELEMENT_BASELINE_RULE = "hard=0 且 观后感/变体/机制 soft 率 ≤ 25%"
+ELEMENT_BASELINE_RULE = "hard=0 且 观后感/变体/机制/深度 soft 率 ≤ 25%"
 ELEMENT_BASELINE_SOFT_LIMIT = 0.25
 
 
@@ -648,6 +712,7 @@ def element_baseline(verdicts: Sequence[dict]) -> dict:
         "label_rows": [],
         "variant_rows": [],
         "mechanism_rows": [],
+        "depth_rows": [],
         "evidence_rows": [],
         "rates": {},
         "pass": None,
@@ -671,6 +736,8 @@ def element_baseline(verdicts: Sequence[dict]) -> dict:
             out["variant_rows"].append({**item, "issues": [m for m in soft if m.startswith("R12")][:2]})
         if any(m.startswith("R13") for m in soft):
             out["mechanism_rows"].append({**item, "issues": [m for m in soft if m.startswith("R13")][:2]})
+        if any(m.startswith("R15") for m in soft):
+            out["depth_rows"].append({**item, "issues": [m for m in soft if m.startswith("R15")][:2]})
         if any(m.startswith("R9") for m in hard):
             out["evidence_rows"].append({**item, "issues": [m for m in hard if m.startswith("R9")][:2]})
 
@@ -680,6 +747,7 @@ def element_baseline(verdicts: Sequence[dict]) -> dict:
         "label": round(len(out["label_rows"]) / n, 4),
         "variant": round(len(out["variant_rows"]) / n, 4),
         "mechanism": round(len(out["mechanism_rows"]) / n, 4),
+        "depth": round(len(out["depth_rows"]) / n, 4),
         "evidence": round(len(out["evidence_rows"]) / n, 4),
     }
     out["rates"] = rates
@@ -688,14 +756,15 @@ def element_baseline(verdicts: Sequence[dict]) -> dict:
         and rates["label"] <= ELEMENT_BASELINE_SOFT_LIMIT
         and rates["variant"] <= ELEMENT_BASELINE_SOFT_LIMIT
         and rates["mechanism"] <= ELEMENT_BASELINE_SOFT_LIMIT
+        and rates["depth"] <= ELEMENT_BASELINE_SOFT_LIMIT
     )
     if out["pass"]:
-        out["reason"] = "通过：无 hard 违规，观后感/变体/机制 soft 率均在 25% 内"
+        out["reason"] = "通过：无 hard 违规，观后感/变体/机制/深度 soft 率均在 25% 内"
     else:
         reasons = []
         if len(out["hard_rows"]):
             reasons.append(f"hard 违规 {len(out['hard_rows'])} 条")
-        for k, label in (("label", "观后感"), ("variant", "变体"), ("mechanism", "机制")):
+        for k, label in (("label", "观后感"), ("variant", "变体"), ("mechanism", "机制"), ("depth", "深度")):
             if rates[k] > ELEMENT_BASELINE_SOFT_LIMIT:
                 reasons.append(f"{label} soft 率 {rates[k]:.0%} > 25%")
         out["reason"] = "未通过：" + "；".join(reasons)
