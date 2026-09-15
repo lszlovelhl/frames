@@ -1311,6 +1311,7 @@ async def run_three_layer(
                     for s in sentence_rows
                 ],
             }
+            retried = False
             res45 = await _ai_chat(
                 [
                     {"role": "system", "content": system45},
@@ -1336,9 +1337,43 @@ async def run_three_layer(
                 if len(raw45) < min_len:
                     q45["errors"].append(f"成稿 {len(raw45)} 字 < 厚度下限 {min_len}")
                 elif seg_marks < len(seg_rows):
-                    q45["errors"].append(
-                        f"段落标记 {seg_marks} < 段落数 {len(seg_rows)}（成稿漏段）"
-                    )
+                    # 漏段：自动重试一次（同一输入，期望模型补全段落）
+                    if not retried:
+                        retried = True
+                        q45["warnings"] = q45.get("warnings") or []
+                        q45["warnings"].append(f"首次成稿漏段（{seg_marks}/{len(seg_rows)}），自动重试")
+                        logger.info("L4.5 漏段重试：seg_marks=%s/%s", seg_marks, len(seg_rows))
+                        res45 = await chat(
+                            _TL45.format(
+                                l45_input=json.dumps(l45_input, ensure_ascii=False)[:42000]
+                            ),
+                            model=model,
+                            max_tokens=16384,
+                            json_mode=False,
+                            timeout=300,
+                            scene="tl45_script",
+                        )
+                        raw45 = (res45.get("reply") or "").strip()
+                        raw45 = re.sub(r"^```(?:markdown)?\s*", "", raw45)
+                        raw45 = re.sub(r"\s*```\s*$", "", raw45)
+                        seg_marks = raw45.count("###")
+                        min_len = max(800, len(seg_rows) * 150)
+                        if len(raw45) < min_len:
+                            q45["errors"].append(f"重试后成稿 {len(raw45)} 字 < 厚度下限 {min_len}")
+                        elif seg_marks < len(seg_rows):
+                            q45["errors"].append(
+                                f"重试后仍漏段：段落标记 {seg_marks} < 段落数 {len(seg_rows)}"
+                            )
+                        elif res45.get("finish_reason") == "length":
+                            q45["errors"].append("成稿被 max_tokens 截断，请后续增大额度")
+                        else:
+                            full_script = raw45[:20000]
+                            if q45["errors"]:
+                                q45["errors"] = []
+                    else:
+                        q45["errors"].append(
+                            f"段落标记 {seg_marks} < 段落数 {len(seg_rows)}（成稿漏段）"
+                        )
                 elif res45.get("finish_reason") == "length":
                     q45["errors"].append("成稿被 max_tokens 截断，请后续增大额度")
                 else:
@@ -1347,6 +1382,37 @@ async def run_three_layer(
                         q45["errors"] = []
                     if cliche_tail:
                         q45["warnings"] = [f"套话尾句 ×{cliche_tail}（'适用于任何需要…'）"]
+                    # harness 画面轨：按段落时间精确对齐场景记忆/动态事件，追加为【画面分镜】
+                    scenes = ((manifest or {}).get("scenes")) or []
+                    dyns = (((manifest or {}).get("frame_plan") or {}).get("dynamic_events")) or []
+                    if scenes:
+                        vis_lines = ["\n\n## 【画面分镜】（harness 按时间对齐）"]
+                        for seg in seg_rows:
+                            s0, s1 = seg.start_ms, seg.end_ms
+                            hit = [
+                                sc for sc in scenes
+                                if int(sc.get("start_ms") or 0) < s1 and int(sc.get("end_ms") or 0) > s0
+                            ]
+                            if not hit:
+                                continue
+                            brief = " → ".join(
+                                f"{sc.get('subject') or ''}｜{sc.get('action') or ''}（{int(sc.get('start_ms') or 0) / 1000:.0f}-{int(sc.get('end_ms') or 0) / 1000:.0f}s，{sc.get('style') or ''}）"
+                                for sc in hit[:3]
+                            )
+                            overlay = "；".join(
+                                sc.get("text_overlay") or "" for sc in hit if sc.get("text_overlay")
+                            )
+                            line = f"- 段{seg.seq}（{s0 / 1000:.0f}s~{s1 / 1000:.0f}s）：{brief}"
+                            if overlay:
+                                line += f"；字幕：{overlay[:80]}"
+                            vis_lines.append(line)
+                        dyn_lines = [
+                            f"- 动态：{e.get('event_type')} @{int(e.get('t_ms') or 0) / 1000:.0f}s（{e.get('note') or ''}）"
+                            for e in dyns
+                        ]
+                        if dyn_lines:
+                            vis_lines.append("".join(dyn_lines))
+                        full_script = full_script + "\n" + "\n".join(vis_lines)
         except Exception as exc:
             q45["errors"].append(str(exc)[:160])
             logger.warning("L4.5 脚本还原失败：%s", exc)
