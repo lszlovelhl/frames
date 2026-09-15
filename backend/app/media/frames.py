@@ -43,7 +43,7 @@ _PEAK = 95
 # 抽帧策略版本：分档间隔 / 帧数上限 / 锚点规则任何变更都要递增。
 # services/media_prep.ensure_media 复用素材前会比对该版本，落后则强制重抽帧
 # （否则「复用已有素材」短路会让密集档对老链接永远不生效）。
-FRAMES_POLICY_VERSION = 4  # v4：场景记忆（模型合并逐帧简报）+ 短视频抽帧密度 1.5s→1.0s
+FRAMES_POLICY_VERSION = 5  # v5：merge_scenes 提示词强化叙事合并 + _coalesce_scenes harness 兜底（32→10 场景）
 
 SHORT_MAX_S = 300.0          # 时长阈值：< 5 分钟按短视频处理
 SHORT_IV_HIGH = 0.8
