@@ -312,6 +312,96 @@ def _next_sentence_after(
     return None
 
 
+R12_RETRY_SYSTEM = (
+    "你是短视频拆解系统的元素质量修复器。给定一个已提取的元素和校验反馈，"
+    "只修复【发散想象（imagination）】与【变体（variants）】两个字段，其他字段一律保持原样。\n"
+    "要求：\n"
+    "- imagination：用中文自然语言描述该元素可以如何迁移到其他场景/品类/人群/平台，"
+    "必须 ≥30 字（宁可 35 字也不要 28 字），落到具体可执行的场景细节，禁止空泛套话。\n"
+    "- variants：2~3 条发散变体，每条是独立不重复的方向（互相相似度必须 <0.8），"
+    "每条给出具体可执行的改写方向，不得只是换词。\n"
+    "只输出 JSON：{\"imagination\": \"...\", \"variants\": [{\"text\": \"...\"}, ...]}"
+)
+
+
+async def _retry_r12_fields(
+    item: dict[str, Any], feedback: list[str], *, model: str
+) -> dict[str, Any] | None:
+    """harness 定点重试：R12 违规元素只重跑 imagination+variants，返回修复字段（不达标则 None）。"""
+    payload = {
+        k: item.get(k)
+        for k in ("code", "name", "text", "mechanism", "variants", "imagination")
+        if item.get(k) is not None
+    }
+    user = (
+        "【元素当前内容】\n" + json.dumps(payload, ensure_ascii=False)
+        + "\n\n【校验反馈】\n" + "\n".join(f"- {f}" for f in feedback)
+        + "\n\n按要求修复后，只输出 imagination 与 variants 两个字段的 JSON。"
+    )
+    try:
+        data, _info = await complete_json(
+            [
+                {"role": "system", "content": R12_RETRY_SYSTEM},
+                {"role": "user", "content": user},
+            ],
+            array_keys=["imagination", "variants"],
+            model=model,
+            max_tokens=4096,
+            scene="r12_retry",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("L5 R12 定点重试调用失败：%s", exc)
+        return None
+    if not data:
+        return None
+    out: dict[str, Any] = {}
+    if isinstance(data.get("imagination"), str) and len(data["imagination"]) >= 30:
+        out["imagination"] = data["imagination"][:4000]
+    vs = data.get("variants")
+    if isinstance(vs, list) and len(vs) >= 2:
+        texts = [str(x.get("text") if isinstance(x, dict) else x) for x in vs]
+        dup = any(
+            validate.similarity(texts[i], texts[j]) >= 0.8
+            for i in range(len(texts))
+            for j in range(i + 1, len(texts))
+        )
+        if not dup:
+            out["variants"] = [x for x in vs][:4]
+    return out or None
+
+
+async def _r12_retry_and_validate(
+    db: AsyncSession,
+    video: M.Video,
+    analysis_id: str,
+    model: str,
+    validator,
+    table: str,
+    label: str,
+    item: dict[str, Any],
+    values: dict[str, Any],
+    v,
+    refs: list[dict],
+) -> tuple[bool, Any, dict[str, Any]]:
+    """R12 软违规（imagination<30 / 变体重复）→ 定点重试 → 更新 values 并重新校验。
+
+    返回 (最终 accepted, 最终 verdict, 最终 values)；未违规或重试失败时原判定不变。
+    这是 harness 对确定性约束的接管：字数/重复检查+定点重试归代码层，模型只负责重写内容。
+    """
+    r12 = [s for s in v.soft if s.startswith("R12")]
+    if not r12 or v.status == "rejected":
+        return v.accepted, v, values
+    fixed = await _retry_r12_fields(item, r12, model=model)
+    if not fixed:
+        return v.accepted, v, values
+    values = {**values, **fixed}
+    v2 = validator.validate(table, {**item, **values}, label=label, refs=refs)
+    if v2.accepted:
+        return True, v2, values
+    logger.info("L5 R12 定点重试后仍不达标：%s（%s）", label, [s for s in v2.soft if s.startswith("R12")])
+    return v.accepted, v, values
+
+
 def _sentence_at(sentences: Sequence[dict[str, Any]], t_ms: int) -> dict[str, Any] | None:
     if not sentences:
         return None
@@ -1197,7 +1287,11 @@ async def run_three_layer(
             if ref is None:
                 continue
             v = validator.validate("lib_topic", {**item, **values}, label=code, refs=[{"quote": ref.quote, "start_ms": ref.start_ms, "end_ms": ref.end_ms}])
-            if not v.accepted:
+            accepted, v, values = await _r12_retry_and_validate(
+                db, video, analysis_id, model, validator, "lib_topic", code, item, values, v,
+                [{"quote": ref.quote, "start_ms": ref.start_ms, "end_ms": ref.end_ms}],
+            )
+            if not accepted:
                 verdicts.append(v.as_dict())
                 continue
             row, _ = await _upsert_lib(M.LibTopic, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"})
@@ -1232,7 +1326,11 @@ async def run_three_layer(
             if ref is None:
                 continue
             v = validator.validate("lib_hook", {**item, **values}, label=code, refs=[{"quote": ref.quote, "start_ms": ref.start_ms, "end_ms": ref.end_ms}])
-            if not v.accepted:
+            accepted, v, values = await _r12_retry_and_validate(
+                db, video, analysis_id, model, validator, "lib_hook", code, item, values, v,
+                [{"quote": ref.quote, "start_ms": ref.start_ms, "end_ms": ref.end_ms}],
+            )
+            if not accepted:
                 verdicts.append(v.as_dict())
                 continue
             row, _ = await _upsert_lib(M.LibHook, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"})
@@ -1268,7 +1366,11 @@ async def run_three_layer(
             if ref is None:
                 continue
             v = validator.validate("lib_copywriting", {**item, **values}, label=code, refs=[{"quote": ref.quote, "start_ms": ref.start_ms, "end_ms": ref.end_ms}])
-            if not v.accepted:
+            accepted, v, values = await _r12_retry_and_validate(
+                db, video, analysis_id, model, validator, "lib_copywriting", code, item, values, v,
+                [{"quote": ref.quote, "start_ms": ref.start_ms, "end_ms": ref.end_ms}],
+            )
+            if not accepted:
                 verdicts.append(v.as_dict())
                 continue
             row, _ = await _upsert_lib(M.LibCopywriting, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"})
@@ -1298,7 +1400,11 @@ async def run_three_layer(
             if ref is None:
                 continue
             v = validator.validate("lib_quote", {**item, **values}, label=code, refs=[{"quote": ref.quote, "start_ms": ref.start_ms, "end_ms": ref.end_ms}])
-            if not v.accepted:
+            accepted, v, values = await _r12_retry_and_validate(
+                db, video, analysis_id, model, validator, "lib_quote", code, item, values, v,
+                [{"quote": ref.quote, "start_ms": ref.start_ms, "end_ms": ref.end_ms}],
+            )
+            if not accepted:
                 verdicts.append(v.as_dict())
                 continue
             row, _ = await _upsert_lib(M.LibQuote, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"})
@@ -1338,7 +1444,11 @@ async def run_three_layer(
             if ref is None:
                 continue
             v = validator.validate("lib_method", {**item, **values}, label=code, refs=[{"quote": ref.quote, "start_ms": ref.start_ms, "end_ms": ref.end_ms}])
-            if not v.accepted:
+            accepted, v, values = await _r12_retry_and_validate(
+                db, video, analysis_id, model, validator, "lib_method", code, item, values, v,
+                [{"quote": ref.quote, "start_ms": ref.start_ms, "end_ms": ref.end_ms}],
+            )
+            if not accepted:
                 verdicts.append(v.as_dict())
                 continue
             row, _ = await _upsert_lib(M.LibMethod, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"})
