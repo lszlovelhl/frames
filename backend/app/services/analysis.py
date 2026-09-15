@@ -17,7 +17,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models as M
@@ -187,6 +187,10 @@ async def run_three_layer_breakdown(
     async def progress(stage: str, pct: int, msg: str) -> None:
         await set_progress(db, job, stage=f"three_{stage}", message=msg, pct=pct)
 
+    # 缓存标量：pipeline 异常后会话状态不确定，except 里不得访问 ORM 属性（会触发
+    # 过期 lazy load → MissingGreenlet 二次异常，曾导致 job 永久卡 running）
+    _vid = video.id
+    _job_id = job.id
     try:
         result = await run_three_layer(
             db,
@@ -198,7 +202,10 @@ async def run_three_layer_breakdown(
         )
         await db.commit()
     except Exception as exc:  # noqa: BLE001
-        logger.warning("三层分库拆解失败：video=%s", video.id, exc_info=True)
+        logger.warning(
+            "三层分库拆解失败：video=%s job=%s", _vid, str(_job_id)[:8],
+            exc_info=True,
+        )
         await db.rollback()
         result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
@@ -233,6 +240,19 @@ async def run_three_layer_breakdown(
     except Exception:  # noqa: BLE001
         logger.warning("三层拆解证据写入 breakdown_jobs 失败", exc_info=True)
         await db.rollback()
+        # 兜底：独立 SQL 直标 failed，杜绝 job 永久卡 running（前端轮询会一直挂着）
+        try:
+            async with db.bind.connect() as conn:
+                await conn.execute(
+                    text(
+                        "UPDATE breakdown_jobs SET status='failed', stage='failed', pct=100, "
+                        "failed_reason=:r, updated_at=CURRENT_TIMESTAMP WHERE id=:i"
+                    ),
+                    {"r": "拆解证据写入失败（详见日志）", "i": str(job.id)},
+                )
+                await conn.commit()
+        except Exception:  # noqa: BLE001
+            logger.exception("兜底标记 job failed 失败：%s", job.id)
     return result
 
 
