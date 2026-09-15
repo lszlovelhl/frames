@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import math
+import re
 from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Sequence
 from uuid import uuid4
@@ -267,13 +268,46 @@ def normalize_code(raw: Any) -> str:
     return code if validate.is_code(code) else ""
 
 
+def _extract_line_no(raw: Any) -> int | None:
+    """从任意值中尽力提取句子序号：'5'、'第5句'、'line 5'、'5-6' → 5。失败返回 None。"""
+    if raw is None:
+        return None
+    m = re.search(r"\d+", str(raw))
+    return int(m.group(0)) if m else None
+
+
 def _line_to_sentence(sentences: Sequence[dict[str, Any]], line_no: Any) -> dict[str, Any] | None:
+    """句子定位：优先精确 seq；模型给非法/越界行号时 clamp 到边界句，避免整段丢失。"""
+    seq = None
     try:
         seq = int(line_no)
     except (TypeError, ValueError):
+        seq = _extract_line_no(line_no)
+    if seq is None:
         return None
+    if not sentences:
+        return None
+    seq = max(1, min(seq, int(sentences[-1]["seq"])))
     for s in sentences:
         if int(s["seq"]) == seq:
+            return s
+    return None
+
+
+def _next_sentence_after(
+    sentences: Sequence[dict[str, Any]], prev: dict[str, Any] | None
+) -> dict[str, Any] | None:
+    """harness 段落时间锚定：返回 prev 之后的首个句子（prev=None 时返回首句）。
+
+    模型给非法 line 号时用它在'前一段末尾之后'继续，而不是兜底回首句——
+    兜底首句会让段落 start_ms=0 与段 1 重叠，污染 L6 组合模板槽位覆盖。
+    """
+    if not sentences:
+        return None
+    if prev is None:
+        return sentences[0]
+    for s in sentences:
+        if int(s["seq"]) > int(prev["seq"]):
             return s
     return None
 
@@ -763,14 +797,40 @@ async def run_three_layer(
         ]
         warnings.append("L3 未返回可用段落（重试后仍为空），已按全片兜底")
 
+    # --- harness 段落时间锚定（语义归模型，精确时间归 harness）---
+    # 契约：段 1 从 0 起、首尾相接、严格单调（_TL3 第 1 条）。
+    # 模型给非法 line 号时不再兜底首句（会造成 0 起重叠），而是退化锚定到"前一段末尾之后"；
+    # from/to 倒置时交换；本段起点不得早于前段终点（句子级别单调强制）。
     seg_rows: list[M.ScriptSegment] = []
+    _prev_last: dict[str, Any] | None = None
     for item in segments_json:
-        s_first = _line_to_sentence(sentences, item.get("line_from")) or (sentences[0] if sentences else None)
-        s_last = _line_to_sentence(sentences, item.get("line_to")) or s_first
+        s_first = _line_to_sentence(sentences, item.get("line_from"))
+        s_last = _line_to_sentence(sentences, item.get("line_to"))
+        _bad_from = item.get("line_from") is not None and s_first is None
+        _bad_to = item.get("line_to") is not None and s_last is None
         if s_first is None:
-            continue
+            # 非法 from（无数字可解析）：首段锚定首句（保证 0 起），后续段退化到前段尾句之后；
+            # 已到最后句时锚定末尾句保留语义（模型对末尾的语义细分，如干货/CTA 段）
+            s_first = _next_sentence_after(sentences, _prev_last) or _prev_last
+            if s_first is None:
+                continue
+        if s_last is None:
+            s_last = _next_sentence_after(sentences, s_first) or sentences[-1]
+        # 倒置保护：from > to 时交换，避免负区间
+        if int(s_first["seq"]) > int(s_last["seq"]):
+            s_first, s_last = s_last, s_first
+        # 单调强制：本段起点不得早于前段终点（句子 seq 级别）
+        if _prev_last is not None and int(s_first["seq"]) <= int(_prev_last["seq"]):
+            s_first = _next_sentence_after(sentences, _prev_last) or _prev_last
+            if int(s_last["seq"]) <= int(s_first["seq"]):
+                s_last = _next_sentence_after(sentences, s_first) or sentences[-1]
+        if _bad_from or _bad_to:
+            warnings.append(
+                f"L3 段{item.get('seq')} 模型行号非法（from={item.get('line_from')!r} to={item.get('line_to')!r}），"
+                f"已由 harness 锚定到句 {s_first['seq']}~{s_last['seq']}"
+            )
         start_ms, end_ms, _ = validate.correct_time(
-            s_first["start_ms"], (s_last or s_first)["end_ms"], (int(s_first["start_ms"]), int((s_last or s_first)["end_ms"]))
+            s_first["start_ms"], s_last["end_ms"], (int(s_first["start_ms"]), int(s_last["end_ms"]))
         )
         seg_type = str(item.get("seg_type") or "").strip()
         if seg_type not in validator.wl.get("seg_type", set()):
@@ -783,7 +843,7 @@ async def run_three_layer(
             start_ms=start_ms,
             end_ms=end_ms,
             start_sentence_seq=int(s_first["seq"]),
-            end_sentence_seq=int((s_last or s_first)["seq"]),
+            end_sentence_seq=int(s_last["seq"]),
             purpose=str(item.get("purpose") or "")[:4000] or "（缺失）",
             summary=str(item.get("summary") or "")[:4000] or "（缺失）",
             hook_point=1 if item.get("hook_point") else 0,
@@ -798,7 +858,7 @@ async def run_three_layer(
                 "end_ms": end_ms,
                 "seg_type": seg_type,
                 "start_sentence_seq": int(s_first["seq"]),
-                "end_sentence_seq": int((s_last or s_first)["seq"]),
+                "end_sentence_seq": int(s_last["seq"]),
             },
             label=f"seg{row.seq}:{row.title or ''}",
         )
@@ -807,6 +867,7 @@ async def run_three_layer(
             continue
         db.add(row)
         seg_rows.append(row)
+        _prev_last = s_last
     await db.flush()
     counts["script_segment"] = len(seg_rows)
     await db.commit()
