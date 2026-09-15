@@ -148,7 +148,7 @@ async def persist_raw_layer(
     subtitle_source = "ocr" if src_mode == "ocr_only" else "asr"
 
     # 幂等：先清本片原料行
-    for model in (M.RawTranscriptSentence, M.RawShot, M.RawAudioEnergySample):
+    for model in (M.RawTranscriptSentence, M.RawShot, M.RawAudioEnergySample, M.RawDynamicEvent):
         await db.execute(delete(model).where(model.video_id == video.id))
 
     row_manifest = (
@@ -233,6 +233,21 @@ async def persist_raw_layer(
                 )
             )
 
+    # 画面动态事件轨：抽帧时的 1fps 帧差序列 → 转场点/运动爆发段（harness 推导）
+    dyn_events = ((manifest.get("frame_plan") or {}).get("dynamic_events")) or []
+    for item in dyn_events:
+        db.add(
+            M.RawDynamicEvent(
+                video_id=video.id,
+                seq=int(item.get("seq") or 0),
+                event_type=str(item.get("event_type") or ""),
+                t_ms=int(item.get("t_ms") or 0),
+                duration_ms=int(item.get("duration_ms") or 0),
+                intensity=float(item.get("intensity") or 0),
+                note=str(item.get("note") or "")[:200] or None,
+            )
+        )
+
     await db.flush()
     return {
         "duration_ms": duration_ms,
@@ -249,7 +264,6 @@ async def persist_raw_layer(
         "has_bgm": bool(profile.has_bgm),
         "bpm": profile.bpm,
     }
-
 
 async def load_raw_context(db: AsyncSession, video_id) -> dict[str, Any]:
     """从 raw_* 读回原料上下文（重跑/续跑时不必重新采集）。"""
