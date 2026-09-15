@@ -43,7 +43,7 @@ _PEAK = 95
 # 抽帧策略版本：分档间隔 / 帧数上限 / 锚点规则任何变更都要递增。
 # services/media_prep.ensure_media 复用素材前会比对该版本，落后则强制重抽帧
 # （否则「复用已有素材」短路会让密集档对老链接永远不生效）。
-FRAMES_POLICY_VERSION = 2
+FRAMES_POLICY_VERSION = 3  # v3：新增画面动态事件轨（转场点/运动爆发段，harness 推导）
 
 SHORT_MAX_S = 300.0          # 时长阈值：< 5 分钟按短视频处理
 SHORT_IV_HIGH = 0.8
@@ -209,6 +209,72 @@ def _plan_times(
     return times
 
 
+def detect_dynamic_events(
+    diffs: list[float], duration: float, interval_s: float = 1.0
+) -> list[dict]:
+    """从 1fps 帧差序列推导画面动态事件轨（harness 精确层，不依赖模型）。
+
+    返回 [{seq, event_type, t_ms, duration_ms, intensity(0~1), note}]：
+    - transition：孤立尖峰（画面剧变 = 剪辑/硬切点）
+    - motion_burst：连续高运动段（高速动作/卡点动画）
+    """
+    if not diffs or len(diffs) < 3:
+        return []
+    import numpy as np
+
+    d = np.array(diffs, dtype=np.float64)
+    dmax = float(d.max())
+    if dmax <= 0:
+        return []
+    norm = d / dmax
+    p85 = float(np.percentile(norm, 85))
+    p92 = float(np.percentile(norm, 92))
+    events: list[dict] = []
+
+    # 1) 转场点：孤立尖峰（≥p92 且显著高于左右邻）
+    for i in range(1, len(norm) - 1):
+        v = float(norm[i])
+        if v >= p92 and v >= 1.3 * float(norm[i - 1]) and v >= 1.3 * float(norm[i + 1]):
+            events.append({
+                "event_type": "transition",
+                "t_ms": int(i * interval_s * 1000),
+                "duration_ms": int(interval_s * 1000),
+                "intensity": round(v, 3),
+                "note": f"画面剧变（帧差峰值 {round(v * dmax)}）",
+            })
+
+    # 2) 运动爆发段：连续 ≥2 点 ≥p85
+    i = 0
+    while i < len(norm):
+        if float(norm[i]) >= p85:
+            j = i
+            while j + 1 < len(norm) and float(norm[j + 1]) >= p85:
+                j += 1
+            if j - i >= 1:  # 连续 ≥2 秒
+                burst = float(norm[i : j + 1].mean())
+                events.append({
+                    "event_type": "motion_burst",
+                    "t_ms": int(i * interval_s * 1000),
+                    "duration_ms": int((j - i + 1) * interval_s * 1000),
+                    "intensity": round(burst, 3),
+                    "note": f"连续高运动 {j - i + 1}s（均值 {round(burst * dmax)}）",
+                })
+            i = j + 1
+        else:
+            i += 1
+
+    # 时间轴排序 + 去重（同秒的 transition 与 burst 并存时保留 transition）
+    events.sort(key=lambda e: (e["t_ms"], 0 if e["event_type"] == "transition" else 1))
+    dedup: list[dict] = []
+    for e in events:
+        if dedup and abs(e["t_ms"] - dedup[-1]["t_ms"]) < 500:
+            continue
+        dedup.append(e)
+    for seq, e in enumerate(dedup, start=1):
+        e["seq"] = seq
+    return dedup
+
+
 async def sample_frames(
     video_path: str,
     work_dir: Path,
@@ -306,4 +372,9 @@ async def sample_frames(
             "kind": "anchor" if is_anchor else kind,
         })
         prev_t = t
+
+    # 画面动态事件轨：1fps 帧差序列 → 转场点/运动爆发段（harness 精确层）
+    events = detect_dynamic_events(diffs, duration)
+    if plan_info is not None:
+        plan_info["dynamic_events"] = events
     return frames

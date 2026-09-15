@@ -552,6 +552,27 @@ class RawAudioEnergySample(CreatedAtMixin, Base):
     )
 
 
+class RawDynamicEvent(CreatedAtMixin, Base):
+    """画面动态事件轨：harness 从 1fps 帧差序列推导的转场点/运动爆发段（单帧看不到的动态记忆）"""
+
+    __tablename__ = "raw_dynamic_event"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    video_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("videos.id", ondelete="CASCADE")
+    )
+    seq: Mapped[int] = mapped_column(Integer)
+    event_type: Mapped[str] = mapped_column(String(24))  # transition / motion_burst
+    t_ms: Mapped[int] = mapped_column(Integer)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    intensity: Mapped[float] = mapped_column(Float)  # 归一化帧差 0~1
+    note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("video_id", "seq", name="uq_raw_dyn_event_video_seq"),
+    )
+
+
 # ---------------- 第二层 · 本片脚本层 script_* ----------------
 
 class ScriptScript(TimestampMixin, Base):
