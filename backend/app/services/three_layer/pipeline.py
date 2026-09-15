@@ -402,6 +402,77 @@ async def _r12_retry_and_validate(
     return v.accepted, v, values
 
 
+# ---------------- 定点深度化（R15：内容单薄 → 单元素深度重写） ----------------
+
+DEEP_SYSTEM = (
+    "你是短视频拆解系统的深度化器。给定一个已提取的元素及其来源上下文，把【机制（mechanism）】"
+    "【发散想象（imagination）】【变体（variants）】三个字段从'短句标签'升级为'方法论级内容'。"
+    "只重写这三个字段，其他字段一律保持原样。\n"
+    "深度要求：\n"
+    "- mechanism ≥60 字，写满四要素：①触发条件（什么情境/观众状态）②点名具体心理或传播机制"
+    "（如 反常识冲突/认知失调/信息缺口/损失厌恶/峰终定律/社交货币/情绪传染/悬念-释放/反差/身份认同，"
+    "禁止只写'激发好奇心/吸引注意力/引发共鸣'）③位置关联（结合来源句在片中的位置、目标人群说明"
+    "为什么此刻有效）④适用边界或反例。\n"
+    "- imagination ≥50 字，写满三要素：①具体迁移场景（哪个品类/人群/平台）②在该场景的具体改编动作"
+    "③预期效果差异。禁止'可迁移到其他领域'这类场景置换套话。\n"
+    "- variants：2~3 条，每条 ≥15 字、互相不相似，必须是'场景 + 具体改法'，不得只是换词。\n"
+    "只输出 JSON：{\"mechanism\": \"...\", \"imagination\": \"...\", \"variants\": [{\"text\": \"...\"}, ...]}"
+)
+
+
+async def _deepen_element(
+    item: dict[str, Any], issues: list[str], context: dict[str, Any], *, model: str
+) -> dict[str, Any] | None:
+    """harness 定点深度化：R15 违规元素单元素深度重写，返回机制/想象/变体（未达标则 None）。"""
+    payload = {
+        k: item.get(k)
+        for k in ("code", "name", "text", "mechanism", "variants", "imagination")
+        if item.get(k) is not None
+    }
+    user = (
+        "【元素当前内容】\n" + json.dumps(payload, ensure_ascii=False)
+        + "\n\n【深度问题反馈】\n" + "\n".join(f"- {f}" for f in issues)
+        + "\n\n【来源上下文（供位置关联与机制分析）】\n"
+        + json.dumps(context, ensure_ascii=False)
+        + "\n\n按要求深度化后，只输出 mechanism、imagination 与 variants 三个字段的 JSON。"
+    )
+    try:
+        data, _info = await complete_json(
+            [
+                {"role": "system", "content": DEEP_SYSTEM},
+                {"role": "user", "content": user},
+            ],
+            array_keys=["mechanism", "imagination", "variants"],
+            model=model,
+            max_tokens=4096,
+            scene="r15_deepen",
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("L5 R15 定点深度化调用失败：%s", exc)
+        return None
+    if not data:
+        return None
+    out: dict[str, Any] = {}
+    m = str(data.get("mechanism") or "")
+    if m and not validate.is_shallow_mechanism(m):
+        out["mechanism"] = m[:4000]
+    img = str(data.get("imagination") or "")
+    if img and not validate.is_shallow_imagination(img):
+        out["imagination"] = img[:4000]
+    vs = data.get("variants")
+    if isinstance(vs, list) and len(vs) >= 2:
+        texts = [str(x.get("text") if isinstance(x, dict) else x) for x in vs]
+        dup = any(
+            validate.similarity(texts[i], texts[j]) >= 0.8
+            for i in range(len(texts))
+            for j in range(i + 1, len(texts))
+        )
+        shallow = any(len(t) < 15 for t in texts)
+        if not dup and not shallow:
+            out["variants"] = [x for x in vs][:4]
+    return out or None
+
+
 def _sentence_at(sentences: Sequence[dict[str, Any]], t_ms: int) -> dict[str, Any] | None:
     if not sentences:
         return None
@@ -1255,6 +1326,41 @@ async def run_three_layer(
         await db.flush()
         return existing, True
 
+    def _deepen_context(item: dict[str, Any], ref: M.RefElementSource) -> dict[str, Any]:
+        """构建定点深度化的来源上下文：证据链 + 来源句 + 所在段落 + 曲线位置 + 人群。"""
+        raw = _line_to_sentence(sentences, item.get("source_line_no"))
+        sent = next((r for r in sentence_rows if raw and int(r.seq) == int(raw["seq"])), None)
+        seg = segment_of_line(int(raw["seq"])) if raw else None
+        dur = int(script.duration_ms or 0) or 1
+        return {
+            "证据原话": str(getattr(ref, "quote", "") or "")[:400],
+            "秒数": f"{int(getattr(ref, 'start_ms', 0) or 0)}ms → {int(getattr(ref, 'end_ms', 0) or 0)}ms"
+            f"（占片 {round(int(getattr(ref, 'start_ms', 0) or 0) / dur, 2)}~{round(int(getattr(ref, 'end_ms', 0) or 0) / dur, 2)}）",
+            "来源句功能": str(sent.sentence_function if sent else "") or "",
+            "来源句情绪强度": str(sent.emotion_intensity if sent else "") or "",
+            "所在段落": f"{seg.seg_type if seg else ''}｜{seg.title if seg else ''}" if seg else "",
+            "目标人群": str(script.target_audience or "")[:200],
+            "中心思想": str(script.core_idea or "")[:200],
+        }
+
+    async def _deepen_and_validate(
+        table: str, label: str, item: dict[str, Any], values: dict[str, Any], v, ref: M.RefElementSource
+    ) -> tuple[dict[str, Any], Any]:
+        """R15 深度不足 → 定点深度化（单元素单任务）→ 重新校验；失败保留原判定。"""
+        r15 = [s for s in v.soft if s.startswith("R15")]
+        if not r15 or v.status == "rejected":
+            return values, v
+        refs = [{"quote": ref.quote, "start_ms": ref.start_ms, "end_ms": ref.end_ms}]
+        fixed = await _deepen_element(item, r15, _deepen_context(item, ref), model=model)
+        if not fixed:
+            return values, v
+        values2 = {**values, **fixed}
+        v2 = validator.validate(table, {**item, **values2}, label=label, refs=refs)
+        if v2.accepted:
+            return values2, v2
+        logger.info("L5 R15 定点深度化后仍不达标：%s（%s）", label, [s for s in v2.soft if s.startswith("R15")])
+        return values, v
+
     topic_rows: list[M.Any] = []
     if ok5:
         for item in data5.get("topics") or []:
@@ -1294,6 +1400,7 @@ async def run_three_layer(
             if not accepted:
                 verdicts.append(v.as_dict())
                 continue
+            values, v = await _deepen_and_validate("lib_topic", code, item, values, v, ref)
             row, _ = await _upsert_lib(M.LibTopic, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"})
             ref.element_id = row.id
             db.add(ref)
@@ -1306,6 +1413,8 @@ async def run_three_layer(
             if not validate.is_code(code):
                 continue
             hook_type = str(item.get("hook_type") or "结果前置")
+            if hook_type not in validator.wl.get("hook_type", set()):
+                hook_type = "结果前置"
             values = dict(
                 name=str(item.get("name") or code)[:128],
                 hook_type=hook_type,
@@ -1333,6 +1442,7 @@ async def run_three_layer(
             if not accepted:
                 verdicts.append(v.as_dict())
                 continue
+            values, v = await _deepen_and_validate("lib_hook", code, item, values, v, ref)
             row, _ = await _upsert_lib(M.LibHook, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"})
             ref.element_id = row.id
             db.add(ref)
@@ -1373,6 +1483,7 @@ async def run_three_layer(
             if not accepted:
                 verdicts.append(v.as_dict())
                 continue
+            values, v = await _deepen_and_validate("lib_copywriting", code, item, values, v, ref)
             row, _ = await _upsert_lib(M.LibCopywriting, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"})
             ref.element_id = row.id
             db.add(ref)
@@ -1407,6 +1518,7 @@ async def run_three_layer(
             if not accepted:
                 verdicts.append(v.as_dict())
                 continue
+            values, v = await _deepen_and_validate("lib_quote", code, item, values, v, ref)
             row, _ = await _upsert_lib(M.LibQuote, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"})
             ref.element_id = row.id
             db.add(ref)
@@ -1451,6 +1563,7 @@ async def run_three_layer(
             if not accepted:
                 verdicts.append(v.as_dict())
                 continue
+            values, v = await _deepen_and_validate("lib_method", code, item, values, v, ref)
             row, _ = await _upsert_lib(M.LibMethod, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"})
             ref.element_id = row.id
             db.add(ref)
