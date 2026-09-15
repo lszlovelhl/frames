@@ -365,6 +365,7 @@ async def analysis_result(db: AsyncSession, job: M.BreakdownJob) -> dict:
         "current_layer": len(segments) and len(layers) or 0,
         "ai_confidence": confidence,
         "reviewed_by_user": False,
+        "full_script": _clean_text(script.full_script or ""),
         "summary": summary,
         "meta": {
             "three_layer": evidence,

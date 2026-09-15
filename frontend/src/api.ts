@@ -355,6 +355,7 @@ export interface AnalysisResult {
   current_layer: number;
   ai_confidence: number | null;
   reviewed_by_user: boolean | null;
+  full_script?: string;
   summary: Record<string, unknown>;
   meta: Record<string, unknown>;
   layers: LayerInfo[];

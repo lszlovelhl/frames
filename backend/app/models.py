@@ -574,6 +574,7 @@ class ScriptScript(TimestampMixin, Base):
     sentence_count: Mapped[int] = mapped_column(
         Integer, default=0, server_default=_sa_text("0")
     )
+    full_script: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(
         String(16), default="draft", server_default=_sa_text("'draft'")
     )

@@ -1247,6 +1247,97 @@ async def run_three_layer(
         if any(t.sentence_id == row.id and t.turn_type in ("反转", "悬念") for t in turn_rows):
             row.is_turn = 1
 
+    # ---------- L4.5 完整脚本还原（脚本厚度：成文、可读、可直接给编导用）----------
+    full_script: str | None = None
+    q45: dict[str, Any] = {"errors": []}
+    if seg_rows and sentence_rows:
+        await report("L4.5", 76, "三层链路 · L4.5 完整脚本还原…")
+        try:
+            from app.ai import chat as _ai_chat  # 延迟导入，避免模块级循环
+
+            tpl45 = await load_active_prompt(db, LAYER_CODES[45])
+            system45 = (
+                tpl45.content if tpl45 else TEMPLATES["tl45_script"]["content"]
+            ) + THREE_LAYER_CONTRACT
+            curve_pts = list(curve.intensity_series or []) if curve else []
+            if curve_pts and isinstance(curve_pts[0], str):
+                try:
+                    curve_pts = json.loads(curve_pts[0])
+                except Exception:
+                    curve_pts = []
+            l45_input = {
+                "定调": {
+                    "核心思想": script.core_idea,
+                    "内容走向": script.content_trend,
+                    "目标人群": script.target_audience,
+                    "摘要": script.summary,
+                },
+                "情绪曲线": {
+                    "形状": getattr(curve, "shape", ""),
+                    "峰数": getattr(curve, "peak_count", 0),
+                    "谷数": getattr(curve, "valley_count", 0),
+                    "基线强度": getattr(curve, "baseline_intensity", 0),
+                    "采样点": curve_pts[::4],
+                },
+                "段落": [
+                    {
+                        "seq": s.seq, "类型": s.seg_type, "标题": s.title,
+                        "起止秒": [round(s.start_ms / 1000, 1), round(s.end_ms / 1000, 1)],
+                        "情绪峰值": s.emotion_peak, "目的": s.purpose,
+                    }
+                    for s in seg_rows
+                ],
+                "句子": [
+                    {
+                        "seq": s.seq, "原话": s.quote, "功能": s.sentence_function,
+                        "理由": s.function_reason, "强度": s.emotion_intensity,
+                    }
+                    for s in sentence_rows
+                ],
+            }
+            res45 = await _ai_chat(
+                [
+                    {"role": "system", "content": system45},
+                    {
+                        "role": "user",
+                        "content": json.dumps(l45_input, ensure_ascii=False, indent=1),
+                    },
+                ],
+                model=model,
+                max_tokens=16384,
+                json_mode=False,
+                timeout=300,
+                scene="tl45_script",
+            )
+            raw45 = (res45.get("reply") or "").strip()
+            if raw45:
+                # harness 后处理：剥掉模型多余的 markdown 代码块围栏
+                raw45 = re.sub(r"^```(?:markdown)?\s*", "", raw45)
+                raw45 = re.sub(r"\s*```\s*$", "", raw45)
+                min_len = max(800, len(seg_rows) * 150)
+                seg_marks = raw45.count("###")
+                cliche_tail = len(re.findall(r"适用于任何需要[^\n。]*", raw45))
+                if len(raw45) < min_len:
+                    q45["errors"].append(f"成稿 {len(raw45)} 字 < 厚度下限 {min_len}")
+                elif seg_marks < len(seg_rows):
+                    q45["errors"].append(
+                        f"段落标记 {seg_marks} < 段落数 {len(seg_rows)}（成稿漏段）"
+                    )
+                elif res45.get("finish_reason") == "length":
+                    q45["errors"].append("成稿被 max_tokens 截断，请后续增大额度")
+                else:
+                    full_script = raw45[:20000]
+                    if q45["errors"]:
+                        q45["errors"] = []
+                    if cliche_tail:
+                        q45["warnings"] = [f"套话尾句 ×{cliche_tail}（'适用于任何需要…'）"]
+        except Exception as exc:
+            q45["errors"].append(str(exc)[:160])
+            logger.warning("L4.5 脚本还原失败：%s", exc)
+    quality["L4.5"] = q45
+    if full_script:
+        script.full_script = full_script
+
     # ---------- L5 积木提炼 ----------
     await report("L5", 80, "三层链路 · L5 积木提炼（六类分库）…")
     l5_user = (
