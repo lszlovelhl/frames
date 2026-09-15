@@ -1382,29 +1382,41 @@ async def run_three_layer(
                         q45["errors"] = []
                     if cliche_tail:
                         q45["warnings"] = [f"套话尾句 ×{cliche_tail}（'适用于任何需要…'）"]
-                    # harness 画面轨：按段落时间精确对齐场景记忆/动态事件，追加为【画面分镜】
-                    scenes = ((manifest or {}).get("scenes")) or []
+                    # harness 画面轨：按段落时间精确对齐逐帧简报+动态事件，追加为【画面分镜】
+                    # （帧层细节稳定可控；场景记忆层供模型理解叙事，不用于分镜对齐）
+                    frames = ((manifest or {}).get("frames")) or []
                     dyns = (((manifest or {}).get("frame_plan") or {}).get("dynamic_events")) or []
-                    if scenes:
-                        vis_lines = ["\n\n## 【画面分镜】（harness 按时间对齐）"]
+                    if frames:
+                        vis_lines = ["\n\n## 【画面分镜】（harness 按帧对齐）"]
                         for seg in seg_rows:
                             s0, s1 = seg.start_ms, seg.end_ms
-                            hit = [
-                                sc for sc in scenes
-                                if int(sc.get("start_ms") or 0) < s1 and int(sc.get("end_ms") or 0) > s0
+                            seg_frames = [
+                                f for f in frames
+                                if (f.get("start_ms") is not None and int(f.get("start_ms")) < s1
+                                    and int(f.get("end_ms") or f.get("start_ms")) > s0)
                             ]
-                            if not hit:
+                            if not seg_frames:
                                 continue
-                            brief = " → ".join(
-                                f"{sc.get('subject') or ''}｜{sc.get('action') or ''}（{int(sc.get('start_ms') or 0) / 1000:.0f}-{int(sc.get('end_ms') or 0) / 1000:.0f}s，{sc.get('style') or ''}）"
-                                for sc in hit[:3]
-                            )
+                            seen: list[str] = []
+                            for f in seg_frames[:4]:
+                                t = int(f.get("start_ms") or 0) / 1000
+                                desc = (f.get("desc") or "").strip().rstrip("。")[:46]
+                                style = f.get("style") or ""
+                                item = f"{desc}（{t:.0f}s，{style}）"
+                                if item not in seen:
+                                    seen.append(item)
+                            brief = " → ".join(seen)
+                            if len(seg_frames) > 4:
+                                brief += "…"
                             overlay = "；".join(
-                                sc.get("text_overlay") or "" for sc in hit if sc.get("text_overlay")
-                            )
+                                dict.fromkeys(
+                                    str(f.get("text_overlay") or "").strip()
+                                    for f in seg_frames if f.get("text_overlay")
+                                )
+                            )[:80]
                             line = f"- 段{seg.seq}（{s0 / 1000:.0f}s~{s1 / 1000:.0f}s）：{brief}"
                             if overlay:
-                                line += f"；字幕：{overlay[:80]}"
+                                line += f"；字幕：{overlay}"
                             vis_lines.append(line)
                         dyn_lines = [
                             f"- 动态：{e.get('event_type')} @{int(e.get('t_ms') or 0) / 1000:.0f}s（{e.get('note') or ''}）"
