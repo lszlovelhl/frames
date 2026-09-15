@@ -43,7 +43,7 @@ _PEAK = 95
 # 抽帧策略版本：分档间隔 / 帧数上限 / 锚点规则任何变更都要递增。
 # services/media_prep.ensure_media 复用素材前会比对该版本，落后则强制重抽帧
 # （否则「复用已有素材」短路会让密集档对老链接永远不生效）。
-FRAMES_POLICY_VERSION = 3  # v3：新增画面动态事件轨（转场点/运动爆发段，harness 推导）
+FRAMES_POLICY_VERSION = 4  # v4：场景记忆（模型合并逐帧简报）+ 短视频抽帧密度 1.5s→1.0s
 
 SHORT_MAX_S = 300.0          # 时长阈值：< 5 分钟按短视频处理
 SHORT_IV_HIGH = 0.8
@@ -51,7 +51,7 @@ SHORT_IV_MID = 1.6
 SHORT_IV_STATIC = 4.0
 SHORT_MAX_FRAMES = 120       # 短视频帧数上限（长视频仍为 90）
 SHORT_MIN_FRAMES = 24
-SHORT_FRAME_INTERVAL = 1.5   # 短视频目标平均间隔（秒）
+SHORT_FRAME_INTERVAL = 1.0   # 短视频目标平均间隔（秒）：1fps 密集档，让模型"看完整视频"
 
 
 def profile_for(duration: float) -> dict:

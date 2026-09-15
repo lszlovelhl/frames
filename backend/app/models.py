@@ -573,6 +573,29 @@ class RawDynamicEvent(CreatedAtMixin, Base):
     )
 
 
+class RawScene(CreatedAtMixin, Base):
+    """场景记忆：模型把全部逐帧简报合并成的场景时间轴（完整视频记忆的场景层）"""
+
+    __tablename__ = "raw_scene"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    video_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("videos.id", ondelete="CASCADE")
+    )
+    seq: Mapped[int] = mapped_column(Integer)
+    start_ms: Mapped[int] = mapped_column(Integer)
+    end_ms: Mapped[int] = mapped_column(Integer)
+    subject: Mapped[str] = mapped_column(String(80))
+    action: Mapped[str] = mapped_column(String(80))
+    style: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    text_overlay: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    change_note: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("video_id", "seq", name="uq_raw_scene_video_seq"),
+    )
+
+
 # ---------------- 第二层 · 本片脚本层 script_* ----------------
 
 class ScriptScript(TimestampMixin, Base):

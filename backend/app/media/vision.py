@@ -146,3 +146,158 @@ async def describe_frames(frames: list[dict]) -> list[dict]:
         else:
             ordered.append({**f, "desc": "", "text_overlay": "", "emotion": "", "style": ""})
     return ordered
+
+
+_SCENE_SYSTEM = """你是短视频镜头叙事分析师。你的任务是"看完"一部视频的全部逐帧简报，把零散的帧合并成
+场景（scene）时间轴——同一镜头/同一叙事单元的连续画面归为一个场景。这就是你对整部视频的画面记忆。
+
+输入：逐帧简报（seq/时间段/画面描述/风格/画面文字）+ 画面动态事件（转场点/运动爆发段）。
+输出 JSON：{"scenes":[{"start_ms":..., "end_ms":..., "subject":"...", "action":"...",
+"style":"...", "text_overlay":"...", "change_note":"..."}]}
+
+规则（必须严格遵守）：
+- 场景 = 叙事单元，不是帧。同一主体/同一动作/同一场景的连续帧必须合并成一个场景。
+  只有当画面主体、场景地点、或叙事推进发生明显变化时才开新场景。
+- 场景数 4~15 个。短片中 8~12 个为佳；把 30+ 帧压到 8~12 个场景，不要逐帧切。
+- 场景边界优先采用动态事件的转场点（画面剧变处），其次按画面主体/场景切换。
+- subject 一句话说清主体/场景（≤20 字）；action 写这段画面里持续发生的动作或变化（≤20 字）；
+  style 用一词（实拍/动画/混剪/绿幕…）；text_overlay 写画面出现的文字（无则空串）；
+  change_note 写【叙事层面的切换原因】（≤30 字，例如"钩子结束进入铺垫"、"爆炸高潮"、
+  "转折：肉块被发现"），禁止写"场景切换"这种空话，必须说清叙事推进到哪一步。
+- 覆盖完整时间轴（首场景从 0 开始，末场景到视频结束），场景不重叠、按时间排序。
+- 只输出 JSON，不要解释。"""
+
+
+def _coalesce_scenes(scenes: list[dict], max_scenes: int = 15) -> list[dict]:
+    """harness 兜底合并：模型给的场景过碎时，按叙事单元确定性合并。
+
+    合并条件（相邻场景满足任一）：
+    - action 相同（同一持续动作的连续帧）
+    - change_note 相同（同一叙事推进）
+    - subject 相同且 style 相同（同一主体同一风格的连续画面）
+    """
+    if len(scenes) <= max_scenes:
+        return scenes
+    out: list[dict] = []
+
+    def _same(a: dict, b: dict) -> bool:
+        if (a.get("action") or "") and a.get("action") == b.get("action"):
+            return True
+        if (a.get("change_note") or "") and a.get("change_note") == b.get("change_note"):
+            return True
+        return (a.get("subject") == b.get("subject")) and (a.get("style") == b.get("style"))
+
+    for s in scenes:
+        if out and _same(out[-1], s):
+            prev = out[-1]
+            prev["end_ms"] = max(int(prev["end_ms"]), int(s["end_ms"]))
+            if len(str(s.get("subject") or "")) > len(str(prev.get("subject") or "")):
+                prev["subject"] = s["subject"]
+            if len(str(s.get("action") or "")) > len(str(prev.get("action") or "")):
+                prev["action"] = s["action"]
+            if s.get("text_overlay") and not prev.get("text_overlay"):
+                prev["text_overlay"] = s["text_overlay"]
+            prev["change_note"] = s.get("change_note") or prev.get("change_note")
+        else:
+            out.append(dict(s))
+
+    # 仍超限：等比强制合并（保首尾）
+    if len(out) > max_scenes:
+        forced: list[dict] = []
+        n = len(out)
+        step = n / max_scenes
+        i = 0
+        while i < n:
+            j = min(n - 1, int(round((i + 1) * step - 1)))
+            j = max(j, i)
+            chunk = out[i : j + 1]
+            merged = dict(chunk[0])
+            merged["end_ms"] = int(chunk[-1]["end_ms"])
+            merged["action"] = "、".join(
+                dict.fromkeys(str(c.get("action") or "") for c in chunk if c.get("action"))
+            )[:60]
+            forced.append(merged)
+            i = j + 1
+        out = forced
+    for seq, s in enumerate(out, start=1):
+        s["seq"] = seq
+    return out
+
+
+async def merge_scenes(
+    frames: list[dict], dynamic_events: list[dict] | None = None
+) -> list[dict]:
+    """把逐帧简报合并成场景时间轴（模型分层记忆的场景层）。
+
+    输入 frames 须已含 desc/style/text_overlay（describe_frames 之后）。
+    """
+    if not frames:
+        return []
+    briefs = [
+        {
+            "seq": f.get("seq"), "start_ms": f.get("start_ms"), "end_ms": f.get("end_ms"),
+            "desc": (f.get("desc") or "")[:80],
+            "style": f.get("style") or "",
+            "text_overlay": f.get("text_overlay") or "",
+        }
+        for f in frames
+    ]
+    evs = [
+        {
+            "event_type": e.get("event_type"), "t_ms": e.get("t_ms"),
+            "intensity": e.get("intensity"), "note": (e.get("note") or "")[:40],
+        }
+        for e in (dynamic_events or [])
+    ]
+    user = (
+        "【逐帧简报】\n"
+        + json.dumps(briefs, ensure_ascii=False)
+        + "\n\n【画面动态事件】\n"
+        + json.dumps(evs, ensure_ascii=False)
+    )
+    for attempt in range(2):
+        try:
+            result = await chat(
+                messages=[
+                    {"role": "system", "content": _SCENE_SYSTEM},
+                    {"role": "user", "content": user},
+                ],
+                model="flash",
+                temperature=0.2,
+                max_tokens=4096,
+                json_mode=True,
+                timeout=180,
+                scene="scene_memory",
+            )
+            raw = result.get("reply") or ""
+            if not raw.strip():
+                continue
+            data = json.loads(raw)
+            scenes = data.get("scenes") or []
+            if not scenes:
+                continue
+            out: list[dict] = []
+            for s in scenes:
+                try:
+                    start = int(s.get("start_ms") or 0)
+                    end = int(s.get("end_ms") or start)
+                except (TypeError, ValueError):
+                    continue
+                if end <= start:
+                    continue
+                out.append(
+                    {
+                        "start_ms": start,
+                        "end_ms": end,
+                        "subject": str(s.get("subject") or "")[:80],
+                        "action": str(s.get("action") or "")[:80],
+                        "style": str(s.get("style") or "")[:32],
+                        "text_overlay": str(s.get("text_overlay") or "")[:120],
+                        "change_note": str(s.get("change_note") or "")[:120],
+                    }
+                )
+            if out:
+                return _coalesce_scenes(out)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("merge_scenes 失败 attempt%s: %s", attempt + 1, exc)
+    return []
