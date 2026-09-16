@@ -310,7 +310,9 @@ _STRUCT_WORDS = ("节奏", "峰值", "谷底", "曲线", "差异化", "硬约束
                  "来获得", "以此", "从而", "让观众", "这种", "观众处于",
                  "本段采用", "画面细节丰富", "节奏快速", "节奏稍慢", "手法",
                  "细节丰富", "通过描述", "来增加", "增加故事", "的冲突性",
-                 "快速", "稍慢", "位于", "位置", "观众", "认知", "注意力")
+                 "快速", "稍慢", "位于", "位置", "观众", "认知", "注意力",
+                 "补充", "口播", "画面字幕", "呈现了", "内容与",
+                 "适中", "下一段", "形成对比", "与下一段")
 
 
 def _is_cliche_pair(a: str, b: str, best: str) -> bool:
@@ -1464,6 +1466,14 @@ async def run_three_layer(
                 # harness 后处理：剥掉模型多余的 markdown 代码块围栏
                 raw45 = re.sub(r"^```(?:markdown)?\s*", "", raw45)
                 raw45 = re.sub(r"\s*```\s*$", "", raw45)
+                # 模型偶发把"差异化硬约束"写作规则抄成输出字段：剥字段名、保留正文
+                raw45 = re.sub(
+                    r"^\s*[-*]?\s*\*\*?差异化硬约束\*\*?[:：]\s*",
+                    "补充：",
+                    raw45,
+                    flags=re.M,
+                )
+                raw45 = re.sub(r"\n\s*[-*]?\s*\*\*?差异化硬约束\*\*?[:：]\s*", "\n补充：", raw45)
                 min_len = max(800, len(seg_rows) * 150)
                 hard_min = int(min_len * 0.9)  # 10% 容差：差一点不整稿作废，记 warning
                 seg_marks = raw45.count("###")
@@ -1515,6 +1525,12 @@ async def run_three_layer(
                     full_script = raw45[:20000]
                     if q45["errors"]:
                         q45["errors"] = []
+                    if seg_marks > len(seg_rows):
+                        # 多段：模型违反【段落唯一性】私自拆分/新增段落 → 告警（内容保留）
+                        q45["warnings"] = (q45.get("warnings") or []) + [
+                            f"成稿段落数 {seg_marks} 超出输入段数 {len(seg_rows)}"
+                            f"（模型私自拆段，结构与 L3 不一致；若拆分合理说明 L3 分段过粗）"
+                        ]
                     if len(raw45) < min_len:
                         q45["warnings"] = (q45.get("warnings") or []) + [
                             f"成稿 {len(raw45)} 字略低于目标 {min_len}（10% 容差内放行）"
