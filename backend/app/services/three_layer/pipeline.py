@@ -1332,9 +1332,10 @@ async def run_three_layer(
                 raw45 = re.sub(r"^```(?:markdown)?\s*", "", raw45)
                 raw45 = re.sub(r"\s*```\s*$", "", raw45)
                 min_len = max(800, len(seg_rows) * 150)
+                hard_min = int(min_len * 0.9)  # 10% 容差：差一点不整稿作废，记 warning
                 seg_marks = raw45.count("###")
                 cliche_tail = len(re.findall(r"适用于任何需要[^\n。]*", raw45))
-                if len(raw45) < min_len:
+                if len(raw45) < hard_min:
                     q45["errors"].append(f"成稿 {len(raw45)} 字 < 厚度下限 {min_len}")
                 elif seg_marks < len(seg_rows):
                     # 漏段：自动重试一次（同一输入，期望模型补全段落）
@@ -1358,7 +1359,8 @@ async def run_three_layer(
                         raw45 = re.sub(r"\s*```\s*$", "", raw45)
                         seg_marks = raw45.count("###")
                         min_len = max(800, len(seg_rows) * 150)
-                        if len(raw45) < min_len:
+                        hard_min = int(min_len * 0.9)
+                        if len(raw45) < hard_min:
                             q45["errors"].append(f"重试后成稿 {len(raw45)} 字 < 厚度下限 {min_len}")
                         elif seg_marks < len(seg_rows):
                             q45["errors"].append(
@@ -1380,6 +1382,10 @@ async def run_three_layer(
                     full_script = raw45[:20000]
                     if q45["errors"]:
                         q45["errors"] = []
+                    if len(raw45) < min_len:
+                        q45["warnings"] = (q45.get("warnings") or []) + [
+                            f"成稿 {len(raw45)} 字略低于目标 {min_len}（10% 容差内放行）"
+                        ]
                     if cliche_tail:
                         q45["warnings"] = [f"套话尾句 ×{cliche_tail}（'适用于任何需要…'）"]
                     # harness 画面轨：按段落时间精确对齐逐帧简报+动态事件，追加为【画面分镜】
