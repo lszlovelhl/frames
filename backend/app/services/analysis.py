@@ -14,6 +14,7 @@ analysis_notes / elements / element_versions / annotations / category_templates�
 """
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -276,6 +277,54 @@ def _clean_text(value: Any) -> str:
     return text
 
 
+def _split_storyboard(full_script: str) -> tuple[str, list[dict]]:
+    """把 full_script 拆成【文案主体】+【画面分镜】结构化块（harness 帧层产物）。"""
+    if not full_script:
+        return "", []
+    marker = "## 【画面分镜】"
+    idx = full_script.find(marker)
+    if idx < 0:
+        return full_script, []
+    body = full_script[:idx].rstrip()
+    blocks: list[dict] = []
+    cur: dict | None = None
+    for line in full_script[idx + len(marker):].splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("- 段"):
+            m = re.match(r"- 段(\d+)（([\d.]+)s~([\d.]+)s）[：:](.*)", line)
+            if m:
+                if cur:
+                    blocks.append(cur)
+                desc = m.group(4)
+                overlay = ""
+                om = re.search(r"；字幕：(.+)$", desc)
+                if om:
+                    overlay = om.group(1)
+                    desc = desc[: om.start()]
+                cur = {
+                    "seg": int(m.group(1)),
+                    "start_s": float(m.group(2)),
+                    "end_s": float(m.group(3)),
+                    "shots": [desc],
+                    "overlay": overlay,
+                    "dynamics": "",
+                }
+                continue
+            if cur:
+                cur["shots"].append(line)
+        elif line.startswith("- 动态"):
+            if cur:
+                cur["dynamics"] = line[len("- 动态：") :].strip()
+        else:
+            if cur:
+                cur["shots"].append(line)
+    if cur:
+        blocks.append(cur)
+    return body, blocks
+
+
 async def analysis_result(db: AsyncSession, job: M.BreakdownJob) -> dict:
     """组装一次拆解的完整结果（旧前端 L1~L5 契约 ← 三层分库新表现场聚合）。"""
     video = (
@@ -366,6 +415,8 @@ async def analysis_result(db: AsyncSession, job: M.BreakdownJob) -> dict:
         "ai_confidence": confidence,
         "reviewed_by_user": False,
         "full_script": _clean_text(script.full_script or ""),
+        "full_script_body": _split_storyboard(_clean_text(script.full_script or ""))[0],
+        "storyboard": _split_storyboard(_clean_text(script.full_script or ""))[1],
         "summary": summary,
         "meta": {
             "three_layer": evidence,

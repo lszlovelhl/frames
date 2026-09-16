@@ -356,6 +356,15 @@ export interface AnalysisResult {
   ai_confidence: number | null;
   reviewed_by_user: boolean | null;
   full_script?: string;
+  full_script_body?: string;
+  storyboard?: Array<{
+    seg: number;
+    start_s: number;
+    end_s: number;
+    shots: string[];
+    overlay: string;
+    dynamics: string;
+  }>;
   summary: Record<string, unknown>;
   meta: Record<string, unknown>;
   layers: LayerInfo[];

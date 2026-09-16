@@ -1155,7 +1155,11 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
 
       {/* 右列：五层拆解内容 */}
       <div className="min-w-0 space-y-6">
-        <FullScriptPanel fullScript={result.full_script} />
+        <FullScriptPanel
+          fullScript={result.full_script}
+          body={result.full_script_body}
+          storyboard={result.storyboard}
+        />
         <L1Panel c={l1c} />
         <L2Panel c={l2c} />
         <SegmentsList segments={segments} currentMs={currentMs} onSeek={seekTo} />
@@ -1168,17 +1172,75 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
   );
 }
 
-/** 完整脚本还原：L4.5 成文脚本（Markdown，白底卡片 + 等宽排版） */
-function FullScriptPanel({ fullScript }: { fullScript?: string }) {
-  if (!fullScript) return null;
+/** 完整脚本还原：L4.5 成文脚本 + harness 画面分镜，双栏并排 */
+function FullScriptPanel({
+  fullScript,
+  body,
+  storyboard,
+}: {
+  fullScript?: string;
+  body?: string;
+  storyboard?: Array<{
+    seg: number;
+    start_s: number;
+    end_s: number;
+    shots: string[];
+    overlay: string;
+    dynamics: string;
+  }>;
+}) {
+  const showBody = body || fullScript || "";
+  if (!showBody && !storyboard?.length) return null;
   return (
     <div className="rounded-xl border border-emerald-300/20 bg-gradient-to-br from-emerald-300/5 to-transparent p-4">
       <div className="flex items-center justify-between">
-        <div className="text-[11px] uppercase tracking-wider text-emerald-200/70">完整脚本 · 编导还原</div>
+        <div className="text-[11px] uppercase tracking-wider text-emerald-200/70">完整脚本 · 编导还原（口播 + 画面双轨）</div>
         <span className="rounded bg-emerald-400/10 px-1.5 py-0.5 text-[10px] text-emerald-300">L4.5</span>
       </div>
-      <div className="mt-2 max-h-[560px] overflow-auto rounded-lg bg-[#14161a] p-3">
-        <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-relaxed text-zinc-200">{fullScript}</pre>
+      <div className="mt-2 grid gap-3 lg:grid-cols-2">
+        <div className="min-w-0">
+          <div className="mb-1 text-[10px] uppercase tracking-wide text-emerald-200/50">口播文案轨</div>
+          <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[#14161a] p-3 font-mono text-[12px] leading-relaxed text-zinc-200">
+            {showBody}
+          </pre>
+        </div>
+        <div className="min-w-0">
+          <div className="mb-1 text-[10px] uppercase tracking-wide text-emerald-200/50">画面分镜轨 · harness 帧级对齐</div>
+          {storyboard?.length ? (
+            <div className="max-h-[520px] space-y-2 overflow-auto pr-1">
+              {storyboard.map((sb) => (
+                <div key={sb.seg} className="rounded-lg border border-white/5 bg-[#14161a] p-2.5">
+                  <div className="mb-1 flex items-baseline justify-between">
+                    <span className="text-[11px] font-semibold text-emerald-300">
+                      段{sb.seg}
+                    </span>
+                    <span className="text-[10px] text-zinc-500">
+                      {sb.start_s}s~{sb.end_s}s
+                    </span>
+                  </div>
+                  {sb.shots.map((s, i) => (
+                    <div key={i} className="mb-1 flex gap-1.5 text-[11px] leading-relaxed text-zinc-300">
+                      <span className="mt-0.5 h-1 w-1 shrink-0 rounded-full bg-emerald-400/60" />
+                      <span>{s}</span>
+                    </div>
+                  ))}
+                  {sb.overlay && (
+                    <div className="mt-1 border-t border-white/5 pt-1 text-[11px] text-amber-200/80">
+                      字幕：{sb.overlay}
+                    </div>
+                  )}
+                  {sb.dynamics && (
+                    <div className="mt-0.5 text-[10px] text-sky-300/70">动态：{sb.dynamics}</div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-lg bg-[#14161a] p-3 text-[11px] text-zinc-500">
+              画面分镜未生成（视频暂无帧级画面数据）
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
