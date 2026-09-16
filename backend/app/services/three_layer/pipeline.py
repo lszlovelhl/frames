@@ -1435,20 +1435,30 @@ async def run_three_layer(
                 ],
             }
             retried = False
-            res45 = await _ai_chat(
-                [
-                    {"role": "system", "content": system45},
-                    {
-                        "role": "user",
-                        "content": json.dumps(l45_input, ensure_ascii=False, indent=1),
-                    },
-                ],
-                model=model,
-                max_tokens=16384,
-                json_mode=False,
-                timeout=300,
-                scene="tl45_script",
-            )
+            res45 = None
+            for _att in range(3):
+                try:
+                    res45 = await _ai_chat(
+                        [
+                            {"role": "system", "content": system45},
+                            {
+                                "role": "user",
+                                "content": json.dumps(
+                                    l45_input, ensure_ascii=False, indent=1),
+                            },
+                        ],
+                        model=model,
+                        max_tokens=16384,
+                        json_mode=False,
+                        timeout=300,
+                        scene="tl45_script",
+                    )
+                    break
+                except Exception as exc:  # 断连/超时等瞬时故障：退避重试
+                    if _att == 2:
+                        raise
+                    await asyncio.sleep(5 * (_att + 1))
+                    logger.warning("L4.5 调用失败，重试 %s/3：%s", _att + 1, str(exc)[:100])
             raw45 = (res45.get("reply") or "").strip()
             if raw45:
                 # harness 后处理：剥掉模型多余的 markdown 代码块围栏
