@@ -728,6 +728,15 @@ async def run_three_layer(
     for i, u in enumerate(units, start=1):
         u["seq"] = i  # 行号按合并后重排，全链路以此为准
     # 来源标记：画面字幕（raw source='ocr'）→ 画面字幕；英文占比高 → 疑似 BGM 歌词
+    warnings: list[str] = []  # 提前初始化（units 分流告警需要，随后续层共用）
+    # 口播充足度分流：口播单元 ≥6 时画面文字（OCR 弹幕/UI 字幕）只作画面参考、
+    # 不进句子层（避免直播弹幕"人气榜/抽奖"混入台词）；口播稀少（纯 BGM 视频）时
+    # 画面字幕才是真实叙事，保留进句子层
+    asr_count = sum(1 for u in units if str(u.get("source") or "") != "ocr")
+    if asr_count >= 6 and any(str(u.get("source") or "") == "ocr" for u in units):
+        ocr_n = sum(1 for u in units if str(u.get("source") or "") == "ocr")
+        units = [u for u in units if str(u.get("source") or "") != "ocr"]
+        warnings.append(f"口播句充足（{asr_count}句），画面字幕 {ocr_n} 条仅作画面参考，未进句子层")
     for u in units:
         if str(u.get("source") or "") == "ocr":
             u["src"] = "画面字幕"
@@ -758,7 +767,6 @@ async def run_three_layer(
     verdicts: list[dict[str, Any]] = []
     counts: dict[str, int] = {}
     quality: dict[str, Any] = {}
-    warnings: list[str] = []
 
     title = str(video.title or "")
     base_meta = f"标题：{title or '（无）'}\n平台：{ctx['platform']}\n片长：{duration_ms}ms（约 {round(duration_ms / 1000, 1)} 秒）"
@@ -1295,6 +1303,8 @@ async def run_three_layer(
             src_by_raw: dict[str, str] = {
                 str(s.get("id")): str(s.get("src") or "口播") for s in sentences
             }
+            # 口播充足时画面文字多为弹幕/UI 噪音，L4.5 场景记忆不传 text_overlay（防污染脚本）
+            _overlay_is_signal = asr_count < 6
             l45_input = {
                 "定调": {
                     "核心思想": script.core_idea,
@@ -1316,7 +1326,8 @@ async def run_three_layer(
                     {
                         "时间ms": [s.get("start_ms"), s.get("end_ms")],
                         "主体": s.get("subject"), "动作": s.get("action"),
-                        "风格": s.get("style"), "画面文字": s.get("text_overlay"),
+                        "风格": s.get("style"),
+                        "画面文字": s.get("text_overlay") if _overlay_is_signal else None,
                         "叙事注记": s.get("change_note"),
                     }
                     for s in ((manifest or {}).get("scenes") or [])[:15]
