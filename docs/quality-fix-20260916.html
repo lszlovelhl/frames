@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>帧间 · 拆解质量修复闭环（2026-09-16）</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background:#f6f7fb; color:#1a1d29; padding:32px 20px; }
+  .wrap { max-width:1080px; margin:0 auto; }
+  h1 { font-size:26px; margin-bottom:6px; }
+  .sub { color:#6b7280; font-size:14px; margin-bottom:28px; }
+  .card { background:#fff; border-radius:14px; padding:22px 26px; margin-bottom:18px; box-shadow:0 1px 4px rgba(0,0,0,.06); }
+  h2 { font-size:18px; margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+  .tag { font-size:12px; padding:2px 10px; border-radius:20px; font-weight:600; }
+  .tag.red { background:#fee2e2; color:#b91c1c; }
+  .tag.green { background:#dcfce7; color:#166534; }
+  .tag.blue { background:#dbeafe; color:#1e40af; }
+  .tag.amber { background:#fef3c7; color:#92400e; }
+  /* 根因链路 */
+  .chain { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:14px 0 6px; }
+  .node { background:#f0f2f8; border:1px solid #e2e6f0; border-radius:10px; padding:10px 14px; font-size:13px; max-width:230px; }
+  .node b { display:block; font-size:13px; margin-bottom:3px; }
+  .node span { color:#6b7280; font-size:12px; }
+  .arrow { color:#9aa2b5; font-size:18px; font-weight:700; }
+  /* 修复项 */
+  .fix { display:flex; gap:12px; padding:10px 0; border-bottom:1px dashed #eceef5; align-items:flex-start; }
+  .fix:last-child { border-bottom:none; }
+  .fix .num { background:#1e40af; color:#fff; width:22px; height:22px; border-radius:50%; font-size:12px; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:2px; }
+  .fix .txt b { font-size:14px; }
+  .fix .txt p { color:#4b5563; font-size:13px; margin-top:3px; line-height:1.6; }
+  /* 对比 */
+  .cmp { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:10px; }
+  .cmp .col { border-radius:10px; padding:14px 16px; font-size:13px; line-height:1.7; }
+  .cmp .before { background:#fef2f2; border:1px solid #fecaca; }
+  .cmp .after { background:#f0fdf4; border:1px solid #bbf7d0; }
+  .cmp h3 { font-size:13px; margin-bottom:8px; }
+  .cmp li { margin-left:16px; }
+  /* 指标 */
+  .metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin-top:10px; }
+  .metric { text-align:center; padding:14px 8px; background:#f8fafc; border-radius:10px; }
+  .metric .v { font-size:22px; font-weight:700; color:#1e40af; }
+  .metric .k { font-size:12px; color:#6b7280; margin-top:4px; }
+  .note { font-size:12.5px; color:#6b7280; line-height:1.7; margin-top:12px; }
+  code { background:#f1f3f9; padding:1px 6px; border-radius:5px; font-size:12px; }
+  @media (max-width:700px){ .cmp { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>帧间 · 拆解质量修复闭环</h1>
+  <div class="sub">2026-09-16 · 萌宠/美妆双品类验证 · 已提交推送（efe7dbe → 1b3e22c）</div>
+
+  <div class="card">
+    <h2>🎯 根因链路 <span class="tag red">审稿发现</span></h2>
+    <div class="chain">
+      <div class="node"><b>ASR 误转写</b><span>萌宠 81s 无口播，BGM 英文歌词（Owl City《Good Time》）被当口播转写</span></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>整片拆解基于歌词</b><span>L1/L3/L4 全用 14 句歌词 → 编造"猫咪心灵散文"</span></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>真叙事被忽略</b><span>画面字幕"我的毕业礼物就决定是你了学长😎"从未进入拆解</span></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>审稿暴露次生问题</b><span>13 段全"铺垫"、套话连用、峰值 8000 秒量纲错</span></div>
+    </div>
+    <div class="note">美妆 50s 同步发现第二类污染：直播弹幕/UI 文字（"人气榜 直播广场 抽IPhone"）被当画面字幕混入台词层。</div>
+  </div>
+
+  <div class="card">
+    <h2>🔧 六项修复（harness 归精确，语义归模型）</h2>
+    <div class="fix"><div class="num">1</div><div class="txt"><b>画面字幕落原料层</b><p><code>raw.py</code>：从 text_overlay 提取叙事字幕（source=ocr）写入 raw 表，纯 BGM 视频的真实叙事进入全链路</p></div></div>
+    <div class="fix"><div class="num">2</div><div class="txt"><b>歌词识别标记</b><p><code>pipeline.py</code>：英文占比 &gt;60% 判歌词；L3 歌词行不作分段锚点，L4.5 歌词句预过滤不喂模型</p></div></div>
+    <div class="fix"><div class="num">3</div><div class="txt"><b>口播充足度分流</b><p>口播 ≥6 句时画面文字不进句子层/场景记忆（防弹幕污染）；口播稀少时字幕才进句子层（萌宠场景）</p></div></div>
+    <div class="fix"><div class="num">4</div><div class="txt"><b>L3 段落防凑数</b><p>段数下限 6→3（不超行数），harness 重叠段落合并跳过（同一句不再重复落 4 段）</p></div></div>
+    <div class="fix"><div class="num">5</div><div class="txt"><b>L4.5 防编造</b><p>段落唯一性硬约束 + 禁止用画面描述充当台词；来源按 raw_sentence_id 精确匹配</p></div></div>
+    <div class="fix"><div class="num">6</div><div class="txt"><b>时间量纲修正</b><p>情绪曲线采样点 ms→秒（消除"8000 秒"类量纲错误）</p></div></div>
+  </div>
+
+  <div class="card">
+    <h2>📊 验证结果对比</h2>
+    <div class="cmp">
+      <div class="col before">
+        <h3>❌ 修复前（萌宠）</h3>
+        <ul>
+          <li>脚本逐句全是英文歌词</li>
+          <li>段落标题编造（"夜晚的宁静"实为教室画面）</li>
+          <li>13 段全部"铺垫"</li>
+          <li>创作注解"通过猫咪的动作和表情…"连用 11 次</li>
+        </ul>
+      </div>
+      <div class="col after">
+        <h3>✅ 修复后（萌宠）</h3>
+        <ul>
+          <li>真实叙事主线：校园猫咪 → 毕业礼物</li>
+          <li>2 段（钩子 0-12.5s / 铺垫 21.6-61.8s）</li>
+          <li>逐句只覆盖真实字幕句，零编造</li>
+          <li>画面分镜按帧对齐（画面+字幕+动态事件）</li>
+        </ul>
+      </div>
+    </div>
+    <div class="cmp">
+      <div class="col before">
+        <h3>❌ 修复前（美妆）</h3>
+        <ul>
+          <li>弹幕当台词写进逐句（句2"人气榜 直播广场 抽IPhone"）</li>
+          <li>句子层 22 条含 16 条弹幕噪音</li>
+        </ul>
+      </div>
+      <div class="col after">
+        <h3>✅ 修复后（美妆）</h3>
+        <ul>
+          <li>句子层 7 条纯口播，弹幕净化</li>
+          <li>7 段结构（钩子+铺垫），脚本 3437 字</li>
+          <li>弹幕仅存在于画面分镜原始记录（事实层，非台词）</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📈 关键指标</h2>
+    <div class="metrics">
+      <div class="metric"><div class="v">12</div><div class="k">萌宠验证轮次</div></div>
+      <div class="metric"><div class="v">3</div><div class="k">崩溃点修复（UUID/外键/排序）</div></div>
+      <div class="metric"><div class="v">2</div><div class="k">品类验证（萌宠/美妆）</div></div>
+      <div class="metric"><div class="v">0</div><div class="k">编造段/歌词引用/ms 量纲</div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>⏭️ 下一步待办</h2>
+    <div class="note">
+      ① 知识动画品类回归（本次改动不影响口播型视频，但需确认）；② L4.5 创作注解轻度套话（"通过展示标题和评论…"跨段重复）——编导审稿级打磨；③ L3 行号偶发非法导致段落合并不稳定（本轮美妆 1 段→7 段波动）；④ 历史遗留：响应组装偶发 MissingGreenlet、ai_usage_logs 写锁日志噪音（均不影响落库）。
+    </div>
+  </div>
+</div>
+</body>
+</html>
