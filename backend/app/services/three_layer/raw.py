@@ -9,6 +9,7 @@ from __future__ import annotations
 import glob
 import json
 import logging
+import re
 import os
 import subprocess
 from typing import Any, Sequence
@@ -33,6 +34,35 @@ def _clean_text(text: Any) -> str:
     if not t:
         return ""
     return to_simplified(t) if has_traditional(t) else t
+
+
+def _overlay_sentences_from_frames(frames: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """从画面字幕（text_overlay）提取叙事性字幕句（source='ocr' 落原料层）。
+
+    过滤时间戳（"20:56"）、模型描述性噪音（"电子屏幕上显示…"≤20 字）、超短/超长项；
+    去重，时间用帧起止。
+    """
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for f in frames:
+        ov = _clean_text(f.get("text_overlay"))
+        if not ov or ov in seen:
+            continue
+        if re.fullmatch(r"\d{1,2}[:：]\d{2}", ov):
+            continue  # 时间戳
+        if "显示" in ov and len(ov) <= 20:
+            continue  # 模型描述性字幕（"电子屏幕上显示有时间"）
+        if len(ov) < 2 or len(ov) > 80:
+            continue
+        seen.add(ov)
+        out.append(
+            {
+                "start_ms": int(f.get("start_ms") or f.get("time_ms") or 0),
+                "end_ms": int(f.get("end_ms") or f.get("time_ms") or 0) + 500,
+                "text": ov,
+            }
+        )
+    return out
 
 
 def _sentences_from_manifest(manifest: dict[str, Any], duration_ms: int) -> list[dict[str, Any]]:
@@ -167,6 +197,21 @@ async def persist_raw_layer(
     row_manifest.warnings = list(manifest.get("warnings") or [])
 
     sentences = _sentences_from_manifest(manifest, duration_ms)
+    # 画面字幕并入原料层（source='ocr'）：纯 BGM/无口播视频（ASR 全是歌词）时，
+    # 画面字幕才是真实叙事。seq 延续 ASR 之后，全链路（L3 分段/L4 逐句/L4.5 成稿）一致。
+    overlay = _overlay_sentences_from_frames(manifest.get("frames") or [])
+    if overlay:
+        base = max((int(s["seq"]) for s in sentences), default=0)
+        for i, ov in enumerate(overlay, start=1):
+            sentences.append(
+                {
+                    "seq": base + i,
+                    "start_ms": ov["start_ms"],
+                    "end_ms": ov["end_ms"],
+                    "text": ov["text"],
+                    "source": "ocr",
+                }
+            )
     raw_sentences: list[M.RawTranscriptSentence] = []
     for item in sentences:
         row = M.RawTranscriptSentence(
@@ -175,7 +220,7 @@ async def persist_raw_layer(
             start_ms=int(item["start_ms"]),
             end_ms=int(item["end_ms"]),
             text=str(item["text"]),
-            source=subtitle_source,
+            source=str(item.get("source") or subtitle_source),
             proofread=1 if tr.get("proofread") else 0,
             confidence=None,
         )
@@ -318,7 +363,7 @@ async def load_raw_context(db: AsyncSession, video_id) -> dict[str, Any]:
         "duration_ms": duration_ms,
         "platform": (manifest.platform if manifest else None) or "unknown",
         "sentences": [
-            {"id": r.id, "seq": r.seq, "start_ms": r.start_ms, "end_ms": r.end_ms, "text": r.text}
+            {"id": r.id, "seq": r.seq, "start_ms": r.start_ms, "end_ms": r.end_ms, "text": r.text, "source": r.source}
             for r in sentences
         ],
         "shots": [

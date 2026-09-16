@@ -14,7 +14,7 @@ import math
 import re
 from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Sequence
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 Progress = Callable[[str, int, str], Awaitable[None]]
 
 # L3 段数契约（与 prompts._TL3 一致）：flash 免费档实测段数 1~4 波动，需强校验 + 自动重试
-L3_SEGMENT_MIN = 6
+L3_SEGMENT_MIN = 3
 L3_SEGMENT_MAX = 14
 
 
@@ -238,8 +238,20 @@ def _fmt_transcript(sentences: Sequence[dict[str, Any]], *, with_ms: bool = True
         head = f"#{int(s['seq']):02d}"
         if with_ms:
             head += f" [{int(s['start_ms'])}-{int(s['end_ms'])}ms]"
+        src = s.get("src")
+        if src:
+            head += f"（{src}）"
         lines.append(f"{head} {s['text']}")
     return "\n".join(lines)
+
+
+def _looks_lyric(text: str) -> bool:
+    """启发式：英文占比 >60% 的句子视为 BGM 歌词（ASR 把歌转写进来了）。"""
+    if not text:
+        return False
+    latin = sum(1 for ch in text if ("a" <= ch.lower() <= "z") or ch in " ,'-.!?")
+    return latin / max(len(text), 1) > 0.6
+
 
 
 def _fmt_energy(energy: Sequence[dict[str, Any]]) -> str:
@@ -695,6 +707,8 @@ async def run_three_layer(
             "text": _unit_text(group),
             "raw_ids": [str(x["id"]) for x in group],
             "raw_seqs": [int(x["seq"]) for x in group],
+            # 组内含画面字幕句（ocr）则整组视为画面字幕来源，保证 L4.5 来源标记可见
+            "source": "ocr" if any(str(x.get("source") or "") == "ocr" for x in group) else "asr",
         })
 
     for s in raw_sentences:
@@ -713,6 +727,12 @@ async def run_three_layer(
             _emit(buf)
     for i, u in enumerate(units, start=1):
         u["seq"] = i  # 行号按合并后重排，全链路以此为准
+    # 来源标记：画面字幕（raw source='ocr'）→ 画面字幕；英文占比高 → 疑似 BGM 歌词
+    for u in units:
+        if str(u.get("source") or "") == "ocr":
+            u["src"] = "画面字幕"
+        else:
+            u["src"] = "歌词" if _looks_lyric(str(u["text"])) else "口播"
     sentences: list[dict[str, Any]] = units
     line_map = {int(s["seq"]): s for s in sentences}
 
@@ -985,6 +1005,13 @@ async def run_three_layer(
             s_first = _next_sentence_after(sentences, _prev_last) or _prev_last
             if int(s_last["seq"]) <= int(s_first["seq"]):
                 s_last = _next_sentence_after(sentences, s_first) or sentences[-1]
+        # 重复覆盖防护：模型把同一句切成多段（如多段 line_to 相同）时，
+        # 仅保留首段，后续重叠段跳过（防止同一叙事在时间轴上重复落 4 段）
+        if seg_rows and int(s_first["seq"]) <= int(seg_rows[-1].end_sentence_seq):
+            warnings.append(
+                f"L3 段{item.get('seq')} 与段{seg_rows[-1].seq} 句子区间重叠（{s_first['seq']}≤{seg_rows[-1].end_sentence_seq}），harness 已合并跳过"
+            )
+            continue
         if _bad_from or _bad_to:
             warnings.append(
                 f"L3 段{item.get('seq')} 模型行号非法（from={item.get('line_from')!r} to={item.get('line_to')!r}），"
@@ -1265,6 +1292,9 @@ async def run_three_layer(
                     curve_pts = json.loads(curve_pts[0])
                 except Exception:
                     curve_pts = []
+            src_by_raw: dict[str, str] = {
+                str(s.get("id")): str(s.get("src") or "口播") for s in sentences
+            }
             l45_input = {
                 "定调": {
                     "核心思想": script.core_idea,
@@ -1277,7 +1307,10 @@ async def run_three_layer(
                     "峰数": getattr(curve, "peak_count", 0),
                     "谷数": getattr(curve, "valley_count", 0),
                     "基线强度": getattr(curve, "baseline_intensity", 0),
-                    "采样点": curve_pts[::4],
+                    "采样点": [
+                        [round(int(p[0]) / 1000, 1), p[1]]
+                        for p in curve_pts[::4] if isinstance(p, list) and len(p) >= 2
+                    ],
                 },
                 "画面场景记忆": [
                     {
@@ -1307,8 +1340,11 @@ async def run_three_layer(
                     {
                         "seq": s.seq, "原话": s.quote, "功能": s.sentence_function,
                         "理由": s.function_reason, "强度": s.emotion_intensity,
+                        "来源": src_by_raw.get(str(s.raw_sentence_id), "口播"),
                     }
+                    # harness 预过滤：歌词句（BGM 误转写）不喂给模型，避免其为了凑覆盖而编造
                     for s in sentence_rows
+                    if src_by_raw.get(str(s.raw_sentence_id), "口播") != "歌词"
                 ],
             }
             retried = False
