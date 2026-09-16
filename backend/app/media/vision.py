@@ -242,6 +242,12 @@ async def merge_scenes(
         }
         for f in frames
     ]
+    # 帧数过多时 GLM flash 输入超限稳定失败（43 帧 fail / 33 帧 OK）：
+    # harness 自适应降采样，均匀抽到 ≤33 帧，保持完整时间覆盖
+    if len(briefs) > 33:
+        step = len(briefs) / 33
+        keep = sorted({min(len(briefs) - 1, int(i * step)) for i in range(33)})
+        briefs = [briefs[i] for i in keep]
     evs = [
         {
             "event_type": e.get("event_type"), "t_ms": e.get("t_ms"),
