@@ -253,6 +253,82 @@ def _looks_lyric(text: str) -> bool:
     return latin / max(len(text), 1) > 0.6
 
 
+def _detect_annotation_cliches(full_script: str) -> list[str]:
+    """跨段创作注解雷同检测 + 逐句套话检测。
+
+    编导审稿视角：'通过XX吸引注意力''为后续情节做铺垫'等句式可套到任何片段，
+    多段出现即视为套话。五要素结构词（节奏/峰谷/曲线等）不算雷同。
+    返回可读告警列表。
+    """
+    hits: list[str] = []
+    # --- 逐句套话：模板句计数（措辞变体合并统计） ---
+    for pat, label in (
+        (r"为后续情节[^，。]{0,8}做铺垫", "为后续情节…做铺垫"),
+        (r"为后续情节[^，。]{0,8}做过渡", "为后续情节…做过渡"),
+        ("增加故事的荒诞性和紧张感", "增加故事的荒诞性和紧张感"),
+        ("吸引观众的注意力", "吸引观众的注意力"),
+        ("激发观众的好奇心", "激发观众的好奇心"),
+    ):
+        n = len(re.findall(pat, full_script))
+        if n >= 3:
+            hits.append(f"逐句套话 '{label}' ×{n}（跨句模板填充，需改写成引用原话字词）")
+    # --- 段落创作注解雷同 ---
+    seg_blocks = re.split(r"### 段\d+", full_script)
+    if len(seg_blocks) < 3:
+        return hits
+    annotations: list[str] = []
+    for block in seg_blocks[1:]:
+        m = re.search(
+            r"(?:创作注解|创作注解：)(.*?)(?=逐句|- 〔句\d|\n### |$)", block, re.S)
+        if m:
+            annotations.append(re.sub(r"\s+", "", m.group(1)))
+    n = len(annotations)
+    for i in range(n):
+        for j in range(i + 1, n):
+            a, b = annotations[i], annotations[j]
+            if not a or not b:
+                continue
+            best = ""
+            for k in range(min(len(a), len(b)) - 11):
+                sub = a[k:k + 12]
+                if sub in b:
+                    cur = sub
+                    while k + len(cur) < len(a) and cur + a[k + len(cur)] in b:
+                        cur += a[k + len(cur)]
+                    if len(cur) > len(best):
+                        best = cur
+            if len(best) >= 12 and _is_cliche_pair(annotations[i], annotations[j], best):
+                hits.append(f"段{i + 1} 与 段{j + 1} 创作注解雷同（共用 '{best[:24]}…'）")
+                break
+    return hits[:6]
+
+
+_STRUCT_WORDS = ("节奏", "峰值", "谷底", "曲线", "差异化", "硬约束", "承接上文",
+                 "观众此刻", "位于曲线", "相邻段", "把观众从", "推往", "情绪中",
+                 "情绪", "较快", "较慢", "适中", "峰值位置", "本段使用", "来展示",
+                 "来引发", "来吸引", "使用口播", "3D动画", "和", "的置", "本段",
+                 "来获得", "以此", "从而", "让观众", "这种", "观众处于",
+                 "本段采用", "画面细节丰富", "节奏快速", "节奏稍慢", "手法",
+                 "细节丰富", "通过描述", "来增加", "增加故事", "的冲突性",
+                 "快速", "稍慢", "位于", "位置", "观众", "认知", "注意力")
+
+
+def _is_cliche_pair(a: str, b: str, best: str) -> bool:
+    """判定两段注解是否真雷同：核心看是否点名了【不同的具体证据】。
+
+    两段都引用了具体原话/字幕（引号内容）且证据不同 → 手法各异，连接词共享不算雷同；
+    只要有一段没点名任何具体证据，且公共子串去模板词后仍有实质内容 → 判雷同。
+    """
+    quotes = lambda t: set(re.findall(r"[“\"'『「]([^”\"'』」]{4,})[”\"'』」]", t))
+    qa, qb = quotes(a), quotes(b)
+    if qa and qb:
+        overlap = len(qa & qb) / min(len(qa), len(qb))
+        return overlap >= 0.5  # 引用了同一批证据 → 雷同；证据不同 → 不雷同
+    rest = best
+    for w in _STRUCT_WORDS:
+        rest = rest.replace(w, "")
+    return len(rest) >= 8
+
 
 def _fmt_energy(energy: Sequence[dict[str, Any]]) -> str:
     if not energy:
@@ -1435,6 +1511,10 @@ async def run_three_layer(
                         ]
                     if cliche_tail:
                         q45["warnings"] = [f"套话尾句 ×{cliche_tail}（'适用于任何需要…'）"]
+                    # harness 创作注解雷同检测：跨段重复句式（编导审稿扣分项）→ warning
+                    dup = _detect_annotation_cliches(raw45)
+                    if dup:
+                        q45["warnings"] = (q45.get("warnings") or []) + dup
                     # harness 画面轨：按段落时间精确对齐逐帧简报+动态事件，追加为【画面分镜】
                     # （帧层细节稳定可控；场景记忆层供模型理解叙事，不用于分镜对齐）
                     frames = ((manifest or {}).get("frames")) or []
