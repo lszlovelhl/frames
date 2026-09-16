@@ -315,7 +315,7 @@ async def persist_raw_layer(
         "duration_ms": duration_ms,
         "platform": platform,
         "sentences": [
-            {"id": r.id, "seq": r.seq, "start_ms": r.start_ms, "end_ms": r.end_ms, "text": r.text}
+            {"id": r.id, "seq": r.seq, "start_ms": r.start_ms, "end_ms": r.end_ms, "text": r.text, "source": r.source}
             for r in raw_sentences
         ],
         "shots": [
