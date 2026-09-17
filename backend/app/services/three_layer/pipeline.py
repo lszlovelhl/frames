@@ -1105,6 +1105,56 @@ async def run_three_layer(
     seg_rows: list[M.ScriptSegment] = []
     _prev_last: dict[str, Any] | None = None
     for item in segments_json:
+        has_lines = item.get("line_from") is not None or item.get("line_to") is not None
+        if not has_lines:
+            # 纯画面段（口播结束后的画面演示/技巧展示/收尾段）：时间锚定，不锚定口播句
+            st_ms = int(item.get("start_ms") or (seg_rows[-1].end_ms if seg_rows else 0))
+            en_ms = int(item.get("end_ms") or dur_ms)
+            st_ms = max(st_ms, seg_rows[-1].end_ms if seg_rows else 0)
+            en_ms = max(en_ms, st_ms + 500)
+            if dur_ms:
+                en_ms = min(en_ms, dur_ms)
+            prev_seq = seg_rows[-1].end_sentence_seq if seg_rows else 0
+            seg_type = str(item.get("seg_type") or "").strip()
+            if seg_type not in validator.wl.get("seg_type", set()):
+                seg_type = "铺垫"
+            row = M.ScriptSegment(
+                script_id=script.id,
+                seq=int(item.get("seq") or len(seg_rows) + 1),
+                seg_type=seg_type,
+                title=(str(item.get("title") or "")[:128] or None),
+                start_ms=st_ms,
+                end_ms=en_ms,
+                start_sentence_seq=prev_seq,
+                end_sentence_seq=prev_seq,
+                purpose=str(item.get("purpose") or "")[:4000] or "（缺失）",
+                summary=str(item.get("summary") or "")[:4000] or "（缺失）",
+                hook_point=1 if item.get("hook_point") else 0,
+                payoff_point=1 if item.get("payoff_point") else 0,
+                emotion_peak=_clamp_intensity(item.get("emotion_level")),
+            )
+            v = validator.validate(
+                "script_segment",
+                {
+                    **item,
+                    "start_ms": st_ms,
+                    "end_ms": en_ms,
+                    "seg_type": seg_type,
+                    "start_sentence_seq": prev_seq,
+                    "end_sentence_seq": prev_seq,
+                },
+                label=f"seg{row.seq}:{row.title or ''}",
+            )
+            verdicts.append(v.as_dict())
+            if not v.accepted:
+                continue
+            db.add(row)
+            seg_rows.append(row)
+            warnings.append(
+                f"L3 段{item.get('seq')} 为纯画面段（无口播锚点，{st_ms}ms~{en_ms}ms，"
+                f"时间锚定保留）"
+            )
+            continue
         s_first = _line_to_sentence(sentences, item.get("line_from"))
         s_last = _line_to_sentence(sentences, item.get("line_to"))
         _bad_from = item.get("line_from") is not None and s_first is None
