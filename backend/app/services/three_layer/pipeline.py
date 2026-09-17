@@ -1505,13 +1505,19 @@ async def run_three_layer(
                 cliche_tail = len(re.findall(r"适用于任何需要[^\n。]*", raw45))
                 if len(raw45) < hard_min:
                     q45["errors"].append(f"成稿 {len(raw45)} 字 < 厚度下限 {min_len}")
-                elif seg_marks < len(seg_rows):
-                    # 漏段：自动重试一次（同一输入，期望模型补全段落）
+                # 占位符残留：模型把提示词模板字面输出（{seg_type}/段N/{title} 等未替换）→ 判不合格
+                placeholder_hit = bool(re.search(r"\{[a-z_]+\}|段N\b|{seg|{title", raw45))
+                if len(raw45) < hard_min:
+                    q45["errors"].append(f"成稿 {len(raw45)} 字 < 厚度下限 {min_len}")
+                elif placeholder_hit or seg_marks < len(seg_rows):
+                    # 占位符未替换 / 漏段：自动重试一次（同一输入，期望模型正常输出）
                     if not retried:
                         retried = True
                         q45["warnings"] = q45.get("warnings") or []
-                        q45["warnings"].append(f"首次成稿漏段（{seg_marks}/{len(seg_rows)}），自动重试")
-                        logger.info("L4.5 漏段重试：seg_marks=%s/%s", seg_marks, len(seg_rows))
+                        reason = "占位符未替换（{seg_type}/段N 等字面输出）" if placeholder_hit else \
+                            f"漏段（{seg_marks}/{len(seg_rows)}）"
+                        q45["warnings"].append(f"首次成稿{reason}，自动重试")
+                        logger.info("L4.5 重试：%s seg_marks=%s/%s", reason, seg_marks, len(seg_rows))
                         res45 = await chat(
                             _TL45.format(
                                 l45_input=json.dumps(l45_input, ensure_ascii=False)[:42000]
@@ -1526,13 +1532,15 @@ async def run_three_layer(
                         raw45 = re.sub(r"^```(?:markdown)?\s*", "", raw45)
                         raw45 = re.sub(r"\s*```\s*$", "", raw45)
                         seg_marks = raw45.count("###")
+                        placeholder_hit = bool(
+                            re.search(r"\{[a-z_]+\}|段N\b|{seg|{title", raw45))
                         min_len = max(800, len(seg_rows) * 150)
                         hard_min = int(min_len * 0.9)
                         if len(raw45) < hard_min:
                             q45["errors"].append(f"重试后成稿 {len(raw45)} 字 < 厚度下限 {min_len}")
-                        elif seg_marks < len(seg_rows):
+                        elif placeholder_hit or seg_marks < len(seg_rows):
                             q45["errors"].append(
-                                f"重试后仍漏段：段落标记 {seg_marks} < 段落数 {len(seg_rows)}"
+                                f"重试后仍{('占位符未替换' if placeholder_hit else f'漏段 {seg_marks}/{len(seg_rows)}')}"
                             )
                         elif res45.get("finish_reason") == "length":
                             q45["errors"].append("成稿被 max_tokens 截断，请后续增大额度")
