@@ -1020,39 +1020,36 @@ async def run_three_layer(
 
     # ---------- L3 段落切分 ----------
     await report("L3", 64, "三层链路 · L3 段落切分…")
-    # harness 分段建议（确定性信号，软参考）：口播句间停顿 + 画面场景语义切换 两路合并。
-    # 场景切换 ≠ 叙事阶段（直播/剧情镜头切换频繁），故只取"语义变化（主体/动作改变）且停留≥3s"的
-    # 场景边界；口播充足时也引用，因为语义阶段切换常以画面为信号（如美妆：吐槽→技巧展示）。
+    # harness 分段建议（确定性信号，软参考）：
+    # - 口播充足（≥6 句）：句间停顿 >1500ms + 口播结束点（最后一句 ASR 结束后仍有较长
+    #   无口播画面段，如美妆类"吐槽→技巧展示"）。口播充足时不引用场景切换：
+    #   直播/剧情镜头切换频繁，是噪音不是叙事阶段。
+    # - 口播稀少（<6 句）：引用画面场景切换秒点（叙事主要靠画面推进）。
     seg_hints: list[int] = []
+    dur_ms = int((manifest or {}).get("duration_ms") or 0)
     if asr_count >= 6:
         for a, b in zip(units, units[1:]):
             gap = (b.get("start_ms") or 0) - (a.get("end_ms") or 0)
             if gap > 1500:
                 seg_hints.append(int(round(int(b["start_ms"]) / 1000)))
-    scenes = (manifest or {}).get("scenes") or []
-    for i, sc in enumerate(scenes):
-        if i == 0:
-            continue
-        st = int(sc.get("start_ms") or 0) / 1000
-        if st <= 1.0:
-            continue
-        dur = ((int(sc.get("end_ms") or 0) - int(sc.get("start_ms") or 0)) / 1000)
-        if dur < 3.0:
-            continue
-        prev = scenes[i - 1]
-        if (sc.get("subject") or "") == (prev.get("subject") or "") and \
-                (sc.get("action") or "") == (prev.get("action") or ""):
-            continue  # 语义未变：镜头切换不算
-        seg_hints.append(int(round(st)))
+        last_end = max((int(u.get("end_ms") or 0) for u in units), default=0)
+        if dur_ms > 0 and last_end < dur_ms * 0.9 and (dur_ms - last_end) >= 5000:
+            # 口播在此结束、后段为画面演示/技巧展示段（无口播）→ 强分段信号
+            seg_hints.append(int(round(last_end / 1000)))
+    else:
+        for sc in ((manifest or {}).get("scenes") or []):
+            st = int(sc.get("start_ms") or 0) / 1000
+            if st > 1.0:
+                seg_hints.append(int(round(st)))
     seg_hints = sorted(set(seg_hints))[:4]
     hint_text = ""
     if seg_hints:
         hint_text = (
-            f"\n\n【harness 分段参考】口播停顿与画面语义切换"
+            f"\n\n【harness 分段参考】口播停顿与口播结束点"
             f"在以下秒点附近（叙事阶段转换的强信号，非强制）："
             f"{'、'.join(f'{p}s' for p in seg_hints)}。"
-            f"这些点附近若确有叙事/话题转换（如口播话题转变、画面主体或动作语义变化），"
-            f"应作为段落边界；若仅是镜头切换而话题连续，忽略该点；若口播连续无转折，仍可 1 段。"
+            f"这些点附近若确有叙事/话题转换（如口播话题转变、口播结束后转为画面演示），"
+            f"应作为段落边界；若口播连续无转折，仍可 1 段。"
         )
     l3_user = (
         f"【L1 结论】\n{json.dumps({k: data1.get(k) for k in ('core_idea','content_trend','target_audience','hook_type','narrative_order')}, ensure_ascii=False)}\n\n"
