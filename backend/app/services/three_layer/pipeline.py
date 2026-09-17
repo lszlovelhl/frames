@@ -1555,11 +1555,45 @@ async def run_three_layer(
                 elif res45.get("finish_reason") == "length":
                     q45["errors"].append("成稿被 max_tokens 截断，请后续增大额度")
                 else:
+                    # 多段且未重试过：先压缩重试一次（段落唯一性硬约束）
+                    if seg_marks > len(seg_rows) and not retried:
+                        retried = True
+                        q45["warnings"] = (q45.get("warnings") or []) + [
+                            f"首次成稿拆段（{seg_marks}段>输入{len(seg_rows)}段），自动重试压缩"
+                        ]
+                        logger.info(
+                            "L4.5 多段重试：seg_marks=%s/%s", seg_marks, len(seg_rows))
+                        res45 = await chat(
+                            _TL45.format(
+                                l45_input=json.dumps(l45_input, ensure_ascii=False)[:42000]
+                            )
+                            + "\n\n【校验反馈】段落数必须严格等于输入段数（当前拆段过多）。"
+                            "请把内容合并回与输入一致的段落，禁止新增/拆分段落。",
+                            model=model,
+                            max_tokens=16384,
+                            json_mode=False,
+                            timeout=300,
+                            scene="tl45_script",
+                        )
+                        raw45 = (res45.get("reply") or "").strip()
+                        raw45 = re.sub(r"^```(?:markdown)?\s*", "", raw45)
+                        raw45 = re.sub(r"\s*```\s*$", "", raw45)
+                        raw45 = re.sub(
+                            r"^\s*[-*]?\s*\*\*?差异化硬约束\*\*?[:：]\s*",
+                            "补充：", raw45, flags=re.M)
+                        raw45 = re.sub(
+                            r"\n\s*[-*]?\s*\*\*?差异化硬约束\*\*?[:：]\s*",
+                            "\n补充：", raw45)
+                        seg_marks = raw45.count("###")
+                        placeholder_hit = bool(
+                            re.search(r"\{[a-z_]+\}|段N\b|{seg|{title", raw45))
+                        if seg_marks > len(seg_rows):
+                            q45["warnings"] = q45.get("warnings") or []
                     full_script = raw45[:20000]
                     if q45["errors"]:
                         q45["errors"] = []
                     if seg_marks > len(seg_rows):
-                        # 多段：模型违反【段落唯一性】私自拆分/新增段落 → 告警（内容保留）
+                        # 重试后仍多段：告警（内容保留）
                         q45["warnings"] = (q45.get("warnings") or []) + [
                             f"成稿段落数 {seg_marks} 超出输入段数 {len(seg_rows)}"
                             f"（模型私自拆段，结构与 L3 不一致；若拆分合理说明 L3 分段过粗）"
