@@ -312,7 +312,9 @@ _STRUCT_WORDS = ("节奏", "峰值", "谷底", "曲线", "差异化", "硬约束
                  "细节丰富", "通过描述", "来增加", "增加故事", "的冲突性",
                  "快速", "稍慢", "位于", "位置", "观众", "认知", "注意力",
                  "补充", "口播", "画面字幕", "呈现了", "内容与",
-                 "适中", "下一段", "形成对比", "与下一段")
+                 "适中", "下一段", "形成对比", "与下一段",
+                 "好奇", "期待", "震撼", "思考", "惊讶", "惊喜", "幽默", "荒诞",
+                 "情绪推往", "推往", "情绪中")
 
 
 def _is_cliche_pair(a: str, b: str, best: str) -> bool:
@@ -1018,9 +1020,32 @@ async def run_three_layer(
 
     # ---------- L3 段落切分 ----------
     await report("L3", 64, "三层链路 · L3 段落切分…")
+    # harness 分段建议（确定性信号，软参考）：口播为主用句间停顿，口播稀少用画面场景切换。
+    # 场景切换 ≠ 叙事阶段（直播/剧情镜头切换频繁），故口播充足时不引用场景边界，防过度切分。
+    seg_hints: list[int] = []
+    if asr_count >= 6:
+        for a, b in zip(units, units[1:]):
+            gap = (b.get("start_ms") or 0) - (a.get("end_ms") or 0)
+            if gap > 1500:
+                seg_hints.append(int(round(int(b["start_ms"]) / 1000)))
+    else:
+        for sc in ((manifest or {}).get("scenes") or []):
+            st = int(sc.get("start_ms") or 0) / 1000
+            if st > 1.0:
+                seg_hints.append(int(round(st)))
+    seg_hints = sorted(set(seg_hints))[:4]
+    hint_text = ""
+    if seg_hints:
+        hint_text = (
+            f"\n\n【harness 分段参考】{'口播停顿' if asr_count >= 6 else '画面场景切换'}"
+            f"在以下秒点附近（叙事阶段转换的强信号，非强制）："
+            f"{'、'.join(f'{p}s' for p in seg_hints)}。"
+            f"这些点附近若确有叙事/话题转换，应作为段落边界；若口播连续无转折，仍可 1 段。"
+        )
     l3_user = (
         f"【L1 结论】\n{json.dumps({k: data1.get(k) for k in ('core_idea','content_trend','target_audience','hook_type','narrative_order')}, ensure_ascii=False)}\n\n"
         f"【#03 逐句转写（含毫秒，行号即 line_no）】\n{transcript}\n\n片长：{duration_ms}ms"
+        + hint_text
     )
     ok3, data3, q3 = await _run_layer(
         db, video=video, analysis_id=analysis_id, layer=3,
@@ -1588,15 +1613,24 @@ async def run_three_layer(
                                 rw = re.sub(
                                     r"\n\s*[-*]?\s*\*\*?差异化硬约束\*\*?[:：]\s*",
                                     "\n补充：", rw)
-                                # 复验：重写后套话是否减少
+                                # 复验：重写后套话是否减少 且 段落数必须仍与 L3 一致
+                                # （防模型重写时私自拆/合段，违背段落唯一性）
                                 dup2 = _detect_annotation_cliches(rw)
-                                if len(dup2) < len(dup):
+                                rw_marks = rw.count("###")
+                                if len(dup2) < len(dup) and rw_marks == len(seg_rows):
                                     raw45 = rw
                                     full_script = raw45[:20000]  # 重写稿为准
                                     dup = dup2
                                     q45["warnings"] = [
                                         f"套话自愈：检测 {len(dup)} 条 → 自动重写 → 剩余 {len(dup2)} 条"
                                     ] + dup2
+                                elif rw_marks != len(seg_rows):
+                                    # 重写破坏了段落结构 → 弃用重写稿，保留原稿（结构正确优先）
+                                    q45["warnings"] = q45.get("warnings") or []
+                                    q45["warnings"].append(
+                                        f"套话自愈重写稿段落数 {rw_marks} ≠ L3 {len(seg_rows)}，"
+                                        f"弃用重写稿、保留原稿（段落结构正确优先）"
+                                    )
                                 else:
                                     # 重写没改善：保留原稿，告警仍在
                                     q45["warnings"] = q45.get("warnings") or []
