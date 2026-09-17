@@ -1020,27 +1020,39 @@ async def run_three_layer(
 
     # ---------- L3 段落切分 ----------
     await report("L3", 64, "三层链路 · L3 段落切分…")
-    # harness 分段建议（确定性信号，软参考）：口播为主用句间停顿，口播稀少用画面场景切换。
-    # 场景切换 ≠ 叙事阶段（直播/剧情镜头切换频繁），故口播充足时不引用场景边界，防过度切分。
+    # harness 分段建议（确定性信号，软参考）：口播句间停顿 + 画面场景语义切换 两路合并。
+    # 场景切换 ≠ 叙事阶段（直播/剧情镜头切换频繁），故只取"语义变化（主体/动作改变）且停留≥3s"的
+    # 场景边界；口播充足时也引用，因为语义阶段切换常以画面为信号（如美妆：吐槽→技巧展示）。
     seg_hints: list[int] = []
     if asr_count >= 6:
         for a, b in zip(units, units[1:]):
             gap = (b.get("start_ms") or 0) - (a.get("end_ms") or 0)
             if gap > 1500:
                 seg_hints.append(int(round(int(b["start_ms"]) / 1000)))
-    else:
-        for sc in ((manifest or {}).get("scenes") or []):
-            st = int(sc.get("start_ms") or 0) / 1000
-            if st > 1.0:
-                seg_hints.append(int(round(st)))
+    scenes = (manifest or {}).get("scenes") or []
+    for i, sc in enumerate(scenes):
+        if i == 0:
+            continue
+        st = int(sc.get("start_ms") or 0) / 1000
+        if st <= 1.0:
+            continue
+        dur = ((int(sc.get("end_ms") or 0) - int(sc.get("start_ms") or 0)) / 1000)
+        if dur < 3.0:
+            continue
+        prev = scenes[i - 1]
+        if (sc.get("subject") or "") == (prev.get("subject") or "") and \
+                (sc.get("action") or "") == (prev.get("action") or ""):
+            continue  # 语义未变：镜头切换不算
+        seg_hints.append(int(round(st)))
     seg_hints = sorted(set(seg_hints))[:4]
     hint_text = ""
     if seg_hints:
         hint_text = (
-            f"\n\n【harness 分段参考】{'口播停顿' if asr_count >= 6 else '画面场景切换'}"
+            f"\n\n【harness 分段参考】口播停顿与画面语义切换"
             f"在以下秒点附近（叙事阶段转换的强信号，非强制）："
             f"{'、'.join(f'{p}s' for p in seg_hints)}。"
-            f"这些点附近若确有叙事/话题转换，应作为段落边界；若口播连续无转折，仍可 1 段。"
+            f"这些点附近若确有叙事/话题转换（如口播话题转变、画面主体或动作语义变化），"
+            f"应作为段落边界；若仅是镜头切换而话题连续，忽略该点；若口播连续无转折，仍可 1 段。"
         )
     l3_user = (
         f"【L1 结论】\n{json.dumps({k: data1.get(k) for k in ('core_idea','content_trend','target_audience','hook_type','narrative_order')}, ensure_ascii=False)}\n\n"
