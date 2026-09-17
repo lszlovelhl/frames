@@ -1541,6 +1541,67 @@ async def run_three_layer(
                     dup = _detect_annotation_cliches(raw45)
                     if dup:
                         q45["warnings"] = (q45.get("warnings") or []) + dup
+                        # 自愈：套话检测到 → 反馈重写一次（保持结构/句子覆盖不变，只改表达）
+                        rewrite_hint = (
+                            "你是短视频编导脚本改写师。以下是刚生成的脚本，它被编导审稿判定存在"
+                            "套话问题（跨段/跨句模板句式，可套到任何视频）。请【重写整个脚本】：\n"
+                            "1. 段落结构、段落标题、时间、逐句引用（原话）一律不变；\n"
+                            "2. 只改掉套话：每条创作注解/逐句创作意图必须点名本段时间范围内的具体"
+                            "画面/字幕/动作/原话字词，且相邻段不得用相同说法；\n"
+                            "3. 审稿指出的套话如下，禁止再次出现（也不要复述本提示要求）：\n"
+                            + "\n".join(f"- {d}" for d in dup[:5])
+                            + "\n\n请直接输出重写后的完整 Markdown 脚本，不要解释。"
+                        )
+                        try:
+                            res_rewrite = None
+                            for _att in range(3):
+                                try:
+                                    res_rewrite = await _ai_chat(
+                                        [
+                                            {"role": "system", "content": system45},
+                                            {
+                                                "role": "user",
+                                                "content": rewrite_hint + "\n\n【当前脚本】\n" + raw45,
+                                            },
+                                        ],
+                                        model=model,
+                                        max_tokens=16384,
+                                        json_mode=False,
+                                        timeout=300,
+                                        scene="tl45_rewrite",
+                                    )
+                                    break
+                                except Exception as exc:
+                                    if _att == 2:
+                                        raise
+                                    await asyncio.sleep(5 * (_att + 1))
+                                    logger.warning(
+                                        "L4.5 套话重写调用失败，重试 %s/3：%s",
+                                        _att + 1, str(exc)[:100])
+                            rw = (res_rewrite or {}).get("reply") or ""
+                            if rw.strip():
+                                rw = re.sub(r"^```(?:markdown)?\s*", "", rw.strip())
+                                rw = re.sub(r"\s*```\s*$", "", rw)
+                                rw = re.sub(
+                                    r"^\s*[-*]?\s*\*\*?差异化硬约束\*\*?[:：]\s*",
+                                    "补充：", rw, flags=re.M)
+                                rw = re.sub(
+                                    r"\n\s*[-*]?\s*\*\*?差异化硬约束\*\*?[:：]\s*",
+                                    "\n补充：", rw)
+                                # 复验：重写后套话是否减少
+                                dup2 = _detect_annotation_cliches(rw)
+                                if len(dup2) < len(dup):
+                                    raw45 = rw
+                                    full_script = raw45[:20000]  # 重写稿为准
+                                    dup = dup2
+                                    q45["warnings"] = [
+                                        f"套话自愈：检测 {len(dup)} 条 → 自动重写 → 剩余 {len(dup2)} 条"
+                                    ] + dup2
+                                else:
+                                    # 重写没改善：保留原稿，告警仍在
+                                    q45["warnings"] = q45.get("warnings") or []
+                        except Exception as exc:
+                            logger.warning("L4.5 套话自愈失败：%s", str(exc)[:120])
                     # harness 画面轨：按段落时间精确对齐逐帧简报+动态事件，追加为【画面分镜】
                     # （帧层细节稳定可控；场景记忆层供模型理解叙事，不用于分镜对齐）
                     frames = ((manifest or {}).get("frames")) or []
