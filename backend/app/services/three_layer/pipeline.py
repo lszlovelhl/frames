@@ -1518,10 +1518,15 @@ async def run_three_layer(
                             f"漏段（{seg_marks}/{len(seg_rows)}）"
                         q45["warnings"].append(f"首次成稿{reason}，自动重试")
                         logger.info("L4.5 重试：%s seg_marks=%s/%s", reason, seg_marks, len(seg_rows))
-                        res45 = await chat(
-                            _TL45.format(
-                                l45_input=json.dumps(l45_input, ensure_ascii=False)[:42000]
-                            ),
+                        res45 = await _ai_chat(
+                            [
+                                {"role": "system", "content": system45},
+                                {
+                                    "role": "user",
+                                    "content": json.dumps(
+                                        l45_input, ensure_ascii=False, indent=1),
+                                },
+                            ],
                             model=model,
                             max_tokens=16384,
                             json_mode=False,
@@ -1563,12 +1568,17 @@ async def run_three_layer(
                         ]
                         logger.info(
                             "L4.5 多段重试：seg_marks=%s/%s", seg_marks, len(seg_rows))
-                        res45 = await chat(
-                            _TL45.format(
-                                l45_input=json.dumps(l45_input, ensure_ascii=False)[:42000]
-                            )
-                            + "\n\n【校验反馈】段落数必须严格等于输入段数（当前拆段过多）。"
-                            "请把内容合并回与输入一致的段落，禁止新增/拆分段落。",
+                        res45 = await _ai_chat(
+                            [
+                                {"role": "system", "content": system45},
+                                {
+                                    "role": "user",
+                                    "content": json.dumps(
+                                        l45_input, ensure_ascii=False, indent=1)
+                                    + "\n\n【校验反馈】段落数必须严格等于输入段数（当前拆段过多）。"
+                                    "请把内容合并回与输入一致的段落，禁止新增/拆分段落。",
+                                },
+                            ],
                             model=model,
                             max_tokens=16384,
                             json_mode=False,
