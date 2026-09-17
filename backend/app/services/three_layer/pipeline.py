@@ -1270,14 +1270,13 @@ async def run_three_layer(
                     label=f"seg{row.seq}:画面补段",
                 )
                 verdicts.append(v.as_dict())
-                if not v.accepted:
-                    continue
-                db.add(row)
-                seg_rows.append(row)
-                warnings.append(
-                    f"L3 harness 自动补纯画面段（{st}ms~{en}ms，口播结束后的画面段，"
-                    f"模型输出格式无法表达，由 harness 确定性补齐）"
-                )
+                if v.accepted:
+                    db.add(row)
+                    seg_rows.append(row)
+                    warnings.append(
+                        f"L3 harness 自动补纯画面段（{st}ms~{en}ms，口播结束后的画面段，"
+                        f"模型输出格式无法表达，由 harness 确定性补齐）"
+                    )
     await db.flush()
     counts["script_segment"] = len(seg_rows)
     await db.commit()
