@@ -1557,6 +1557,18 @@ async def run_three_layer(
                         "seq": s.seq, "类型": s.seg_type, "标题": s.title,
                         "起止秒": [round(s.start_ms / 1000, 1), round(s.end_ms / 1000, 1)],
                         "情绪峰值": s.emotion_peak, "目的": s.purpose,
+                        # 该段时间范围内的画面素材（供画面段写作，无口播句时引用）
+                        "该段画面素材": [
+                            (
+                                f"{round(int(sc.get('start_ms') or 0) / 1000, 1)}s~"
+                                f"{round(int(sc.get('end_ms') or 0) / 1000, 1)}s "
+                                f"{sc.get('subject') or ''} {sc.get('action') or ''}"
+                                f"{('｜画面文字:' + str(sc.get('text_overlay'))[:80]) if sc.get('text_overlay') else ''}"
+                            ).strip()
+                            for sc in ((manifest or {}).get("scenes") or [])
+                            if int(sc.get("start_ms") or 0) < s.end_ms
+                            and int(sc.get("end_ms") or 0) > s.start_ms
+                        ][:4],
                     }
                     for s in seg_rows
                 ],
