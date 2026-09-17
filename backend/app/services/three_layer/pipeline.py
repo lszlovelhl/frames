@@ -1226,6 +1226,58 @@ async def run_three_layer(
         db.add(row)
         seg_rows.append(row)
         _prev_last = s_last
+
+    # --- harness 兜底补段：口播充足时，口播结束后仍有 ≥3s 无口播画面段未被段落覆盖 ---
+    # 模型输出格式受限（段落须锚定口播行号）表达不了纯画面段，这里由 harness 确定性补齐，
+    # 保证"覆盖全片、首尾相接"契约（如美妆类：吐槽口播段 → 技巧展示画面段）。
+    if asr_count >= 6 and seg_rows:
+        last = seg_rows[-1]
+        last_asr_end = max((int(u.get("end_ms") or 0) for u in units), default=0)
+        if last.end_ms < dur_ms - 2000 and last_asr_end >= last.end_ms - 500:
+            st = max(last.end_ms, last_asr_end)
+            en = dur_ms
+            if en - st >= 3000:
+                row = M.ScriptSegment(
+                    script_id=script.id,
+                    seq=len(seg_rows) + 1,
+                    seg_type="干货",
+                    title=None,
+                    start_ms=st,
+                    end_ms=en,
+                    start_sentence_seq=last.end_sentence_seq,
+                    end_sentence_seq=last.end_sentence_seq,
+                    purpose="口播结束后的画面段（画面演示/技巧展示/收尾），完整覆盖全片不丢尾",
+                    summary="口播结束后的纯画面段（无口播，画面演示/收尾）",
+                    hook_point=0,
+                    payoff_point=0,
+                    emotion_peak=last.emotion_peak,
+                )
+                v = validator.validate(
+                    "script_segment",
+                    {
+                        "seq": len(seg_rows) + 1,
+                        "seg_type": "干货",
+                        "title": None,
+                        "start_ms": st,
+                        "end_ms": en,
+                        "start_sentence_seq": last.end_sentence_seq,
+                        "end_sentence_seq": last.end_sentence_seq,
+                        "purpose": row.purpose,
+                        "summary": row.summary,
+                        "hook_point": 0,
+                        "payoff_point": 0,
+                    },
+                    label=f"seg{row.seq}:画面补段",
+                )
+                verdicts.append(v.as_dict())
+                if not v.accepted:
+                    continue
+                db.add(row)
+                seg_rows.append(row)
+                warnings.append(
+                    f"L3 harness 自动补纯画面段（{st}ms~{en}ms，口播结束后的画面段，"
+                    f"模型输出格式无法表达，由 harness 确定性补齐）"
+                )
     await db.flush()
     counts["script_segment"] = len(seg_rows)
     await db.commit()
