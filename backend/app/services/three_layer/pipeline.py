@@ -1277,6 +1277,42 @@ async def run_three_layer(
                         f"L3 harness 自动补纯画面段（{st}ms~{en}ms，口播结束后的画面段，"
                         f"模型输出格式无法表达，由 harness 确定性补齐）"
                     )
+    # --- harness 确定性碎片合并：模型逐句切段（单句+短时长+句子连续+无停顿）→ 并入前段 ---
+    # 背景：flash 分段不稳定——同一视频可能判 1 段（口播连续）或 7 段（逐句切，全标"铺垫"）。
+    # 段落骨架是结构层，不应依赖模型临场发挥：这里用确定性规则把碎片段合并回连续口播段。
+    # 纯画面补段（start_sentence_seq 复用尾句号 → 与上段不连续）天然被排除，不会误并。
+    if len(seg_rows) > 1:
+        _i = 1
+        while _i < len(seg_rows):
+            _prev = seg_rows[_i - 1]
+            _cur = seg_rows[_i]
+            _n_cur = _cur.end_sentence_seq - _cur.start_sentence_seq + 1
+            _cur_dur = _cur.end_ms - _cur.start_ms
+            _contiguous = _cur.start_sentence_seq == _prev.end_sentence_seq + 1
+            # 句间 gap（无口播空隙）：<1500ms 视为连续口播，≥1500ms 视为真实停顿边界
+            _gap = 10**9
+            if _contiguous:
+                _pl = next((s for s in sentences if int(s.get("seq") or 0) == _prev.end_sentence_seq), None)
+                _cf = next((s for s in sentences if int(s.get("seq") or 0) == _cur.start_sentence_seq), None)
+                if _pl is not None and _cf is not None:
+                    _gap = int(_cf.get("start_ms") or 0) - int(_pl.get("end_ms") or 0)
+            if _contiguous and _n_cur <= 1 and _cur_dur < 10000 and _gap < 1500:
+                warnings.append(
+                    f"L3 harness 合并碎片段：段{_cur.seq}（{_cur.start_ms/1000:.0f}s~{_cur.end_ms/1000:.0f}s，"
+                    f"{_cur.seg_type}）为单句短段且与前段连续无停顿，已并入段{_prev.seq}"
+                )
+                _prev.end_ms = max(_prev.end_ms, _cur.end_ms)
+                _prev.end_sentence_seq = max(_prev.end_sentence_seq, _cur.end_sentence_seq)
+                seg_rows.pop(_i)
+                try:
+                    await db.delete(_cur)
+                except Exception:
+                    pass
+            else:
+                _i += 1
+        # 合并后 seq 重排（避免跳号，fs 段落头 1..N 连续）
+        for _n, _s in enumerate(seg_rows, start=1):
+            _s.seq = _n
     await db.flush()
     counts["script_segment"] = len(seg_rows)
     await db.commit()
