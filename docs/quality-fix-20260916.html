@@ -127,6 +127,18 @@
   </div>
 
   <div class="card">
+    <h2>🔄 套话自愈闭环（09-17 新增）</h2>
+    <div class="chain">
+      <div class="node"><b>检测</b><span>harness 套话检测器：逐句模板计数 + 跨段引用证据判雷同</span></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>反馈重写</b><span>套话清单作为反例喂回模型，结构/句子覆盖不变，只改表达</span></div>
+      <div class="arrow">→</div>
+      <div class="node"><b>复验</b><span>重写后再检测，套话减少则采用新稿并记录自愈过程</span></div>
+    </div>
+    <div class="note">定向验证：3 条套话（"通过展示标题和评论/为后续情节做铺垫"×N）→ 重写后 0 条；美妆最终轮首稿即干净（三品类套话清零）。断连/超时退避重试 3 次兜底。</div>
+  </div>
+
+  <div class="card">
     <h2>⏭️ 下一步待办</h2>
     <div class="note">
       ① 知识动画品类回归（本次改动不影响口播型视频，但需确认）；② L4.5 创作注解轻度套话（"通过展示标题和评论…"跨段重复）——编导审稿级打磨；③ L3 行号偶发非法导致段落合并不稳定（本轮美妆 1 段→7 段波动）；④ 历史遗留：响应组装偶发 MissingGreenlet、ai_usage_logs 写锁日志噪音（均不影响落库）。
