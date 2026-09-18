@@ -1276,10 +1276,26 @@ async def run_three_layer(
         if _f is not None and _t is not None and _f <= _t:
             _covered_seq.update(range(_f, _t + 1))
     _uncovered = [x for x in sentences if int(x["seq"]) not in _covered_seq]
-    if (len(_ordered) >= 3 and _valid < 2) or (len(_uncovered) >= 1 and len(sentences) >= 3):
+    # 停顿基准颗粒度：按 gap≥1.5s 切分的口播段数（编导最小可执行颗粒度）
+    _pause_n = 1
+    _pe = None
+    for _s in sentences:
+        if _pe is not None and int(_s["start_ms"]) - _pe >= 1500:
+            _pause_n += 1
+        _pe = int(_s["end_ms"])
+    _model_seg_n = len(_ordered)  # 含 line 的段数 = 模型口播段数
+    if (
+        (len(_ordered) >= 3 and _valid < 2)
+        or (len(_uncovered) >= 1 and len(sentences) >= 3)
+        or (_pause_n > 1 and _model_seg_n < _pause_n)
+    ):
         if _uncovered:
             warnings.append(
                 f"L3 模型分段漏覆盖口播句 {[int(x['seq']) for x in _uncovered]}，"
+                f"harness 按口播停顿确定性兜底重建")
+        elif _model_seg_n < _pause_n:
+            warnings.append(
+                f"L3 模型分段颗粒度不足（{_model_seg_n} 段 < 停顿基准 {_pause_n} 段），"
                 f"harness 按口播停顿确定性兜底重建")
             warnings.append(
                 f"L3 模型分段质量差（{len(_ordered)} 段仅 {_valid} 段行号有效），"
@@ -2190,6 +2206,9 @@ async def run_three_layer(
                         _pat = rf"(### 段{_sg.seq}[^\n]*?[（(])[\d.]+s~[\d.]+s"
                         _fix = f"{_sg.start_ms / 1000:.1f}s~{_sg.end_ms / 1000:.1f}s"
                         full_script = re.sub(_pat, rf"\g<1>{_fix}", full_script)
+                    # 段标题重复清洗：模型偶发在"该段画面素材"前重复写"### 段N · 标题"行
+                    # （段落区已写过一次）→ 删除重复标题行，保留画面素材内容行
+                    full_script = re.sub(r"### 段\d+[^\n]*\n(?=该段画面素材)", "", full_script)
                     # 补段标题兜底：L4.5 未重写 harness 补段标题时，确定性替换为"画面收尾"
                     # （补段只出现在口播结束后的片尾画面段，"画面收尾"是时间位置事实，非编造）
                     if "口播结束后的画面段" in full_script:
