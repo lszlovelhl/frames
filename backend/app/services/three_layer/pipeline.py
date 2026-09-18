@@ -1978,6 +1978,10 @@ async def run_three_layer(
                         _pat = rf"(### 段{_sg.seq}[^\n]*?[（(])[\d.]+s~[\d.]+s"
                         _fix = f"{_sg.start_ms / 1000:.1f}s~{_sg.end_ms / 1000:.1f}s"
                         full_script = re.sub(_pat, rf"\g<1>{_fix}", full_script)
+                    # 补段标题兜底：L4.5 未重写 harness 补段标题时，确定性替换为"画面收尾"
+                    # （补段只出现在口播结束后的片尾画面段，"画面收尾"是时间位置事实，非编造）
+                    if "口播结束后的画面段" in full_script:
+                        full_script = full_script.replace("口播结束后的画面段", "画面收尾")
                     frames = ((manifest or {}).get("frames")) or []
                     dyns = (((manifest or {}).get("frame_plan") or {}).get("dynamic_events")) or []
                     if frames:
