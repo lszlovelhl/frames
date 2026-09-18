@@ -2238,6 +2238,72 @@ async def run_three_layer(
                         _pat = rf"(### 段{_sg.seq}[^\n]*?[（(])[\d.]+s~[\d.]+s"
                         _fix = f"{_sg.start_ms / 1000:.1f}s~{_sg.end_ms / 1000:.1f}s"
                         full_script = re.sub(_pat, rf"\g<1>{_fix}", full_script)
+                        # 段标题完全没写时间 → harness 确定性追加（时间精确归 harness）
+                        _hpat = rf"### 段{_sg.seq}([^\n]*?)(?:[（(][\d.]+s~[\d.]+s[）)])?(?=\n)"
+                        def _add_t(_m):
+                            _rest = _m.group(1).rstrip()
+                            if re.search(r"[（(][\d.]+s~[\d.]+s[）)]", _rest):
+                                return _m.group(0)
+                            return f"### 段{_sg.seq}{_rest}（{_sg.start_ms / 1000:.1f}s~{_sg.end_ms / 1000:.1f}s）"
+                        full_script = re.sub(_hpat, _add_t, full_script)
+                    # 逐句覆盖补齐：L4.5 偶发漏写部分句子的逐句行（如 7 句只写 4 句）→
+                    # 缺失句局部补齐（flash 小调用，三要素格式，插回所属段落逐句区）
+                    _present_seqs = {int(m) for m in re.findall(r"〔句(\d+)", full_script)}
+                    _all_seqs = {int(r.seq) for r in sentence_rows}
+                    _missing = sorted(x for x in _all_seqs if x not in _present_seqs)
+                    if _missing:
+                        q45["warnings"].append(f"L4.5 逐句缺失 {_missing}（模型漏写），触发局部补齐")
+                        _miss_txt = "\n".join(
+                            f"- 〔句{r.seq}〕{r.quote}（{r.start_ms / 1000:.1f}s~{r.end_ms / 1000:.1f}s，句功能：{r.sentence_function}）"
+                            for r in sentence_rows if int(r.seq) in _missing
+                        )
+                        try:
+                            from app.ai import chat as _ai_chat  # 延迟导入
+                            _resp = await _ai_chat([
+                                {"role": "system", "content": (
+                                    "你是爆款短视频编导。为缺失的口播句补写逐句分析，严格按格式每句一行："
+                                    "〔句N · 强度X〕“原话”——【功能】…；【剪辑】…；【节奏】…。"
+                                    "剪辑必须点名具体动作（留白秒数/快切/卡点/切黑/特写/音效/镜头运动），"
+                                    "结合本句原话，与已有逐句不雷同。")},
+                                {"role": "user", "content": f"缺失句：\n{_miss_txt}\n\n输出：每句一行。"},
+                            ])
+                            _new_lines = [
+                                ln.strip() for ln in (_resp or "").split("\n")
+                                if "〔句" in ln and "【剪辑】" in ln
+                            ]
+                            if _new_lines:
+                                _by_seq: dict[int, list[str]] = {}
+                                for _ln in _new_lines:
+                                    _mm = re.match(r"〔句(\d+)", _ln)
+                                    if _mm:
+                                        _by_seq.setdefault(int(_mm.group(1)), []).append(_ln)
+                                # 插回所属段逐句区末尾
+                                def _ins_missing(_blk: str, _sseq: int) -> str:
+                                    _f, _t = _seg_rng.get(_sseq, (0, 0))
+                                    _ins = []
+                                    for _q in range(_f, _t + 1):
+                                        _ins.extend(_by_seq.get(_q, []))
+                                    if not _ins:
+                                        return _blk
+                                    _mi = _blk.find("**逐句**")
+                                    if _mi < 0:
+                                        return _blk
+                                    _nl = _blk.find("\n", _mi)
+                                    _tail = _blk[_nl + 1:] if _nl >= 0 else ""
+                                    return _blk[: _nl + 1] + "\n".join("  - " + _l for _l in _ins) + "\n" + _tail
+                                _parts = re.split(r"(?=### 段\d)", full_script)
+                                _out2 = []
+                                for _pt in _parts:
+                                    _mh = re.match(r"### 段(\d+)", _pt)
+                                    if _mh and int(_mh.group(1)) in _seg_rng:
+                                        _pt = _ins_missing(_pt, int(_mh.group(1)))
+                                    _out2.append(_pt)
+                                full_script = "".join(_out2)
+                                q45["warnings"].append(f"逐句补齐 {len(_new_lines)} 行（缺失句 {_missing}）")
+                            else:
+                                q45["warnings"].append("逐句补齐响应无有效行，保留原稿")
+                        except Exception as _exc:
+                            q45["warnings"].append(f"逐句补齐失败：{str(_exc)[:80]}")
                     # 段标题重复清洗：模型偶发在"该段画面素材"前重复写"### 段N · 标题"行
                     # （段落区已写过一次）→ 删除重复标题行，保留画面素材内容行
                     full_script = re.sub(r"### 段\d+[^\n]*\n(?=该段画面素材)", "", full_script)
