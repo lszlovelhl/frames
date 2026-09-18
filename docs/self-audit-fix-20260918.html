@@ -33,7 +33,7 @@
 <div class="card">
 <table>
 <tr><th>#</th><th>自审问题</th><th>严重</th><th>修复措施</th><th>验证状态</th></tr>
-<tr><td>①</td><td>美妆核心思想编错（直播八卦误读为产品揭秘）</td><td><span class="tag s1">S1</span></td><td>L1 定调层暂未改（本轮聚焦可机器修复项）</td><td><span class="pill warn">未处理</span> 需下轮 L1/定调层专项</td></tr>
+<tr><td>①</td><td>美妆核心思想编错（直播八卦误读为产品揭秘）</td><td><span class="tag s1">S1</span></td><td><b>L1 核心思想事实锚定</b>：画面参考注入（场景描述+OCR 人物事件）→ key_facts 事实清单提取 → 实体锚定校验 + 漂移定点重写</td><td><span class="pill ok">✅ 已验证</span> core_idea 从"人际心理战"（漂移）→"刘姐与文成直播互怼，揭露美妆圈秘闻"（锚定事实），目标人群/走向/摘要同步修正</td></tr>
 <tr><td>②</td><td>萌宠 BGM 强套"铺垫/高潮"叙事结构</td><td><span class="tag s1">S1</span></td><td>L4.5 新增【BGM/氛围型视频】分支：按画面内容主题分段、逐句写画面符号传播点、抓画面字幕情感落点句</td><td><span class="pill ok">已验证</span> 情感落点"毕业礼物/学长"进入成稿；段落按内容主题（校园猫咪日常/夜晚校园/趣味互动）</td></tr>
 <tr><td>③</td><td>逐句套话变体漏检 + 万能空话不报</td><td><span class="tag s1">S1</span></td><td>检测器扩 5 类新模式（变体套话/万能空话/术语泄漏/波浪形/补段标题残留）</td><td><span class="pill ok">已验证</span> 萌宠"展现…温馨 ×11 → 0"；美妆旧稿可抓到 3 类新问题</td></tr>
 <tr><td>④</td><td>核心情感点漏抓（"毕业礼物=猫"）</td><td><span class="tag s1">S1</span></td><td>同上（BGM 分支规则）</td><td><span class="pill ok">已验证</span> "毕业礼物"进入成稿</td></tr>
@@ -77,6 +77,26 @@
 <li><b>套话自愈偶发 1 条残留</b>：自愈重写依赖 flash 状态，偶发重写后仍 1 条（非核心告警）。</li>
 <li><b>补段无画面内容行（偶发）</b>：L3 随机 3 段时 L4.5 可能只写注解不写〔画面N〕行，厚度损失。</li>
 </ul>
+</div>
+
+<h2>六、追加：L1 核心思想事实锚定（9ceda2a，验证通过）</h2>
+<div class="card">
+<b>根因</b>：L1 只见 7 句代词密集的口播（你/她/我），真实人物名（文成/刘姐）与事件（母带曝光）只出现在画面标题/弹幕——模型无从锚定，只能抽象成"人际关系"类通用道理。<br><br>
+<b>修复（harness 哲学延伸）</b>：
+<ol>
+<li><b>画面参考注入 L1</b>：场景描述 + 画面 OCR 文字（前 8 场景），给模型事实来源；</li>
+<li><b>key_facts 事实清单提取</b>：3~6 条 {entity, relation, evidence}，必须来自素材、禁止编造；</li>
+<li><b>实体锚定校验 + 漂移定点重写</b>：core_idea 未含任何 key_facts 实体 → 告警 + 一次小调用按事实重写 core_idea/content_trend/target_audience/summary。</li>
+</ol>
+<b>验证（美妆重跑）</b>：
+<table>
+<tr><th>字段</th><th>修复前（漂移）</th><th>修复后（锚定）</th></tr>
+<tr><td>core_idea</td><td>人际关系的微妙与心理战的艺术</td><td><b>刘姐与文成直播互怼，揭露美妆圈秘闻</b></td></tr>
+<tr><td>target_audience</td><td>关注人际交往技巧的职场人士</td><td>对美妆圈感兴趣的观众，尤其直播内容感兴趣的年轻女性</td></tr>
+<tr><td>content_trend</td><td>从日常对话走向心理战术解析</td><td>从美妆圈秘闻走向直播互怼揭秘</td></tr>
+<tr><td>key_facts</td><td>—</td><td>刘姐↔文成 直播互怼｜美妆圈秘闻（evidence 全部来自画面/口播）</td></tr>
+</table>
+L1 主生成即锚定（未触发重写），L4.5 errors=[]，检测器全绿。✓ 自审 9 问题至此全部闭环（机器可修复项全落地）。
 </div>
 
 <h2>五、结论</h2>
