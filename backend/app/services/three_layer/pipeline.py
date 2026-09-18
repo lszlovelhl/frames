@@ -256,6 +256,29 @@ def _looks_lyric(text: str) -> bool:
     return latin / max(len(text), 1) > 0.6
 
 
+def _flag_asr_dubious(text: str) -> bool:
+    """启发式：ASR 存疑句标记（编导审稿：素材解读失真——乱码句被硬编创作意图）。
+
+    直播/方言/口误场景下 ASR 常见乱码：句内连续重复片段（"财务财务""我会是我会"）、
+    填充口头禅密度高（"这边…这边"）、吞字断句异常。这类句子在拆解时
+    禁止编造具体语义解读，只能标注"语音不清"或"直播杂音"。
+    """
+    if not text:
+        return False
+    t = str(text)
+    # 特征1：句内连续重复片段（≥2 字重复出现，如"财务财务""我会是我会"）
+    for m in re.finditer(r"([\u4e00-\u9fa5]{2,4})\1", t):
+        return True
+    # 特征2：填充口头禅 ≥2 个且句长 ≤60（"这边…这边""就跟你讲…就跟你讲"）
+    fillers = re.findall(r"这边|就是说|你知道吗|就跟你讲|我跟你说|然后呢", t)
+    if len(fillers) >= 2 and len(t) <= 60:
+        return True
+    # 特征3：超长无标点句（>35 字无任何标点，直播快语速 ASR 难断句）
+    if not re.search(r"[，。！？；、,.!?;]", t) and len(t) > 35:
+        return True
+    return False
+
+
 def _detect_annotation_cliches(full_script: str) -> list[str]:
     """跨段创作注解雷同检测 + 逐句套话检测。
 
@@ -1156,14 +1179,19 @@ async def run_three_layer(
     )
     quality["L3"] = q3
     segments_json = (data3.get("segments") or []) if ok3 else []
-    # 段数契约强校验：不足下限（免费档 flash 常见 1~4 段）自动重试一次并附校验反馈
-    if len(segments_json) < L3_SEGMENT_MIN:
+    # 段数契约强校验：目标段数按片长折算（编导颗粒度：50s 至少 5 个功能段），
+    # 低于目标自动重试一次并附校验反馈（flash 免费档常见 1~4 段，需强反馈细分）
+    target_seg_n = max(L3_SEGMENT_MIN, min(8, round(duration_ms / 10000)))
+    if len(segments_json) < target_seg_n:
         retry_hint = (
-            f"\n\n【校验反馈】上次返回 {len(segments_json)} 段，未达下限 {L3_SEGMENT_MIN} 段。"
-            f"请重新切分：段落必须按行号边界（#nn）切分，段数 {L3_SEGMENT_MIN}~{L3_SEGMENT_MAX}，"
-            f"覆盖全片、首尾相接、不重叠。"
+            f"\n\n【校验反馈】上次返回 {len(segments_json)} 段，本片 {duration_ms / 1000:.0f}s"
+            f"按颗粒度应拆 {target_seg_n}~{L3_SEGMENT_MAX} 个功能段"
+            f"（{duration_ms / 1000:.0f}s 视频至少 {target_seg_n} 段）。"
+            f"请重新切分：段落必须按行号边界（#nn）切分，段数 {target_seg_n}~{L3_SEGMENT_MAX}，"
+            f"覆盖全片、首尾相接、不重叠；**宁可多分真实话题阶段，不要糊成大段**"
+            f"（如话题从 A 转到 B 就是新段边界）。"
         )
-        await report("L3", 66, f"三层链路 · L3 段数不足（{len(segments_json)}<{L3_SEGMENT_MIN}），自动重试…")
+        await report("L3", 66, f"三层链路 · L3 段数不足（{len(segments_json)}<{target_seg_n}），自动重试…")
         ok3b, data3b, q3b = await _run_layer(
             db, video=video, analysis_id=analysis_id, layer=3,
             user_text=l3_user + retry_hint, model=model,
@@ -1177,7 +1205,7 @@ async def run_three_layer(
         if ok3b:
             segments_json = data3b.get("segments") or []
             quality["L3"] = q3b
-            if len(segments_json) >= L3_SEGMENT_MIN:
+            if len(segments_json) >= target_seg_n:
                 await report("L3", 67, f"三层链路 · L3 重试达标（{len(segments_json)} 段）…")
     # 口播段细分：口播充足（≥6句）但口播段 <2（flash 常把整段口播并成1段，如美妆 0~42s
     # 7 句一口气）→ 按叙事阶段（开场引入→主体推进→收尾/转折）细分重试一次。
@@ -1745,6 +1773,8 @@ async def run_three_layer(
                         "seq": s.seq, "原话": s.quote, "功能": s.sentence_function,
                         "理由": s.function_reason, "强度": s.emotion_intensity,
                         "来源": src_by_raw.get(str(s.raw_sentence_id), "口播"),
+                        # ASR 存疑标记（编导审稿：素材解读失真——乱码句不得硬编语义）
+                        "存疑": _flag_asr_dubious(str(s.quote or "")),
                     }
                     # harness 预过滤：歌词句（BGM 误转写）不喂给模型，避免其为了凑覆盖而编造
                     for s in sentence_rows
