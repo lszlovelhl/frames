@@ -353,6 +353,16 @@ def _detect_annotation_cliches(full_script: str) -> list[str]:
                 r"(?:创作注解|创作注解：)(.*?)(?=补充[：:]|逐句|- 〔句\d|\n### |$)", block, re.S)
             if _am and _sup[:10] in re.sub(r"\s+", "", _am.group(1)):
                 hits.append(f"'补充：'与创作注解正文重复（'{_sup[:20]}…'是正文子句，应删除或改写）")
+    # --- 剪辑建议雷同：同一条【剪辑】动作在全片出现 ≥3 次 → 套话新皮 ---
+    _cut_raw = [
+        re.sub(r"\s+", "", _m.group(1)).strip().rstrip("。")
+        for _m in re.finditer(r"【剪辑】([^；\n}]{4,40})", full_script)
+    ]
+    if _cut_raw:
+        from collections import Counter
+        for _c, _n in Counter(_cut_raw).most_common(2):
+            if _n >= 3:
+                hits.append(f"剪辑建议雷同：'{_c}' 出现 {_n} 次（编导要求每条剪辑结合本句原话/画面，全片最多 1 次）")
     return hits[:8]
 
 
@@ -2231,6 +2241,30 @@ async def run_three_layer(
                     # 段标题重复清洗：模型偶发在"该段画面素材"前重复写"### 段N · 标题"行
                     # （段落区已写过一次）→ 删除重复标题行，保留画面素材内容行
                     full_script = re.sub(r"### 段\d+[^\n]*\n(?=该段画面素材)", "", full_script)
+                    # 逐句区按段归属过滤：L4.5 偶发把全片逐句重复写入每个段
+                    # （段1 写句1-7、段2 也写句1-7）→ 各段逐句区只保留本段行号区间的句子行
+                    _seg_rng = {sg.seq: (sg.start_sentence_seq, sg.end_sentence_seq) for sg in seg_rows}
+
+                    def _filt_seg_block(blk: str, sseq: int) -> str:
+                        _lines = []
+                        for _ln in blk.split("\n"):
+                            _m = re.match(r"\s*〔句(\d+)", _ln)
+                            if _m:
+                                _sn = int(_m.group(1))
+                                _f, _t = _seg_rng.get(sseq, (0, 0))
+                                if not (_f <= _sn <= _t):
+                                    continue
+                            _lines.append(_ln)
+                        return "\n".join(_lines)
+
+                    _parts = re.split(r"(?=### 段\d)", full_script)
+                    _out_parts = []
+                    for _pt in _parts:
+                        _mh = re.match(r"### 段(\d+)", _pt)
+                        if _mh and int(_mh.group(1)) in _seg_rng:
+                            _pt = _filt_seg_block(_pt, int(_mh.group(1)))
+                        _out_parts.append(_pt)
+                    full_script = "".join(_out_parts)
                     # 补段标题兜底：L4.5 未重写 harness 补段标题时，确定性替换为"画面收尾"
                     # （补段只出现在口播结束后的片尾画面段，"画面收尾"是时间位置事实，非编造）
                     if "口播结束后的画面段" in full_script:
