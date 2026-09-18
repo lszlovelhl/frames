@@ -1329,9 +1329,11 @@ async def run_three_layer(
             warnings.append(
                 "L3 模型分段颗粒度过粗（某段内部跨越长停顿），"
                 "harness 按口播停顿确定性兜底重建")
+        if len(_ordered) >= 3 and _valid < 2:
             warnings.append(
                 f"L3 模型分段质量差（{len(_ordered)} 段仅 {_valid} 段行号有效），"
                 f"harness 按口播停顿（gap≥1.5s）确定性兜底重建")
+        if _uncovered or _pause_inside or (len(_ordered) >= 3 and _valid < 2):
             _segs: list[dict[str, Any]] = []
             _cur_s: dict[str, Any] | None = None
             _prev_end = None
