@@ -1848,6 +1848,89 @@ async def run_three_layer(
                                     q45["warnings"] = q45.get("warnings") or []
                         except Exception as exc:
                             logger.warning("L4.5 套话自愈失败：%s", str(exc)[:120])
+                        # 局部注解重写：整稿重写未清除"创作注解雷同"时，定点重写雷同段注解。
+                        # 整稿重写要改 2000+ 字，flash 常顾此失彼；局部只改 1~2 段注解，精准且成本低。
+                        _pairs = set()
+                        for _d in dup:
+                            for _m in re.finditer(r"段(\d+)\s*与\s*段(\d+)\s*创作注解雷同", _d):
+                                _pairs.add(int(_m.group(1)))
+                                _pairs.add(int(_m.group(2)))
+                        if _pairs and len(_pairs) >= 2:
+                            _blocks = re.split(r"(?=### 段)", raw45)
+                            _bmap = {}
+                            for _b in _blocks:
+                                _bm = re.match(r"### 段(\d+)", _b)
+                                if _bm:
+                                    _bmap[int(_bm.group(1))] = _b
+                            _targets = {_n: _bmap[_n] for _n in _pairs if _n in _bmap}
+                            if len(_targets) >= 2:
+                                _ann = {}
+                                for _n, _b in _targets.items():
+                                    _am = re.search(
+                                        r"(创作注解\s*\*\*?[：:]\s*)(.*?)(?=\n\s*-?\s*\*\*?逐句\*\*?|\n\s*-?\s*〔(?:句|画面)|\Z)",
+                                        _b, re.S)
+                                    if _am:
+                                        _ann[_n] = (_am, _b)
+                                if len(_ann) >= 2:
+                                    _assets = {
+                                        int((_item or {}).get("seq") or 0): "；".join(
+                                            str(_x) for _x in ((_item or {}).get("该段画面素材") or []))
+                                        for _item in l45_input.get("段落") or []
+                                    }
+                                    _hint = (
+                                        "你是短视频编导脚本的创作注解改写师。以下若干段创作注解被判"
+                                        "为雷同（不同段用了相同句式，编导审稿扣分项）。请分别重写：\n"
+                                        "1. 每段注解必须点名该段时间范围内的具体画面/字幕/动作/原话字词，"
+                                        "不写所有段都成立的空话；\n"
+                                        "2. 各段之间不得使用相同句式、相同手法描述、相同情绪走向；\n"
+                                        "3. 每段 ≥120 字，保持该段原有的叙事定性（不改变段落内容本身）。\n\n"
+                                    )
+                                    for _n in sorted(_ann):
+                                        _am, _b = _ann[_n]
+                                        _hint += (
+                                            f"【段{_n}】\n段信息：{_b.splitlines()[0].strip()[:90]}\n"
+                                            f"该段画面素材：{_assets.get(_n) or '（输入未提供，请依原注解内容）'}\n"
+                                            f"原注解：{re.sub(chr(92)+'s+', ' ', _am.group(2)).strip()}\n\n"
+                                        )
+                                    _hint += "只输出各段新注解，格式（每段一行，不要其他内容）：\n" + \
+                                        "\n".join(f"段{_n}：{{新注解}}" for _n in sorted(_ann))
+                                    try:
+                                        _res = await _ai_chat(
+                                            [{"role": "system", "content": system45},
+                                             {"role": "user", "content": _hint}],
+                                            model=model, max_tokens=8192, json_mode=False,
+                                            timeout=300, scene="tl45_ann_rewrite",
+                                        )
+                                        _out = ((_res or {}).get("reply") or "").strip()
+                                        _new_ann = {}
+                                        for _n in sorted(_ann):
+                                            _mm = re.search(
+                                                rf"段{_n}[：:]\s*(.*?)(?=\n段\d+[：:]|\Z)", _out, re.S)
+                                            if _mm:
+                                                _txt = _mm.group(1).strip().strip("`").strip()
+                                                if len(_txt) >= 80:
+                                                    _new_ann[_n] = _txt
+                                        if len(_new_ann) >= 2:
+                                            _raw_new = raw45
+                                            for _n, _txt in _new_ann.items():
+                                                _am, _b = _ann[_n]
+                                                _new_b = _b[:_am.start(2)] + _txt + _b[_am.end(2):]
+                                                _raw_new = _raw_new.replace(_b, _new_b, 1)
+                                            _dup3 = _detect_annotation_cliches(_raw_new)
+                                            if len(_dup3) < len(dup):
+                                                raw45 = _raw_new
+                                                full_script = raw45[:20000]
+                                                dup = _dup3
+                                                q45["warnings"] = [
+                                                    f"注解局部重写：段{','.join(str(n) for n in sorted(_new_ann))}"
+                                                    f" 已重写 → 剩余 {len(_dup3)} 条"
+                                                ] + _dup3
+                                            else:
+                                                q45["warnings"] = (q45.get("warnings") or []) + [
+                                                    "注解局部重写未改善（模型仍用雷同句式），保留原稿"
+                                                ]
+                                    except Exception as _exc:
+                                        logger.warning("L4.5 注解局部重写失败：%s", str(_exc)[:120])
                     # harness 画面轨：按段落时间精确对齐逐帧简报+动态事件，追加为【画面分镜】
                     # （帧层细节稳定可控；场景记忆层供模型理解叙事，不用于分镜对齐）
                     frames = ((manifest or {}).get("frames")) or []
