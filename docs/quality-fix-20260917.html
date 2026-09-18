@@ -89,17 +89,17 @@ L3 契约要求段落锚定口播行号（<code>line_from/line_to</code>），�
 <div class="card">
 <table>
 <tr><th>品类</th><th>样本</th><th>结构</th><th>L4.5</th><th>套话</th><th>占位符/省略</th><th>厚度</th></tr>
-<tr><td>美妆（口播型）</td><td>50s 吐槽+技巧演示</td><td class="ok">2 段（口播 0~42s + 画面补段 42~51s）</td><td class="ok">errors=[]，1 条 minor 注解雷同</td><td class="ok">0（禁句生效："做铺垫" 5→0）</td><td class="ok">False</td><td>2136 字</td></tr>
+<tr><td>美妆（口播型）</td><td>50s 吐槽+技巧演示</td><td class="ok">2 段（口播 0~42s + 画面补段 42~51s）</td><td class="ok">errors=[] warnings=[] 零告警（注解局部重写清掉最后 1 条雷同）</td><td class="ok">0（禁句生效："做铺垫" 5→0）</td><td class="ok">False</td><td>2177 字</td></tr>
 <tr><td>萌宠（BGM/场景切换）</td><td>81s 萌宠</td><td class="ok">3 段（铺垫 0~34s + 高潮 34~61s + 高潮 61~80s）</td><td class="ok">errors=[] warnings=[] 零告警</td><td class="ok">0</td><td class="ok">False</td><td class="ok">2583 字（基线 1741，+48%）</td></tr>
 <tr><td>知识动画（钩子结构）</td><td>48.2s 知识动画</td><td class="ok">3 段（钩子 0~5s + 铺垫 5~24s + 高潮 24~46s）</td><td class="ok">errors=[] warnings=[] 零告警</td><td class="ok">0</td><td class="ok">False</td><td>2399 字</td></tr>
 </table>
 <b>结论</b>：碎片合并（确定性）无跨品类误伤——场景切换/钩子等自然结构段全部保留；
-禁句从源头抑制模板句；画面段表达（画面内容行）三品类通用。三品类基线全部达标。
+禁句从源头抑制模板句；画面段表达（画面内容行）三品类通用；注解局部重写（c90810b）
+把美妆最后 1 条雷同清零。**三品类全部零告警（errors=[] warnings=[] 套话0 占位符0）**。
 </div>
 
 <h2>7. 剩余项（已知，不阻塞）</h2>
 <ul>
-<li><span class="warn">美妆注解雷同</span>：段1/段2 创作注解共用"形成对比。补充：本段使用实拍风格…"（1 条 minor，自愈整稿重写未改善，待局部重写优化）。</li>
 <li><span class="warn">性能</span>：R12 元素深化阶段 20~40 分钟（flash 免费档正常慢窗口，非死锁）。</li>
 <li><span class="warn">待定决策</span>：L4.5 是否换更强模型（涉及费用，用户拍板）。</li>
 </ul>
