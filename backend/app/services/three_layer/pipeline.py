@@ -971,7 +971,7 @@ async def run_three_layer(
         core_now = str(script.core_idea or "")
         _hit = [e for e in entities if e in core_now]
         if not _hit:
-            q1["warnings"].append(
+            q1.setdefault("warnings", []).append(
                 f"核心思想未锚定关键事实实体（{entities[:5]}），判为解读漂移，触发定点重写")
             try:
                 from app.ai import chat as _ai_chat  # 延迟导入
@@ -1001,9 +1001,9 @@ async def run_three_layer(
                     script.content_trend = str(_rd.get("content_trend") or script.content_trend)[:2000]
                     script.target_audience = str(_rd.get("target_audience") or script.target_audience)[:2000]
                     script.summary = str(_rd.get("summary") or script.summary)[:4000]
-                    q1["warnings"].append(f"核心思想已按 key_facts 定点重写（原：{core_now[:40]}…）")
+                    q1.setdefault("warnings", []).append(f"核心思想已按 key_facts 定点重写（原：{core_now[:40]}…）")
             except Exception as _exc:  # noqa: BLE001
-                q1["warnings"].append(f"核心思想定点重写失败：{str(_exc)[:80]}")
+                q1.setdefault("warnings", []).append(f"核心思想定点重写失败：{str(_exc)[:80]}")
     q1["key_facts"] = kfs[:6]
     db.add(script)
     await db.flush()
