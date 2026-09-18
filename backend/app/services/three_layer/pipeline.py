@@ -2242,7 +2242,7 @@ async def run_three_layer(
                         _hpat = rf"### 段{_sg.seq}([^\n]*?)(?:[（(][\d.]+s~[\d.]+s[）)])?(?=\n)"
                         def _add_t(_m):
                             _rest = _m.group(1).rstrip()
-                            if re.search(r"[（(][\d.]+s~[\d.]+s[）)]", _rest):
+                            if re.search(r"[（(][\d.]+s~[\d.]+s", _rest):
                                 return _m.group(0)
                             return f"### 段{_sg.seq}{_rest}（{_sg.start_ms / 1000:.1f}s~{_sg.end_ms / 1000:.1f}s）"
                         full_script = re.sub(_hpat, _add_t, full_script)
@@ -2314,7 +2314,7 @@ async def run_three_layer(
                     def _filt_seg_block(blk: str, sseq: int) -> str:
                         _lines = []
                         for _ln in blk.split("\n"):
-                            _m = re.match(r"\s*〔句(\d+)", _ln)
+                            _m = re.search(r"〔句(\d+)", _ln)
                             if _m:
                                 _sn = int(_m.group(1))
                                 _f, _t = _seg_rng.get(sseq, (0, 0))
