@@ -1257,17 +1257,30 @@ async def run_three_layer(
         if (x.get("line_from") is not None and x.get("line_from") != "")
         or (x.get("line_to") is not None and x.get("line_to") != "")
     ]
-    if len(_ordered) >= 3:
-        _valid, _cur = 0, 0
-        for _x in _ordered:
-            try:
-                _f = int(str(_x.get("line_from") or "").strip())
-            except (TypeError, ValueError):
-                _f = None
-            if _f is not None and _f > _cur:
-                _valid += 1
-                _cur = _f
-        if _valid < 2:
+    # 覆盖缺口检测：任何口播句未落入任何段（如模型把 0~28s 与 38~42s 口播并成一段、
+    # 或 2 段只覆盖前 6 句丢掉末句质问）→ 一律按停顿兜底重建，保证每句口播都有段落归属
+    _covered_seq: set[int] = set()
+    _valid, _cur = 0, 0
+    for _x in _ordered:
+        try:
+            _f = int(str(_x.get("line_from") or "").strip())
+        except (TypeError, ValueError):
+            _f = None
+        if _f is not None and _f > _cur:
+            _valid += 1
+            _cur = _f
+        try:
+            _t = int(str(_x.get("line_to") or "").strip())
+        except (TypeError, ValueError):
+            _t = None
+        if _f is not None and _t is not None and _f <= _t:
+            _covered_seq.update(range(_f, _t + 1))
+    _uncovered = [x for x in sentences if int(x["seq"]) not in _covered_seq]
+    if (len(_ordered) >= 3 and _valid < 2) or (len(_uncovered) >= 1 and len(sentences) >= 3):
+        if _uncovered:
+            warnings.append(
+                f"L3 模型分段漏覆盖口播句 {[int(x['seq']) for x in _uncovered]}，"
+                f"harness 按口播停顿确定性兜底重建")
             warnings.append(
                 f"L3 模型分段质量差（{len(_ordered)} 段仅 {_valid} 段行号有效），"
                 f"harness 按口播停顿（gap≥1.5s）确定性兜底重建")
