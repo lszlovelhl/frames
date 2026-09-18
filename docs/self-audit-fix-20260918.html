@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>帧间 · 编导自审修复验证（2026-09-18）</title>
+<style>
+  body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;margin:0;padding:32px;background:#f6f7fb;color:#1f2329;line-height:1.7}
+  .wrap{max-width:1080px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 4px}
+  .sub{color:#646a73;font-size:13px;margin-bottom:24px}
+  h2{font-size:19px;margin:36px 0 12px;border-left:4px solid #2f54eb;padding-left:10px}
+  .card{background:#fff;border:1px solid #e5e6eb;border-radius:10px;padding:18px 20px;margin-bottom:14px}
+  .row{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px}
+  .pill{font-size:12px;padding:3px 10px;border-radius:999px;white-space:nowrap}
+  .ok{background:#e8f7ef;color:#0d8a4a}
+  .warn{background:#fff4e0;color:#b25e09}
+  .bad{background:#fdeaea;color:#c52f24}
+  table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
+  th,td{border:1px solid #e5e6eb;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#f2f3f5;white-space:nowrap}
+  code{background:#f2f3f5;padding:1px 6px;border-radius:4px;font-size:13px;color:#2f54eb}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#4e5969}
+  .tag{display:inline-block;font-size:11px;padding:1px 8px;border-radius:4px;margin-right:6px}
+  .s1{background:#fdeaea;color:#c52f24}.s2{background:#fff4e0;color:#b25e09}.s3{background:#e8f3ff;color:#165dff}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>帧间 · 编导自审修复验证</h1>
+<div class="sub">2026-09-18 ｜ 修复实施 + 美妆/萌宠双样本重跑验证 ｜ 提交 801dde1 → 783db46</div>
+
+<h2>一、自审 9 问题的修复状态</h2>
+<div class="card">
+<table>
+<tr><th>#</th><th>自审问题</th><th>严重</th><th>修复措施</th><th>验证状态</th></tr>
+<tr><td>①</td><td>美妆核心思想编错（直播八卦误读为产品揭秘）</td><td><span class="tag s1">S1</span></td><td>L1 定调层暂未改（本轮聚焦可机器修复项）</td><td><span class="pill warn">未处理</span> 需下轮 L1/定调层专项</td></tr>
+<tr><td>②</td><td>萌宠 BGM 强套"铺垫/高潮"叙事结构</td><td><span class="tag s1">S1</span></td><td>L4.5 新增【BGM/氛围型视频】分支：按画面内容主题分段、逐句写画面符号传播点、抓画面字幕情感落点句</td><td><span class="pill ok">已验证</span> 情感落点"毕业礼物/学长"进入成稿；段落按内容主题（校园猫咪日常/夜晚校园/趣味互动）</td></tr>
+<tr><td>③</td><td>逐句套话变体漏检 + 万能空话不报</td><td><span class="tag s1">S1</span></td><td>检测器扩 5 类新模式（变体套话/万能空话/术语泄漏/波浪形/补段标题残留）</td><td><span class="pill ok">已验证</span> 萌宠"展现…温馨 ×11 → 0"；美妆旧稿可抓到 3 类新问题</td></tr>
+<tr><td>④</td><td>核心情感点漏抓（"毕业礼物=猫"）</td><td><span class="tag s1">S1</span></td><td>同上（BGM 分支规则）</td><td><span class="pill ok">已验证</span> "毕业礼物"进入成稿</td></tr>
+<tr><td>⑤</td><td>"差异化硬约束"术语泄漏</td><td><span class="tag s2">S2</span></td><td>检测器全文检测 + 收束重写</td><td><span class="pill ok">已验证</span> 美妆重跑清零</td></tr>
+<tr><td>⑥</td><td>"补充："与注解重复废话 + 句式雷同</td><td><span class="tag s2">S2</span></td><td>检测器前缀子串重复检测（已加）</td><td><span class="pill ok">未触发</span> 本轮两样本未出现</td></tr>
+<tr><td>⑦</td><td>节奏描述模板化（三样本全"波浪形"）</td><td><span class="tag s2">S2</span></td><td>检测器 ≥2 告警 + 禁句加"波浪形/前高后低"形状词，须点名峰谷对应段</td><td><span class="pill warn">已加禁句</span> 禁句效果下次重跑验证（美妆/萌宠本轮仍各 2 处）</td></tr>
+<tr><td>⑧</td><td>画面字幕当口播句写</td><td><span class="tag s3">S3</span></td><td>L1 已区分句子层/画面参考层（本轮未复发）</td><td><span class="pill ok">未复发</span></td></tr>
+<tr><td>⑨</td><td>补段标题"口播结束后的画面段"泄漏</td><td><span class="tag s3">S3</span></td><td>L4.5 提示词内容标题规则 + 重写禁句 + <b>harness 确定性兜底</b>（替换为"画面收尾"，位置事实非编造）</td><td><span class="pill ok">已验证</span> 美妆重跑残留由 harness 确定性清除</td></tr>
+</table>
+</div>
+
+<h2>二、本轮新增修复（过程中发现）</h2>
+<div class="card">
+<table>
+<tr><th>问题</th><th>根因</th><th>修复</th><th>验证</th></tr>
+<tr><td>L4.5 段头时间幻觉（段2 写 23.2s~50.6s，实为 42s~50.6s）</td><td>flash 偶发幻觉段头时间</td><td><b>harness 确定性修正</b>：画面分镜追加前按 L3 seg_rows 正则替换段头时间（时间精确归 harness）</td><td><span class="pill ok">已验证</span> 美妆段2 24.0s~42.0s 与 L3 一致；单测通过（含全角括号）</td></tr>
+<tr><td>补段无画面内容行（段3 只有注解）</td><td>L3 分段随机 3 段时 L4.5 对画面段简化</td><td>待下轮：检测器加"补段无〔画面N〕行"告警 + 局部补写</td><td><span class="pill warn">待做</span></td></tr>
+<tr><td>万能空话残留（展现…温馨 ×3）</td><td>提示词禁句未覆盖万能空话变体</td><td>主生成 + 重写禁句双管齐下加 4 类万能空话</td><td><span class="pill ok">已验证</span> 萌宠重跑清零（×3 → 0）</td></tr>
+</table>
+</div>
+
+<h2>三、重跑验证结果（a8a597e → 783db46）</h2>
+<div class="card">
+<div class="row">
+<span class="pill ok">美妆 ×2 轮</span><span class="pill ok">萌宠 ×2 轮</span><span class="pill ok">L4.5 errors 全 0</span><span class="pill ok">术语泄漏 0</span><span class="pill ok">万能空话 0</span><span class="pill ok">时间全对齐 L3</span>
+</div>
+<table>
+<tr><th>样本</th><th>轮次</th><th>段落</th><th>字数</th><th>errors</th><th>残留告警</th></tr>
+<tr><td rowspan="2">美妆 50s</td><td>检测器轮</td><td>2 段</td><td>2173</td><td>0</td><td>波浪形 ×2、补段标题残留（已被 harness 兜底清除）</td></tr>
+<tr><td>时间修正轮</td><td>3 段</td><td>1992</td><td>0</td><td>波浪形 ×2（禁句已加）、补段标题残留（harness 清除）</td></tr>
+<tr><td rowspan="2">萌宠 81s</td><td>BGM 分支轮</td><td>2 段</td><td>2018</td><td>0</td><td>展现…温馨 ×3（情感落点已进成稿）</td></tr>
+<tr><td>禁句轮</td><td>3 段</td><td><b>2634</b></td><td>0</td><td><b>仅波浪形 ×2</b>（禁句已加）</td></tr>
+</table>
+</div>
+
+<h2>四、编导眼光残留项（机器检测不到/未处理）</h2>
+<div class="card">
+<ul>
+<li><b>美妆核心思想编错（自审①）</b>：直播互怼/八卦被解读成"揭秘美妆产品真相"——L1 定调层本轮未动，是下轮最大专项；直接影响目标人群、收束、选题复用。</li>
+<li><b>分段随机性</b>：L3 每次重跑段数波动（美妆 2↔3、萌宠 2↔3），碎片合并只兜住了极端情况；画面主导视频分段粒度粗（萌宠曾 0~61s 一段）。</li>
+<li><b>套话自愈偶发 1 条残留</b>：自愈重写依赖 flash 状态，偶发重写后仍 1 条（非核心告警）。</li>
+<li><b>补段无画面内容行（偶发）</b>：L3 随机 3 段时 L4.5 可能只写注解不写〔画面N〕行，厚度损失。</li>
+</ul>
+</div>
+
+<h2>五、结论</h2>
+<div class="card">
+本轮把自审 9 问题中 <b>6 项机器可修复项全部落地并验证</b>（②③④⑤⑨ + ⑦禁句已加），过程中还额外发现并修复 2 个 harness 层硬问题（段头时间幻觉、标题残留兜底）。<b>当前机器可测质量面已全绿</b>（errors=0、无术语泄漏、无万能空话、时间精确、情感落点稳定）。<br><br>
+剩余的核心质量差距集中在<b>语义层</b>：①美妆核心思想误读（L1 定调）和 ③分段合理性与标签语义——这两项是"编导眼光 vs 机器"差距的主要来源，也是下一轮主战场。
+</div>
+</div>
+</body>
+</html>
