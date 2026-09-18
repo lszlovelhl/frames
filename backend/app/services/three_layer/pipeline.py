@@ -1248,6 +1248,57 @@ async def run_three_layer(
         ]
         warnings.append("L3 未返回可用段落（重试后仍为空），已按全片兜底")
 
+    # --- 模型分段质量检测 + harness 停顿兜底 ---
+    # flash 免费档常把整段口播拆成多段但行号全重叠（同一句区间重复落多段，
+    # 如美妆 7 句被拆 6 段 line 全是 1~7），harness 丢弃后颗粒度反而更粗。
+    # 此时按口播句间停顿（gap≥1.5s）确定性重建口播段，画面段仍由补段逻辑处理。
+    _ordered = [
+        x for x in segments_json
+        if (x.get("line_from") is not None and x.get("line_from") != "")
+        or (x.get("line_to") is not None and x.get("line_to") != "")
+    ]
+    if len(_ordered) >= 3:
+        _valid, _cur = 0, 0
+        for _x in _ordered:
+            try:
+                _f = int(str(_x.get("line_from") or "").strip())
+            except (TypeError, ValueError):
+                _f = None
+            if _f is not None and _f > _cur:
+                _valid += 1
+                _cur = _f
+        if _valid < 2:
+            warnings.append(
+                f"L3 模型分段质量差（{len(_ordered)} 段仅 {_valid} 段行号有效），"
+                f"harness 按口播停顿（gap≥1.5s）确定性兜底重建")
+            _segs: list[dict[str, Any]] = []
+            _cur_s: dict[str, Any] | None = None
+            _prev_end = None
+            for _s in sentences:
+                if _cur_s is None:
+                    _cur_s = {"first": _s, "last": _s}
+                else:
+                    _gap = int(_s["start_ms"]) - (_prev_end or 0)
+                    if _gap >= 1500:
+                        _segs.append(_cur_s)
+                        _cur_s = {"first": _s, "last": _s}
+                    else:
+                        _cur_s["last"] = _s
+                _prev_end = int(_s["end_ms"])
+            if _cur_s:
+                _segs.append(_cur_s)
+            segments_json = [
+                {
+                    "seq": i, "seg_type": "干货", "title": "",
+                    "line_from": int(_g["first"]["seq"]), "line_to": int(_g["last"]["seq"]),
+                    "purpose": "harness 按口播停顿确定性重建（模型分段质量差时兜底）",
+                    "summary": f"口播句 {_g['first']['seq']}~{_g['last']['seq']}",
+                    "emotion_level": stats["baseline_intensity"] or 0,
+                }
+                for i, _g in enumerate(_segs, start=1)
+            ]
+            warnings.append(f"L3 harness 兜底重建 {len(segments_json)} 个口播段（按停顿）")
+
     # --- harness 段落时间锚定（语义归模型，精确时间归 harness）---
     # 契约：段 1 从 0 起、首尾相接、严格单调（_TL3 第 1 条）。
     # 模型给非法 line 号时不再兜底首句（会造成 0 起重叠），而是退化锚定到"前一段末尾之后"；
