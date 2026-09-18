@@ -1995,7 +1995,9 @@ async def run_three_layer(
                             "请【重写整个脚本】：\n"
                             "1. 段落结构、段落标题、时间、逐句引用（原话）一律不变；\n"
                             "2. 只改掉套话：每条创作注解/逐句创作意图必须点名本段时间范围内的具体"
-                            "画面/字幕/动作/原话字词，且相邻段不得用相同说法；\n"
+                            "画面/字幕/动作/原话字词，且相邻段不得用相同说法；逐句必须保持"
+                            "【功能】/【剪辑】/【节奏】三要素结构（剪辑必须点名具体动作："
+                            "留白秒数/快切卡点/切黑特写/音效转场）；\n"
                             "3. 全脚本禁止出现这些模板句：'为后续情节…做铺垫'、'为后续情节…做过渡'、"
                             "'增加故事的荒诞性和紧张感'、'吸引观众的注意力'、'激发观众的好奇心'，"
                             "禁止出现'口播结束后的画面段'（段落标题必须写内容标题，如'美妆技巧展示'）、"
@@ -2181,6 +2183,19 @@ async def run_three_layer(
                         full_script = full_script.replace("口播结束后的画面段", "画面收尾")
                     frames = ((manifest or {}).get("frames")) or []
                     dyns = (((manifest or {}).get("frame_plan") or {}).get("dynamic_events")) or []
+
+                    # 动态事件 → 编导语言（harness 确定性翻译，不再是算法原始数据）
+                    def _evt_director(e: dict[str, Any]) -> str:
+                        _t = int(e.get("t_ms") or 0) / 1000
+                        _k = str(e.get("event_type") or "")
+                        if _k == "transition":
+                            return f"{_t:.0f}s 画面剧烈切换，建议加转场音效（whoosh）或闪白过渡，配合此处情绪转折"
+                        if _k == "motion_burst":
+                            return f"{_t:.0f}s 画面运动突增，建议卡点加速或插入表情特写，强化节奏记忆点"
+                        if _k == "scene_change":
+                            return f"{_t:.0f}s 场景切换，建议转场衔接避免跳帧"
+                        return f"{_t:.0f}s {_k}（{e.get('note') or ''}）"
+
                     if frames:
                         vis_lines = ["\n\n## 【画面分镜】（harness 按帧对齐）"]
                         for seg in seg_rows:
@@ -2213,13 +2228,31 @@ async def run_three_layer(
                             if overlay:
                                 line += f"；字幕：{overlay}"
                             vis_lines.append(line)
-                        dyn_lines = [
-                            f"- 动态：{e.get('event_type')} @{int(e.get('t_ms') or 0) / 1000:.0f}s（{e.get('note') or ''}）"
-                            for e in dyns
-                        ]
+                        dyn_lines = [f"- 动态：{_evt_director(e)}" for e in dyns]
                         if dyn_lines:
                             vis_lines.append("".join(dyn_lines))
                         full_script = full_script + "\n" + "\n".join(vis_lines)
+                        # 存疑句成稿强制替换（编导审稿：乱码句不得被逐句分析——harness 确定性，
+                        # 不依赖模型自觉）：存疑句的逐句行若未标注"语音不清/无法转写"，
+                        # 直接替换为中性记录行（不编造语义、不继续分析乱码文本）
+                        _dub_q = {
+                            str(r.quote or "")
+                            for r in sentence_rows
+                            if _flag_asr_dubious(str(r.quote or ""))
+                        }
+                        if _dub_q:
+                            def _fix_dub(m):
+                                q = m.group(2)
+                                if q in _dub_q and "语音不清" not in m.group(0) and "无法" not in m.group(0):
+                                    return (
+                                        f"{m.group(1)}\"{q}\" ——【语音不清】该句转写不准确"
+                                        f"（直播杂音/口误），无法作为台词语义拆解；"
+                                        f"仅记录其存在与时间位置，作用是为直播间提供真实对话氛围。"
+                                    )
+                                return m.group(0)
+                            full_script = re.sub(
+                                r'(〔句\d+[^〕〕]*〕")([^"]{2,})"([^\n]*)',
+                                _fix_dub, full_script)
         except Exception as exc:
             q45["errors"].append(str(exc)[:160])
             logger.warning("L4.5 脚本还原失败：%s", exc)
