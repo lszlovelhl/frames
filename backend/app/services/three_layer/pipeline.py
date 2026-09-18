@@ -63,6 +63,9 @@ SCHEMAS: dict[int, dict[str, Any]] = {
         "narrative_order": "叙事顺序",
         "estimated_sentence_count": 38,
         "category": "内容赛道",
+        "key_facts": [
+            {"entity": "人物/组织/关键物", "relation": "人物间关系或事件", "evidence": "素材原话或画面证据"}
+        ],
     },
     2: {
         "sample_interval_ms": 500,
@@ -878,12 +881,26 @@ async def run_three_layer(
     title = str(video.title or "")
     base_meta = f"标题：{title or '（无）'}\n平台：{ctx['platform']}\n片长：{duration_ms}ms（约 {round(duration_ms / 1000, 1)} 秒）"
     transcript = _fmt_transcript(sentences)
+    # 画面参考（L1 事实锚定的关键输入）：场景描述 + 画面 OCR 文字
+    # 口播常是代词密集的对话（你/她/我），真实人物名（如"文成""刘姐"）与事件
+    # （如"母带曝光"）只出现在画面标题/弹幕/字幕里——不给 L1 就会泛化误读核心思想。
+    visual_ref_lines = []
+    for _sh in shots[:8]:
+        _d = str(_sh.get("desc") or "").strip()
+        _ov = str(_sh.get("text_overlay") or "").strip()
+        if not _d and not _ov:
+            continue
+        _line = f"场景{_sh.get('seq')}（{int(_sh.get('start_ms') or 0) / 1000:.0f}s）：{_d}"
+        if _ov:
+            _line += f"｜画面文字：{_ov[:150]}"
+        visual_ref_lines.append(_line)
+    visual_ref = "\n".join(visual_ref_lines) or "（无）"
 
     # ---------- L1 本片定调 ----------
     await report("L1", 52, "三层链路 · L1 本片定调…")
     ok, data1, q1 = await _run_layer(
         db, video=video, analysis_id=analysis_id, layer=1,
-        user_text=f"【视频元信息】\n{base_meta}\n\n【#03 逐句转写（含毫秒）】\n{transcript}",
+        user_text=f"【视频元信息】\n{base_meta}\n\n【画面参考（关键人物/事件线索，必须用于 key_facts）】\n{visual_ref}\n\n【#03 逐句转写（含毫秒）】\n{transcript}",
         model=model, array_keys=LAYER_ARRAY_KEYS[1], max_tokens=8192,
     )
     quality["L1"] = q1
@@ -905,6 +922,56 @@ async def run_three_layer(
     verdict = validator.validate("script_script", {"core_idea": script.core_idea, "content_trend": script.content_trend, "target_audience": script.target_audience, "summary": script.summary, "duration_ms": duration_ms}, label=f"script:{title[:20]}")
     if not verdict.accepted:
         return {"ok": False, "error": "L1 结构校验未通过：" + "；".join(verdict.hard), "counts": counts, "verdicts": [verdict.as_dict()]}
+    # ---- L1 核心思想事实锚定（编导自审①：核心思想误读，如直播八卦读成'揭秘产品'） ----
+    # key_facts 实体须出现在 core_idea 中；未锚定即判解读漂移，触发定点重写
+    # （一次小调用，把 core_idea/content_trend/target_audience/summary 一起按事实修正）。
+    kfs = data1.get("key_facts") or []
+    entities: list[str] = []
+    for _kf in kfs:
+        if not isinstance(_kf, dict):
+            continue
+        _e = str(_kf.get("entity") or "").strip()
+        if 1 < len(_e) <= 12 and not any(ch.isdigit() for ch in _e):
+            entities.append(_e)
+    entities = list(dict.fromkeys(entities))
+    if entities:
+        core_now = str(script.core_idea or "")
+        _hit = [e for e in entities if e in core_now]
+        if not _hit:
+            q1["warnings"].append(
+                f"核心思想未锚定关键事实实体（{entities[:5]}），判为解读漂移，触发定点重写")
+            try:
+                from app.ai import chat as _ai_chat  # 延迟导入
+                _facts_txt = "\n".join(
+                    f"- {f.get('entity')}：{f.get('relation')}（证据：{f.get('evidence')}）"
+                    for f in kfs if isinstance(f, dict)
+                ) or "（无）"
+                _rew = await _ai_chat(
+                    [
+                        {"role": "system", "content": (
+                            "你是爆款短视频拆解专家。给定视频关键事实清单，重写定调字段。"
+                            "核心思想必须围绕清单中的真实人物与事件（讲清'谁和谁之间关于什么的事'），"
+                            "禁止泛化成脱离事实的通用道理；内容走向/目标人群/摘要同步按事实修正。"
+                            "只输出 JSON：{\"core_idea\":\"\",\"content_trend\":\"\","
+                            "\"target_audience\":\"\",\"summary\":\"\"}")},
+                        {"role": "user", "content": (
+                            f"【关键事实清单】\n{_facts_txt}\n\n【原定调（疑似漂移）】\n"
+                            f"core_idea: {script.core_idea}\ncontent_trend: {script.content_trend}\n"
+                            f"target_audience: {script.target_audience}\nsummary: {script.summary}")},
+                    ],
+                    model=model, max_tokens=2048, json_mode=True, timeout=120,
+                    scene="tl1_anchor_rewrite",
+                )
+                _rd = json.loads((_rew or {}).get("reply") or "{}")
+                if _rd.get("core_idea"):
+                    script.core_idea = str(_rd["core_idea"])[:2000]
+                    script.content_trend = str(_rd.get("content_trend") or script.content_trend)[:2000]
+                    script.target_audience = str(_rd.get("target_audience") or script.target_audience)[:2000]
+                    script.summary = str(_rd.get("summary") or script.summary)[:4000]
+                    q1["warnings"].append(f"核心思想已按 key_facts 定点重写（原：{core_now[:40]}…）")
+            except Exception as _exc:  # noqa: BLE001
+                q1["warnings"].append(f"核心思想定点重写失败：{str(_exc)[:80]}")
+    q1["key_facts"] = kfs[:6]
     db.add(script)
     await db.flush()
     counts["script_script"] = 1
