@@ -1283,20 +1283,42 @@ async def run_three_layer(
         if _pe is not None and int(_s["start_ms"]) - _pe >= 1500:
             _pause_n += 1
         _pe = int(_s["end_ms"])
-    _model_seg_n = len(_ordered)  # 含 line 的段数 = 模型口播段数
+    # 段内停顿检测：任何含 line 段在其句子区间内部跨越 gap≥1.5s 的长停顿
+    # （如把 0~42s 口播并成一段、内部夹着 10s 空档）→ 颗粒度过粗，触发兜底。
+    # 正确分段（0~28 / 38~42）每段内部无长停顿，不受影响。
+    def _seg_has_pause(_fr: int, _to: int) -> bool:
+        _prev = None
+        for _s in sentences:
+            if int(_s["seq"]) < _fr or int(_s["seq"]) > _to:
+                continue
+            if _prev is not None and int(_s["start_ms"]) - _prev >= 1500:
+                return True
+            _prev = int(_s["end_ms"])
+        return False
+
+    _pause_inside = False
+    for _x in _ordered:
+        try:
+            _fr = int(str(_x.get("line_from") or "").strip())
+            _to = int(str(_x.get("line_to") or "").strip())
+        except (TypeError, ValueError):
+            continue
+        if _fr and _to and _fr <= _to and _seg_has_pause(_fr, _to):
+            _pause_inside = True
+            break
     if (
         (len(_ordered) >= 3 and _valid < 2)
         or (len(_uncovered) >= 1 and len(sentences) >= 3)
-        or (_pause_n > 1 and _model_seg_n < _pause_n)
+        or _pause_inside
     ):
         if _uncovered:
             warnings.append(
                 f"L3 模型分段漏覆盖口播句 {[int(x['seq']) for x in _uncovered]}，"
                 f"harness 按口播停顿确定性兜底重建")
-        elif _model_seg_n < _pause_n:
+        elif _pause_inside:
             warnings.append(
-                f"L3 模型分段颗粒度不足（{_model_seg_n} 段 < 停顿基准 {_pause_n} 段），"
-                f"harness 按口播停顿确定性兜底重建")
+                "L3 模型分段颗粒度过粗（某段内部跨越长停顿），"
+                "harness 按口播停顿确定性兜底重建")
             warnings.append(
                 f"L3 模型分段质量差（{len(_ordered)} 段仅 {_valid} 段行号有效），"
                 f"harness 按口播停顿（gap≥1.5s）确定性兜底重建")
