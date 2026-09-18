@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>帧间 Frames · 编导视角自审报告 2026-09-18</title>
+<style>
+  body{font-family:-apple-system,"PingFang SC",sans-serif;max-width:980px;margin:0 auto;padding:32px 20px;color:#1a1a2e;line-height:1.7;background:#fafafa}
+  h1{font-size:26px;border-bottom:3px solid #b45309;padding-bottom:12px}
+  h2{font-size:19px;margin-top:36px;color:#b45309}
+  h3{font-size:16px;margin-top:24px}
+  .meta{color:#666;font-size:13px;margin-bottom:24px}
+  .card{background:#fff;border:1px solid #e2e2e2;border-radius:10px;padding:16px 20px;margin:14px 0;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+  .good{color:#1b7f3b;font-weight:600}
+  .warn{color:#b45309;font-weight:600}
+  .bad{color:#b91c1c;font-weight:600}
+  table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px}
+  th,td{border:1px solid #d8d8d8;padding:8px 10px;text-align:left;vertical-align:top}
+  th{background:#f6f0e8}
+  code{background:#f0f0f0;padding:1px 6px;border-radius:4px;font-size:13px}
+  .sev{display:inline-block;padding:1px 8px;border-radius:10px;font-size:12px;color:#fff}
+  .s1{background:#b91c1c}.s2{background:#b45309}.s3{background:#8a6d3b}
+  ul{padding-left:22px}li{margin:5px 0}
+</style>
+</head>
+<body>
+<h1>帧间 Frames · 编导视角自审报告</h1>
+<div class="meta">2026-09-18 · 样本：美妆 51s / 萌宠 82s / 知识动画 48s · 方法：以资深编导身份通读完整拆解产物（非机器检测）</div>
+
+<div class="card">
+<b>为什么做这次自审</b>：harness 检测（errors/warnings/套话/占位符）已全绿，但那只验证"形式合规"。
+编导要的是"理解准确 + 洞察到位"。本次以编导视角挑机器检测不出的毛病，作为下一轮优化的输入。
+</div>
+
+<h2>1. 三样本逐项审结果</h2>
+
+<h3>美妆《文成八面玲珑的，请问你的证据呢？》(51s 直播八卦)</h3>
+<table>
+<tr><th>部分</th><th>编导评价</th></tr>
+<tr><td>定调</td><td><span class="bad">核心思想编错</span>：写成"揭秘美妆产品真相"——实际是直播间互怼/八卦拉扯（文成与刘姐、母带曝光），与美妆产品无关。目标人群"对产品效果持怀疑态度"同样错，应为"吃瓜/直播观众"。</td></tr>
+<tr><td>逐句创作意图</td><td><span class="bad">7 句全部"为后续剧情发展做铺垫"</span>——功能套话（检测器盲区：模式"为后续情节…"≠"为后续剧情…"）。最典型的句7"是不是她说的我有诬陷吗"是<b>对峙升级、全片冲突引爆点</b>，却写"暗示可能有误解"。</td></tr>
+<tr><td>结尾收束</td><td><span class="bad">提示词术语泄漏</span>："差异化硬约束的创作手法"——prompt 内部字段名写进成稿（检测器只查注解区，收束区漏检）。</td></tr>
+<tr><td>画面字幕</td><td><span class="warn">句8/句9</span>（"大家一目了然""2.5万"）是画面字幕当口播句写，单字数字也成句。</td></tr>
+<tr><td>段2 标题</td><td><span class="warn">"口播结束后的画面段"</span>——harness 补段默认标题泄漏，应写成内容标题（如"美妆技巧展示"）。</td></tr>
+</table>
+
+<h3>萌宠《大学里的猫咪学长都在干嘛呢？》(82s BGM 治愈)</h3>
+<table>
+<tr><th>部分</th><th>编导评价</th></tr>
+<tr><td>结构</td><td><span class="bad">BGM 无叙事视频强行套"铺垫/高潮"叙事结构</span>：三段标签"铺垫/高潮/高潮"全是编造（实际是三个时间段的画面合集，无叙事推进）。这类视频应按"画面内容主题"分段（猫咪日常→校园互动→毕业抱猫）。</td></tr>
+<tr><td>逐句</td><td><span class="bad">10 句全是画面描述当句子</span>（"橘色猫闭眼""灰白虎斑猫被摸头"），创作意图全是"营造氛围/展现温馨"万能空话——没有一句讲画面符号的传播点。</td></tr>
+<tr><td>情感点</td><td><span class="bad">漏核心情绪点</span>：字幕"我的毕业礼物就决定是你了学长😎"（毕业季情感落点）出现在画面分镜但脚本洞察完全没提。</td></tr>
+<tr><td>"补充："</td><td><span class="warn">重复废话</span>："补充：本段以实拍为主，捕捉猫咪们的自然状态"与注解正文重复；三段"补充"句式雷同（检测器 12 字阈值没到）。</td></tr>
+<tr><td>句重复</td><td><span class="warn">句8/句9 重复</span>（"男子站在讲台上"出现两次）。</td></tr>
+</table>
+
+<h3>知识动画《这个女人有点坏》(48s 科普恶搞)</h3>
+<table>
+<tr><th>部分</th><th>编导评价</th></tr>
+<tr><td>整体</td><td><span class="good">三样本中质量最高</span>：定调准确（鲸鱼尸体办晚宴、科普+恶搞反差）、段落结构真叙事（钩子→铺垫→高潮）、逐句引用原话点名字词。</td></tr>
+<tr><td>段3 注解</td><td><span class="warn">动作清单堆砌</span>："拿起红色肉块、烤肉、操作模型、安装嘴巴、检查嘴巴…"像帧列表不像创作注解（编导要"为什么这样设计"，不是"发生了什么"）。</td></tr>
+<tr><td>逐句覆盖</td><td><span class="warn">48s 只写 6 句</span>，画面字幕十几条（"然而这都还不够""女人又找人把鲸鱼的嘴巴装上合页"）未进逐句——覆盖不全。</td></tr>
+<tr><td>节奏描述</td><td><span class="warn">"波浪形情绪曲线"</span>——三样本全部用"波浪形"，模板化空泛。</td></tr>
+</table>
+
+<h2>2. 共性问题清单（按严重度）</h2>
+<table>
+<tr><th>#</th><th>严重度</th><th>问题</th><th>根因</th><th>涉及</th></tr>
+<tr><td>1</td><td><span class="sev s1">严重</span></td><td>核心思想/目标人群判断错误（八卦→"产品揭秘"）</td><td>L1 定调依赖模型理解，直播话术/隐语（"散出来""母带曝光"）被误读</td><td>美妆</td></tr>
+<tr><td>2</td><td><span class="sev s1">严重</span></td><td>BGM/氛围类视频套口播叙事模板（强行铺垫/高潮 + 画面描述当逐句）</td><td>拆解模板不分视频类型，BGM 无叙事却套叙事结构</td><td>萌宠</td></tr>
+<tr><td>3</td><td><span class="sev s2">高</span></td><td>逐句套话检测盲区："为后续剧情…"变体漏检、纯空话（"营造氛围"）不报</td><td>检测器模式库过窄（只 5 个固定模式）+ 万能空话无检测</td><td>美妆/萌宠</td></tr>
+<tr><td>4</td><td><span class="sev s2">高</span></td><td>核心情感点漏抓（萌宠"毕业礼物=猫"）</td><td>画面字幕情感信号未加权进入洞察</td><td>萌宠</td></tr>
+<tr><td>5</td><td><span class="sev s2">高</span></td><td>提示词术语泄漏（"差异化硬约束"进成稿）</td><td>检测器只查注解区，收束区漏检</td><td>美妆</td></tr>
+<tr><td>6</td><td><span class="sev s3">中</span></td><td>"补充："废话重复 + 三段补充句式雷同</td><td>补充是重写产物，无去重/差异检测</td><td>萌宠/知识动画</td></tr>
+<tr><td>7</td><td><span class="sev s3">中</span></td><td>节奏描述模板化（三样本全"波浪形"）</td><td>提示词引导弱，模型复用</td><td>全部</td></tr>
+<tr><td>8</td><td><span class="sev s3">中</span></td><td>画面字幕当口播句写（句8/句9）</td><td>字幕句进句子层时来源标记不清</td><td>美妆</td></tr>
+<tr><td>9</td><td><span class="sev s3">低</span></td><td>补段标题"口播结束后的画面段"泄漏 harness 默认值</td><td>补段 title=None，L4.5 未重写</td><td>美妆</td></tr>
+</table>
+
+<h2>3. 机器检测与编导视角的差距</h2>
+<div class="card">
+<b>结论</b>：当前 harness 验证体系解决的是<b>形式合规</b>（结构遵从、套话命中、占位符、厚度），
+但 <b>理解准确（品类解读对不对）和洞察质量（有没有真东西）没有自动验证手段</b>——这正是
+"能不能替代人肉编导"的核心差距。三个样本恰好覆盖三种风险：口播隐语误读（美妆）、
+BGM 强套结构（萌宠）、叙事理解达标（知识动画）。
+</div>
+
+<h2>4. 改进方向（下一轮优化输入）</h2>
+<ol>
+<li><b>视频类型分流</b>（优先级最高）：先判定"口播叙事型 / BGM氛围型 / 口播+画面型"，
+BGM 型走独立模板（按画面内容主题分段、逐句=画面符号+歌词情感点、洞察=传播点而非叙事功能）。</li>
+<li><b>检测器扩模式</b>："为后续剧情/故事发展…做铺垫/埋下伏笔"变体 + 万能空话库
+（"营造氛围/展现温馨/传递美好"）+ 收束区术语泄漏检测。</li>
+<li><b>补段标题内容化</b>：harness 补段后 L4.5 必须给内容标题（"美妆技巧展示"），禁止默认值残留。</li>
+<li><b>"补充："去重</b>：自愈重写产物与注解正文重合检测，雷同补充句直接删除。</li>
+<li><b>节奏描述具体化</b>：提示词要求点名峰谷对应的具体段/事件，禁止"波浪形"式空泛。</li>
+</ol>
+</body>
+</html>
