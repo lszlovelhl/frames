@@ -262,20 +262,38 @@ def _detect_annotation_cliches(full_script: str) -> list[str]:
     """
     hits: list[str] = []
     # --- 逐句套话：模板句计数（措辞变体合并统计） ---
-    for pat, label in (
-        (r"为后续情节[^，。]{0,8}做铺垫", "为后续情节…做铺垫"),
-        (r"为后续情节[^，。]{0,8}做过渡", "为后续情节…做过渡"),
-        ("增加故事的荒诞性和紧张感", "增加故事的荒诞性和紧张感"),
-        ("吸引观众的注意力", "吸引观众的注意力"),
-        ("激发观众的好奇心", "激发观众的好奇心"),
+    for pat, label, thr in (
+        # 铺垫/伏笔/过渡家族变体（编导自审发现："为后续剧情…做铺垫"漏检）
+        (r"为后续[^，。]{0,12}(?:剧情|故事|情节|内容)[^，。]{0,12}(?:做铺垫|埋下伏笔|做过渡|奠定基础)",
+         "为后续剧情/故事…做铺垫/伏笔/过渡", 2),
+        (r"为后续情节[^，。]{0,8}做铺垫", "为后续情节…做铺垫", 3),
+        (r"为后续情节[^，。]{0,8}做过渡", "为后续情节…做过渡", 3),
+        # 万能空话库（BGM/氛围类"营造氛围/展现温馨"）
+        (r"营造[^，。]{0,8}(?:氛围|气氛|感觉)", "营造…氛围/气氛", 3),
+        (r"展现[^，。]{0,12}(?:温馨|美好|活力|校园生活|日常)", "展现…温馨/美好/活力", 3),
+        (r"传递出[^，。]{0,8}(?:温馨|美好|快乐|活力|情感)", "传递出…情感", 3),
+        (r"为观众提供信息", "为观众提供信息", 3),
+        ("增加故事的荒诞性和紧张感", "增加故事的荒诞性和紧张感", 3),
+        ("吸引观众的注意力", "吸引观众的注意力", 3),
+        ("激发观众的好奇心", "激发观众的好奇心", 3),
     ):
         n = len(re.findall(pat, full_script))
-        if n >= 3:
+        if n >= thr:
             hits.append(f"逐句套话 '{label}' ×{n}（跨句模板填充，需改写成引用原话字词）")
+    # --- 提示词术语泄漏（内部字段名进入成稿，全文检测） ---
+    if "差异化硬约束" in full_script:
+        hits.append("提示词术语泄漏：'差异化硬约束'出现在成稿（内部字段名禁止进入产物）")
+    # --- 节奏描述模板化（"波浪形"式空泛，要点名峰谷对应具体段/事件） ---
+    n_wave = len(re.findall(r"波浪形", full_script))
+    if n_wave >= 2:
+        hits.append(f"节奏描述模板化：'波浪形' ×{n_wave}（节奏应点名峰谷对应的具体段/事件）")
+    # --- 补段默认标题残留（harness 补段 title=None 时 L4.5 未重写） ---
+    if "口播结束后的画面段" in full_script:
+        hits.append("补段标题残留：'口播结束后的画面段'是 harness 默认说明，应写内容标题（如'美妆技巧展示'）")
     # --- 段落创作注解雷同 ---
     seg_blocks = re.split(r"### 段\d+", full_script)
     if len(seg_blocks) < 3:
-        return hits
+        return hits[:8]
     annotations: list[str] = []
     for block in seg_blocks[1:]:
         m = re.search(
@@ -300,7 +318,16 @@ def _detect_annotation_cliches(full_script: str) -> list[str]:
             if len(best) >= 12 and _is_cliche_pair(annotations[i], annotations[j], best):
                 hits.append(f"段{i + 1} 与 段{j + 1} 创作注解雷同（共用 '{best[:24]}…'）")
                 break
-    return hits[:6]
+    # --- "补充："与注解正文重复（重写产物废话） ---
+    for block in seg_blocks[1:]:
+        _sm = re.search(r"补充[：:]\s*([^\n]{8,})", block)
+        if _sm:
+            _sup = re.sub(r"\s+", "", _sm.group(1))
+            _am = re.search(
+                r"(?:创作注解|创作注解：)(.*?)(?=补充[：:]|逐句|- 〔句\d|\n### |$)", block, re.S)
+            if _am and _sup[:10] in re.sub(r"\s+", "", _am.group(1)):
+                hits.append(f"'补充：'与创作注解正文重复（'{_sup[:20]}…'是正文子句，应删除或改写）")
+    return hits[:8]
 
 
 _STRUCT_WORDS = ("节奏", "峰值", "谷底", "曲线", "差异化", "硬约束", "承接上文",
@@ -1323,6 +1350,16 @@ async def run_three_layer(
             f"L3 落库段数 {len(seg_rows)} 仍低于契约下限 {L3_SEGMENT_MIN}"
             f"（返回 {len(segments_json)} 段，白名单/时间校验过滤 {len(segments_json) - len(seg_rows)} 段）"
         )
+    # BGM/氛围型视频强套叙事结构告警（编导自审发现）：口播稀少（asr<6）时，
+    # 若段落仍标"高潮/铺垫"等叙事功能词，很可能是把无叙事的画面合集硬套口播叙事模板。
+    if asr_count < 6:
+        _narr_tags = [s.seg_type for s in seg_rows if s.seg_type in ("高潮", "铺垫", "钩子")]
+        if _narr_tags:
+            warnings.append(
+                f"L3 BGM/氛围型视频（口播仅 {asr_count} 句）段落标签含叙事功能词"
+                f"（{','.join(_narr_tags)}）——可能是把无叙事画面合集强套口播叙事结构，"
+                f"L4.5 应按画面内容主题分析"
+            )
     # 段落连续性校验：契约要求"覆盖全片、首尾相接、不重叠"（_TL3 第 1 条）。
     # 模型给出非法 line 号时 _line_to_sentence 会静默兜底到首句，产生 0 起/重叠段，
     # 直接污染 L6 组合模板的槽位覆盖——这里显式检测并在 L6 前告警。
