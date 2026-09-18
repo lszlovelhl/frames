@@ -1870,7 +1870,7 @@ async def run_three_layer(
                     flags=re.M,
                 )
                 raw45 = re.sub(r"\n\s*[-*]?\s*\*\*?差异化硬约束\*\*?[:：]\s*", "\n补充：", raw45)
-                min_len = max(1800, len(seg_rows) * 600)  # 编导厚度下限：按段数 2段1800/3段1800/4段2400
+                min_len = max(1600, len(seg_rows) * 500)  # 编导厚度下限：按段数 2段1600/3段1600/4段2000
                 hard_min = int(min_len * 0.9)  # 10% 容差：差一点不整稿作废，记 warning
                 seg_marks = raw45.count("###")
                 cliche_tail = len(re.findall(r"适用于任何需要[^\n。]*", raw45))
@@ -1910,7 +1910,7 @@ async def run_three_layer(
                         seg_marks = raw45.count("###")
                         placeholder_hit = bool(
                             re.search(r"\{[a-z_]+\}|段N\b|{seg|{title", raw45))
-                        min_len = max(1800, len(seg_rows) * 600)
+                        min_len = max(1600, len(seg_rows) * 500)
                         hard_min = int(min_len * 0.9)
                         thickness_hit = len(raw45) < hard_min  # 重试后仍薄 → 放行自愈加厚
                         if placeholder_hit or seg_marks < len(seg_rows):
