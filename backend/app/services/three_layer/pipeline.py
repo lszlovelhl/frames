@@ -1821,7 +1821,8 @@ async def run_three_layer(
                             "2. 只改掉套话：每条创作注解/逐句创作意图必须点名本段时间范围内的具体"
                             "画面/字幕/动作/原话字词，且相邻段不得用相同说法；\n"
                             "3. 全脚本禁止出现这些模板句：'为后续情节…做铺垫'、'为后续情节…做过渡'、"
-                            "'增加故事的荒诞性和紧张感'、'吸引观众的注意力'、'激发观众的好奇心'；\n"
+                            "'增加故事的荒诞性和紧张感'、'吸引观众的注意力'、'激发观众的好奇心'，"
+                            "禁止出现'口播结束后的画面段'（段落标题必须写内容标题，如'美妆技巧展示'）；\n"
                             "4. 审稿指出的套话如下，禁止再次出现（也不要复述本提示要求）：\n"
                             + "\n".join(f"- {d}" for d in dup[:5])
                             + "\n\n请直接输出重写后的完整 Markdown 脚本，不要解释。"
@@ -1970,6 +1971,13 @@ async def run_three_layer(
                                         logger.warning("L4.5 注解局部重写失败：%s", str(_exc)[:120])
                     # harness 画面轨：按段落时间精确对齐逐帧简报+动态事件，追加为【画面分镜】
                     # （帧层细节稳定可控；场景记忆层供模型理解叙事，不用于分镜对齐）
+                    # 先做段头时间确定性修正：L4.5 段头时间必须以 L3 落库时间为准
+                    # （flash 偶发幻觉段头时间，如段2 写 23.2s~50.6s 实为 42s~50.6s，
+                    #  时间精确归 harness，语义归模型）
+                    for _sg in seg_rows:
+                        _pat = rf"(### 段{_sg.seq}[^\n]*?[（(])[\d.]+s~[\d.]+s"
+                        _fix = f"{_sg.start_ms / 1000:.1f}s~{_sg.end_ms / 1000:.1f}s"
+                        full_script = re.sub(_pat, rf"\g<1>{_fix}", full_script)
                     frames = ((manifest or {}).get("frames")) or []
                     dyns = (((manifest or {}).get("frame_plan") or {}).get("dynamic_events")) or []
                     if frames:
