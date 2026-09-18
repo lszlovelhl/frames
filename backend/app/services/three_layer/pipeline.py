@@ -1179,6 +1179,34 @@ async def run_three_layer(
             quality["L3"] = q3b
             if len(segments_json) >= L3_SEGMENT_MIN:
                 await report("L3", 67, f"三层链路 · L3 重试达标（{len(segments_json)} 段）…")
+    # 口播段细分：口播充足（≥6句）但口播段 <2（flash 常把整段口播并成1段，如美妆 0~42s
+    # 7 句一口气）→ 按叙事阶段（开场引入→主体推进→收尾/转折）细分重试一次。
+    # 编导视角：长口播只有 1 段 = 拆解颗粒度不足，情绪/手法变化全糊在一段里。
+    asr_seg_n = sum(
+        1 for s in segments_json
+        if (s.get("line_from") is not None and s.get("line_from") != "")
+        or (s.get("line_to") is not None and s.get("line_to") != "")
+    )
+    if asr_count >= 6 and 0 < asr_seg_n < 2:
+        retry_hint2 = (
+            f"\n\n【校验反馈】口播句充足（{asr_count} 句），但口播段只有 {asr_seg_n} 个。"
+            f"请按叙事阶段把口播内容切成 ≥2 个口播段（如：开场引入→冲突/话题展开→收尾/转折），"
+            f"每段必须覆盖真实的口播行号区间（#nn），画面段另算、不占用口播段数。"
+        )
+        await report("L3", 66, f"三层链路 · L3 口播段过少（{asr_seg_n}<2），细分重试…")
+        ok3c, data3c, q3c = await _run_layer(
+            db, video=video, analysis_id=analysis_id, layer=3,
+            user_text=l3_user + retry_hint2, model=model,
+            array_keys=LAYER_ARRAY_KEYS[3], max_tokens=16384,
+        )
+        quality["L3_retry2"] = {
+            **q3c,
+            "first_asr_seg_n": asr_seg_n,
+            "retried": True,
+        }
+        if ok3c:
+            segments_json = data3c.get("segments") or []
+            quality["L3"] = q3c
     if len(segments_json) > L3_SEGMENT_MAX:
         warnings.append(
             f"L3 段数 {len(segments_json)} 超过上限 {L3_SEGMENT_MAX}（保留全部段落，未截断）"
@@ -1761,17 +1789,17 @@ async def run_three_layer(
                     flags=re.M,
                 )
                 raw45 = re.sub(r"\n\s*[-*]?\s*\*\*?差异化硬约束\*\*?[:：]\s*", "\n补充：", raw45)
-                min_len = max(800, len(seg_rows) * 150)
+                min_len = max(2200, len(seg_rows) * 800)  # 编导厚度下限：2段2200/3段2400/4段3200
                 hard_min = int(min_len * 0.9)  # 10% 容差：差一点不整稿作废，记 warning
                 seg_marks = raw45.count("###")
                 cliche_tail = len(re.findall(r"适用于任何需要[^\n。]*", raw45))
-                if len(raw45) < hard_min:
-                    q45["errors"].append(f"成稿 {len(raw45)} 字 < 厚度下限 {min_len}")
+                thickness_hit = len(raw45) < hard_min
+                if thickness_hit:
+                    q45["warnings"] = (q45.get("warnings") or []) + [
+                        f"成稿偏薄 {len(raw45)} 字 < 厚度下限 {min_len}，并入自愈加厚重写"]
                 # 占位符残留：模型把提示词模板字面输出（{seg_type}/段N/{title} 等未替换）→ 判不合格
                 placeholder_hit = bool(re.search(r"\{[a-z_]+\}|段N\b|{seg|{title", raw45))
-                if len(raw45) < hard_min:
-                    q45["errors"].append(f"成稿 {len(raw45)} 字 < 厚度下限 {min_len}")
-                elif placeholder_hit or seg_marks < len(seg_rows):
+                if placeholder_hit or seg_marks < len(seg_rows):
                     # 占位符未替换 / 漏段：自动重试一次（同一输入，期望模型正常输出）
                     if not retried:
                         retried = True
@@ -1801,11 +1829,10 @@ async def run_three_layer(
                         seg_marks = raw45.count("###")
                         placeholder_hit = bool(
                             re.search(r"\{[a-z_]+\}|段N\b|{seg|{title", raw45))
-                        min_len = max(800, len(seg_rows) * 150)
+                        min_len = max(2200, len(seg_rows) * 800)
                         hard_min = int(min_len * 0.9)
-                        if len(raw45) < hard_min:
-                            q45["errors"].append(f"重试后成稿 {len(raw45)} 字 < 厚度下限 {min_len}")
-                        elif placeholder_hit or seg_marks < len(seg_rows):
+                        thickness_hit = len(raw45) < hard_min  # 重试后仍薄 → 放行自愈加厚
+                        if placeholder_hit or seg_marks < len(seg_rows):
                             q45["errors"].append(
                                 f"重试后仍{('占位符未替换' if placeholder_hit else f'漏段 {seg_marks}/{len(seg_rows)}')}"
                             )
@@ -1878,12 +1905,13 @@ async def run_three_layer(
                         q45["warnings"] = [f"套话尾句 ×{cliche_tail}（'适用于任何需要…'）"]
                     # harness 创作注解雷同检测：跨段重复句式（编导审稿扣分项）→ warning
                     dup = _detect_annotation_cliches(raw45)
-                    if dup:
+                    if dup or thickness_hit:
                         q45["warnings"] = (q45.get("warnings") or []) + dup
-                        # 自愈：套话检测到 → 反馈重写一次（保持结构/句子覆盖不变，只改表达）
+                        # 自愈：套话/偏薄检测到 → 反馈重写一次（保持结构/句子覆盖不变，只改表达）
                         rewrite_hint = (
                             "你是短视频编导脚本改写师。以下是刚生成的脚本，它被编导审稿判定存在"
-                            "套话问题（跨段/跨句模板句式，可套到任何视频）。请【重写整个脚本】：\n"
+                            "套话问题（跨段/跨句模板句式，可套到任何视频）或厚度不足。"
+                            "请【重写整个脚本】：\n"
                             "1. 段落结构、段落标题、时间、逐句引用（原话）一律不变；\n"
                             "2. 只改掉套话：每条创作注解/逐句创作意图必须点名本段时间范围内的具体"
                             "画面/字幕/动作/原话字词，且相邻段不得用相同说法；\n"
@@ -1893,8 +1921,14 @@ async def run_three_layer(
                             "'展现…温馨/美好/活力'、'营造…氛围/气氛'、'传递出…情感'、'为观众提供信息'；\n"
                             "4. 审稿指出的套话如下，禁止再次出现（也不要复述本提示要求）：\n"
                             + "\n".join(f"- {d}" for d in dup[:5])
-                            + "\n\n请直接输出重写后的完整 Markdown 脚本，不要解释。"
                         )
+                        if thickness_hit:
+                            rewrite_hint += (
+                                f"\n5. 【厚度】当前稿 {len(raw45)} 字不足下限 {min_len}，请加厚到 ≥{min_len} 字："
+                                f"每段创作注解 ≥200 字、逐句创作意图 ≥60 字、结尾收束 ≥150 字、"
+                                f"纯画面段写满 2~4 条〔画面N〕行且每条 ≥50 字。"
+                            )
+                        rewrite_hint += "\n\n请直接输出重写后的完整 Markdown 脚本，不要解释。"
                         try:
                             res_rewrite = None
                             for _att in range(3):
@@ -1935,13 +1969,17 @@ async def run_three_layer(
                                 # （防模型重写时私自拆/合段，违背段落唯一性）
                                 dup2 = _detect_annotation_cliches(rw)
                                 rw_marks = rw.count("###")
-                                if len(dup2) < len(dup) and rw_marks == len(seg_rows):
+                                if rw_marks == len(seg_rows) and (
+                                    len(dup2) < len(dup) or len(rw) >= hard_min
+                                ):
                                     raw45 = rw
                                     full_script = raw45[:20000]  # 重写稿为准
                                     dup = dup2
                                     q45["warnings"] = [
                                         f"套话自愈：检测 {len(dup)} 条 → 自动重写 → 剩余 {len(dup2)} 条"
                                     ] + dup2
+                                    if len(raw45) >= hard_min:
+                                        q45["warnings"].append(f"自愈后成稿 {len(raw45)} 字达标")
                                 elif rw_marks != len(seg_rows):
                                     # 重写破坏了段落结构 → 弃用重写稿，保留原稿（结构正确优先）
                                     q45["warnings"] = q45.get("warnings") or []
@@ -2037,6 +2075,10 @@ async def run_three_layer(
                                                 ]
                                     except Exception as _exc:
                                         logger.warning("L4.5 注解局部重写失败：%s", str(_exc)[:120])
+                    # 最终厚度裁决：自愈重写后仍不足 → 硬 error（编导厚度红线）
+                    if full_script and len(full_script) < hard_min:
+                        q45["errors"].append(
+                            f"成稿最终 {len(full_script)} 字 < 厚度下限 {min_len}（自愈未加厚）")
                     # harness 画面轨：按段落时间精确对齐逐帧简报+动态事件，追加为【画面分镜】
                     # （帧层细节稳定可控；场景记忆层供模型理解叙事，不用于分镜对齐）
                     # 先做段头时间确定性修正：L4.5 段头时间必须以 L3 落库时间为准
