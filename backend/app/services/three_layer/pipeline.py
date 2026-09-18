@@ -1789,7 +1789,7 @@ async def run_three_layer(
                     flags=re.M,
                 )
                 raw45 = re.sub(r"\n\s*[-*]?\s*\*\*?差异化硬约束\*\*?[:：]\s*", "\n补充：", raw45)
-                min_len = max(2200, len(seg_rows) * 800)  # 编导厚度下限：2段2200/3段2400/4段3200
+                min_len = max(1800, len(seg_rows) * 600)  # 编导厚度下限：按段数 2段1800/3段1800/4段2400
                 hard_min = int(min_len * 0.9)  # 10% 容差：差一点不整稿作废，记 warning
                 seg_marks = raw45.count("###")
                 cliche_tail = len(re.findall(r"适用于任何需要[^\n。]*", raw45))
@@ -1829,7 +1829,7 @@ async def run_three_layer(
                         seg_marks = raw45.count("###")
                         placeholder_hit = bool(
                             re.search(r"\{[a-z_]+\}|段N\b|{seg|{title", raw45))
-                        min_len = max(2200, len(seg_rows) * 800)
+                        min_len = max(1800, len(seg_rows) * 600)
                         hard_min = int(min_len * 0.9)
                         thickness_hit = len(raw45) < hard_min  # 重试后仍薄 → 放行自愈加厚
                         if placeholder_hit or seg_marks < len(seg_rows):
@@ -1905,7 +1905,7 @@ async def run_three_layer(
                         q45["warnings"] = [f"套话尾句 ×{cliche_tail}（'适用于任何需要…'）"]
                     # harness 创作注解雷同检测：跨段重复句式（编导审稿扣分项）→ warning
                     dup = _detect_annotation_cliches(raw45)
-                    if dup or thickness_hit:
+                    if dup or thickness_hit or cliche_tail:
                         q45["warnings"] = (q45.get("warnings") or []) + dup
                         # 自愈：套话/偏薄检测到 → 反馈重写一次（保持结构/句子覆盖不变，只改表达）
                         rewrite_hint = (
@@ -1927,6 +1927,12 @@ async def run_three_layer(
                                 f"\n5. 【厚度】当前稿 {len(raw45)} 字不足下限 {min_len}，请加厚到 ≥{min_len} 字："
                                 f"每段创作注解 ≥200 字、逐句创作意图 ≥60 字、结尾收束 ≥150 字、"
                                 f"纯画面段写满 2~4 条〔画面N〕行且每条 ≥50 字。"
+                            )
+                        if cliche_tail:
+                            rewrite_hint += (
+                                f"\n6. 【套话尾句】结尾收束出现 '{cliche_tail} 条'适用于任何需要…'句式，"
+                                f"必须改写为点名本片具体手法/选题的安利语（如'这套结构适合美妆圈爆料类选题，"
+                                f"用直播互怼开场+母带曝光钩子'）。"
                             )
                         rewrite_hint += "\n\n请直接输出重写后的完整 Markdown 脚本，不要解释。"
                         try:
