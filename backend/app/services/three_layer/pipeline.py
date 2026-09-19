@@ -2247,6 +2247,8 @@ async def run_three_layer(
                             r"(?:剧情|故事|情节|内容)[^，。]{0,10}(?:曲折|推进|发展|高潮)",
                             r"(?:再次|进一步)?制造(?:冲突|悬念|紧张感)",
                             r"增加(?:代入感|真实感|层次感)",
+                            r"【功能】[^；\n]{0,6}(?:铺垫|过渡|转折|高潮|冲突|悬念|层次|引入|承接)",
+                            r"【剪辑】[^；\n]{0,8}(?:正常|常规|平稳|自然)",
                         ]
                         _sent_lines = re.findall(r"〔句\d+[^\n〕〕]*〕[^\n]*", full_script)
                         _bad = [
@@ -2294,9 +2296,9 @@ async def run_three_layer(
                                     _out = re.sub(r"^```(?:markdown)?\s*", "", _out)
                                     _out = re.sub(r"\s*```\s*$", "", _out)
                                     if re.match(r"〔句\d+", _out) and "【功能】" in _out and "【剪辑】" in _out:
-                                        # 新行必须保留原句号与原话
-                                        _oq = re.search(r'"([^"]*)"', _ln)
-                                        _nq = re.search(r'"([^"]*)"', _out)
+                                        # 新行必须保留原句号与原话（兼容有无引号两种格式）
+                                        _oq = re.search(r'〔句\d+[^〕〕]*〕["“]?([^"—\n]{2,64})', _ln)
+                                        _nq = re.search(r'〔句\d+[^〕〕]*〕["“]?([^"—\n]{2,64})', _out)
                                         if _oq and _nq and _oq.group(1).strip() == _nq.group(1).strip():
                                             _fix_map[_ln] = _out
                                 except Exception as _exc:
@@ -2359,7 +2361,7 @@ async def run_three_layer(
                                 {"role": "user", "content": f"缺失句：\n{_miss_txt}\n\n输出：每句一行。"},
                             ])
                             _new_lines = [
-                                ln.strip() for ln in (_resp or "").split("\n")
+                                ln.strip() for ln in ((_resp or {}).get("reply") or "").split("\n")
                                 if "〔句" in ln and "【剪辑】" in ln
                             ]
                             if _new_lines:
@@ -2515,7 +2517,7 @@ async def run_three_layer(
                         }
                         if _dub_q:
                             def _fix_dub(m):
-                                q = m.group(2)
+                                q = m.group(2).strip().strip('"“”')
                                 if q in _dub_q and "语音不清" not in m.group(0) and "无法" not in m.group(0):
                                     return (
                                         f"{m.group(1)}\"{q}\" ——【语音不清】该句转写不准确"
@@ -2524,7 +2526,7 @@ async def run_three_layer(
                                     )
                                 return m.group(0)
                             full_script = re.sub(
-                                r'(〔句\d+[^〕〕]*〕")([^"]{2,})"([^\n]*)',
+                                r'(〔句\d+[^〕〕]*〕)([^—\n]{2,64})——【[^\n]*',
                                 _fix_dub, full_script)
         except Exception as exc:
             q45["errors"].append(str(exc)[:160])
