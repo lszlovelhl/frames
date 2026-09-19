@@ -291,9 +291,16 @@ def _detect_annotation_cliches(full_script: str) -> list[str]:
     for pat, label, thr in (
         # 铺垫/伏笔/过渡家族变体（编导自审发现："为后续剧情…做铺垫"漏检）
         (r"为后续[^，。]{0,12}(?:剧情|故事|情节|内容)[^，。]{0,12}(?:做铺垫|埋下伏笔|做过渡|奠定基础)",
-         "为后续剧情/故事…做铺垫/伏笔/过渡", 2),
-        (r"为后续情节[^，。]{0,8}做铺垫", "为后续情节…做铺垫", 3),
-        (r"为后续情节[^，。]{0,8}做过渡", "为后续情节…做过渡", 3),
+         "为后续剧情/故事…做铺垫/伏笔/过渡", 1),
+        (r"为后续情节[^，。]{0,8}做铺垫", "为后续情节…做铺垫", 1),
+        (r"为后续情节[^，。]{0,8}做过渡", "为后续情节…做过渡", 1),
+        # 编导 v4 审稿点名变体：功能名填空/万能句（逐句【功能】区）——出现即报
+        (r"(?:实现|自然|完成|从而|以此)(?:过渡|转折)", "实现/自然…过渡/转折", 1),
+        (r"对话[^，。]{0,10}(?:过渡|转向)", "对话…过渡/转向", 1),
+        (r"(?:剧情|故事|情节|内容)[^，。]{0,10}(?:曲折|推进|发展|高潮)", "剧情…曲折/推进/高潮", 1),
+        (r"(?:再次|进一步)?制造(?:冲突|悬念|紧张感)", "制造冲突/悬念/紧张感", 1),
+        (r"(?:留下)?深刻印象", "留下深刻印象", 1),
+        (r"增加(?:代入感|真实感|层次感)", "增加代入感/真实感/层次感", 1),
         # 万能空话库（BGM/氛围类"营造氛围/展现温馨"）
         (r"营造[^，。]{0,8}(?:氛围|气氛|感觉)", "营造…氛围/气氛", 3),
         (r"展现[^，。]{0,12}(?:温馨|美好|活力|校园生活|日常)", "展现…温馨/美好/活力", 3),
@@ -303,7 +310,8 @@ def _detect_annotation_cliches(full_script: str) -> list[str]:
         ("吸引观众的注意力", "吸引观众的注意力", 3),
         ("激发观众的好奇心", "激发观众的好奇心", 3),
     ):
-        n = len(re.findall(pat, full_script))
+        _target = re.sub(r"〔句\d+[^\n]*语音不清[^\n]*", "", full_script)
+        n = len(re.findall(pat, _target))
         if n >= thr:
             hits.append(f"逐句套话 '{label}' ×{n}（跨句模板填充，需改写成引用原话字词）")
     # --- 提示词术语泄漏（内部字段名进入成稿，全文检测） ---
@@ -2227,6 +2235,87 @@ async def run_three_layer(
                                                 ]
                                     except Exception as _exc:
                                         logger.warning("L4.5 注解局部重写失败：%s", str(_exc)[:120])
+                    # 逐句套话局部定点重写：整稿重写清不掉功能名填空 → 只重写命中句
+                    # （每句单独小调用，输入原话+时间+所在段画面素材，输出替换原行）
+                    if full_script and (dup or True):
+                        _tpl_pats = [
+                            r"为后续[^，。]{0,12}(?:剧情|故事|情节|内容)[^，。]{0,12}(?:做铺垫|埋下伏笔|做过渡|奠定基础)",
+                            r"为后续情节[^，。]{0,8}做铺垫",
+                            r"为后续情节[^，。]{0,8}做过渡",
+                            r"(?:实现|自然|完成|从而|以此)(?:过渡|转折)",
+                            r"对话[^，。]{0,10}(?:过渡|转向)",
+                            r"(?:剧情|故事|情节|内容)[^，。]{0,10}(?:曲折|推进|发展|高潮)",
+                            r"(?:再次|进一步)?制造(?:冲突|悬念|紧张感)",
+                            r"增加(?:代入感|真实感|层次感)",
+                        ]
+                        _sent_lines = re.findall(r"〔句\d+[^\n〕〕]*〕[^\n]*", full_script)
+                        _bad = [
+                            ln for ln in _sent_lines
+                            if "语音不清" not in ln and any(re.search(pp, ln) for pp in _tpl_pats)
+                        ]
+                        if _bad:
+                            _fix_map = {}
+                            for _ln in _bad[:4]:
+                                _m = re.match(r"〔句(\d+)", _ln)
+                                if not _m:
+                                    continue
+                                _n = int(_m.group(1))
+                                _sr = next((r for r in sentence_rows if int(r.seq) == _n), None)
+                                if not _sr:
+                                    continue
+                                _sf = [
+                                    f for f in frames
+                                    if int(f.get("start_ms") or 0) >= int(_sr.start_ms) - 500
+                                    and int(f.get("start_ms") or 0) < int(_sr.end_ms) + 500
+                                ]
+                                _vis = "；".join(
+                                    dict.fromkeys(str(f.get("desc") or "").strip() for f in _sf[:2])
+                                )[:50] or "（该时段画面素材缺失）"
+                                _hint = (
+                                    "你是短视频编导。以下逐句行被审稿判定功能分析是模板填空"
+                                    "（'过渡/转折/铺垫/高潮/冲突'这类功能名，可套到任何视频）。"
+                                    f"\n原句：{_sr.text or ''}\n时间：{_sr.start_ms / 1000:.1f}s~{_sr.end_ms / 1000:.1f}s"
+                                    f"\n对应画面：{_vis}\n原逐句行：{_ln}\n"
+                                    "要求：只重写【功能】部分（【剪辑】【节奏】保持原样，引用原话字词不变），"
+                                    "功能必须写这句在叙事中推动的【具体事件/关系变化】——回答'这句让故事发生了什么'"
+                                    "（如'亮底牌——暗示手上有料、准备摊牌，叙事从试探转为对峙'；"
+                                    "'制造选择悬念——说还是不说，把观众拉进接下来要爆了的预期'），"
+                                    "禁止'过渡/转折/铺垫/层次感/高潮/冲突'功能名。"
+                                    "\n直接输出一行新逐句（完整三要素格式，不要解释）："
+                                )
+                                try:
+                                    _res = await _ai_chat(
+                                        [{"role": "system", "content": system45},
+                                         {"role": "user", "content": _hint}],
+                                        model=model, max_tokens=2048, json_mode=False,
+                                        timeout=180, scene="tl45_sent_rewrite",
+                                    )
+                                    _out = ((_res or {}).get("reply") or "").strip()
+                                    _out = re.sub(r"^```(?:markdown)?\s*", "", _out)
+                                    _out = re.sub(r"\s*```\s*$", "", _out)
+                                    if re.match(r"〔句\d+", _out) and "【功能】" in _out and "【剪辑】" in _out:
+                                        # 新行必须保留原句号与原话
+                                        _oq = re.search(r'"([^"]*)"', _ln)
+                                        _nq = re.search(r'"([^"]*)"', _out)
+                                        if _oq and _nq and _oq.group(1).strip() == _nq.group(1).strip():
+                                            _fix_map[_ln] = _out
+                                except Exception as _exc:
+                                    logger.warning("L4.5 逐句局部重写失败：%s", str(_exc)[:100])
+                            if _fix_map:
+                                _rw2 = full_script
+                                for _ln, _nw in _fix_map.items():
+                                    _rw2 = _rw2.replace(_ln, _nw, 1)
+                                _dup4 = _detect_annotation_cliches(_rw2)
+                                if len(_dup4) < len(dup):
+                                    full_script = _rw2[:20000]
+                                    dup = _dup4
+                                    q45["warnings"] = [
+                                        f"逐句局部重写：{len(_fix_map)} 句套话已定点改写 → 剩余 {len(_dup4)} 条"
+                                    ] + _dup4
+                                else:
+                                    q45["warnings"] = (q45.get("warnings") or []) + [
+                                        f"逐句局部重写未改善 {len(_fix_map)} 句（模型仍写模板），保留原稿"
+                                    ]
                     # 最终厚度裁决：自愈重写后仍不足 → 硬 error（编导厚度红线）
                     if full_script and len(full_script) < hard_min:
                         q45["errors"].append(
