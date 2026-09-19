@@ -2265,14 +2265,17 @@ async def run_three_layer(
                                 _sr = next((r for r in sentence_rows if int(r.seq) == _n), None)
                                 if not _sr:
                                     continue
-                                _sf = [
-                                    f for f in frames
-                                    if int(f.get("start_ms") or 0) >= int(_sr.start_ms) - 500
-                                    and int(f.get("start_ms") or 0) < int(_sr.end_ms) + 500
-                                ]
-                                _vis = "；".join(
-                                    dict.fromkeys(str(f.get("desc") or "").strip() for f in _sf[:2])
-                                )[:50] or "（该时段画面素材缺失）"
+                                try:
+                                    _sf = [
+                                        f for f in frames
+                                        if int(f.get("start_ms") or 0) >= int(_sr.start_ms) - 500
+                                        and int(f.get("start_ms") or 0) < int(_sr.end_ms) + 500
+                                    ]
+                                    _vis = "；".join(
+                                        dict.fromkeys(str(f.get("desc") or "").strip() for f in _sf[:2])
+                                    )[:50] or "（该时段画面素材缺失）"
+                                except (NameError, Exception):
+                                    _vis = "（该时段画面素材缺失）"
                                 _hint = (
                                     "你是短视频编导。以下逐句行被审稿判定功能分析是模板填空"
                                     "（'过渡/转折/铺垫/高潮/冲突'这类功能名，可套到任何视频）。"
