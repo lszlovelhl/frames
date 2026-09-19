@@ -2257,7 +2257,7 @@ async def run_three_layer(
                         ]
                         if _bad:
                             _fix_map = {}
-                            for _ln in _bad[:4]:
+                            for _ln in _bad[:6]:
                                 try:
                                     _m = re.match(r"〔句(\d+)", _ln)
                                     if not _m:
@@ -2300,12 +2300,22 @@ async def run_three_layer(
                                         _out = ((_res or {}).get("reply") or "").strip()
                                         _out = re.sub(r"^```(?:markdown)?\s*", "", _out)
                                         _out = re.sub(r"\s*```\s*$", "", _out)
-                                        if re.match(r"〔句\d+", _out) and "【功能】" in _out and "【剪辑】" in _out:
+                                        _oline = re.search(r"〔句\d+[^\n]*", _out)
+                                        if not _oline:
+                                            logger.warning("L4.5 逐句局部重写响应无句行: %s", _out[:100])
+                                            continue
+                                        _out = _oline.group(0)
+                                        if "【功能】" in _out and "【剪辑】" in _out:
                                             # 新行必须保留原句号与原话（兼容有无引号两种格式）
                                             _oq = re.search(r'〔句\d+[^〕〕]*〕["“]?([^"—\n]{2,64})', _ln)
                                             _nq = re.search(r'〔句\d+[^〕〕]*〕["“]?([^"—\n]{2,64})', _out)
-                                            if _oq and _nq and _oq.group(1).strip() == _nq.group(1).strip():
+                                            _qq = _oq.group(1).strip().replace(" ", "") if _oq else ""
+                                            _nqq = _nq.group(1).strip().replace(" ", "") if _nq else ""
+                                            if _oq and _nq and (_qq == _nqq or (_qq and _nqq and (_qq in _nqq or _nqq in _qq))):
                                                 _fix_map[_ln] = _out
+                                            else:
+                                                logger.warning(
+                                                    "L4.5 逐句局部重写 quote 不一致: %s", _out[:120])
                                     except Exception as _exc:
                                         logger.warning("L4.5 逐句局部重写失败：%s", str(_exc)[:100])
                                         continue
