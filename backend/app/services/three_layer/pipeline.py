@@ -2258,54 +2258,60 @@ async def run_three_layer(
                         if _bad:
                             _fix_map = {}
                             for _ln in _bad[:4]:
-                                _m = re.match(r"〔句(\d+)", _ln)
-                                if not _m:
-                                    continue
-                                _n = int(_m.group(1))
-                                _sr = next((r for r in sentence_rows if int(r.seq) == _n), None)
-                                if not _sr:
-                                    continue
                                 try:
-                                    _sf = [
-                                        f for f in frames
-                                        if int(f.get("start_ms") or 0) >= int(_sr.start_ms) - 500
-                                        and int(f.get("start_ms") or 0) < int(_sr.end_ms) + 500
-                                    ]
-                                    _vis = "；".join(
-                                        dict.fromkeys(str(f.get("desc") or "").strip() for f in _sf[:2])
-                                    )[:50] or "（该时段画面素材缺失）"
-                                except (NameError, Exception):
-                                    _vis = "（该时段画面素材缺失）"
-                                _hint = (
-                                    "你是短视频编导。以下逐句行被审稿判定功能分析是模板填空"
-                                    "（'过渡/转折/铺垫/高潮/冲突'这类功能名，可套到任何视频）。"
-                                    f"\n原句：{_sr.text or ''}\n时间：{_sr.start_ms / 1000:.1f}s~{_sr.end_ms / 1000:.1f}s"
-                                    f"\n对应画面：{_vis}\n原逐句行：{_ln}\n"
-                                    "要求：只重写【功能】部分（【剪辑】【节奏】保持原样，引用原话字词不变），"
-                                    "功能必须写这句在叙事中推动的【具体事件/关系变化】——回答'这句让故事发生了什么'"
-                                    "（如'亮底牌——暗示手上有料、准备摊牌，叙事从试探转为对峙'；"
-                                    "'制造选择悬念——说还是不说，把观众拉进接下来要爆了的预期'），"
-                                    "禁止'过渡/转折/铺垫/层次感/高潮/冲突'功能名。"
-                                    "\n直接输出一行新逐句（完整三要素格式，不要解释）："
-                                )
-                                try:
-                                    _res = await _ai_chat(
-                                        [{"role": "system", "content": system45},
-                                         {"role": "user", "content": _hint}],
-                                        model=model, max_tokens=2048, json_mode=False,
-                                        timeout=180, scene="tl45_sent_rewrite",
+                                    _m = re.match(r"〔句(\d+)", _ln)
+                                    if not _m:
+                                        continue
+                                    _n = int(_m.group(1))
+                                    _sr = next((r for r in sentence_rows if int(r.seq) == _n), None)
+                                    if not _sr:
+                                        continue
+                                    _qtext = getattr(_sr, "quote", None) or getattr(_sr, "text", "")
+                                    try:
+                                        _sf = [
+                                            f for f in frames
+                                            if int(f.get("start_ms") or 0) >= int(_sr.start_ms) - 500
+                                            and int(f.get("start_ms") or 0) < int(_sr.end_ms) + 500
+                                        ]
+                                        _vis = "；".join(
+                                            dict.fromkeys(str(f.get("desc") or "").strip() for f in _sf[:2])
+                                        )[:50] or "（该时段画面素材缺失）"
+                                    except (NameError, Exception):
+                                        _vis = "（该时段画面素材缺失）"
+                                    _hint = (
+                                        "你是短视频编导。以下逐句行被审稿判定功能分析是模板填空"
+                                        "（'过渡/转折/铺垫/高潮/冲突'这类功能名，可套到任何视频）。"
+                                        f"\n原句：{_qtext}\n时间：{_sr.start_ms / 1000:.1f}s~{_sr.end_ms / 1000:.1f}s"
+                                        f"\n对应画面：{_vis}\n原逐句行：{_ln}\n"
+                                        "要求：只重写【功能】部分（【剪辑】【节奏】保持原样，引用原话字词不变），"
+                                        "功能必须写这句在叙事中推动的【具体事件/关系变化】——回答'这句让故事发生了什么'"
+                                        "（如'亮底牌——暗示手上有料、准备摊牌，叙事从试探转为对峙'；"
+                                        "'制造选择悬念——说还是不说，把观众拉进接下来要爆了的预期'），"
+                                        "禁止'过渡/转折/铺垫/层次感/高潮/冲突'功能名。"
+                                        "\n直接输出一行新逐句（完整三要素格式，不要解释）："
                                     )
-                                    _out = ((_res or {}).get("reply") or "").strip()
-                                    _out = re.sub(r"^```(?:markdown)?\s*", "", _out)
-                                    _out = re.sub(r"\s*```\s*$", "", _out)
-                                    if re.match(r"〔句\d+", _out) and "【功能】" in _out and "【剪辑】" in _out:
-                                        # 新行必须保留原句号与原话（兼容有无引号两种格式）
-                                        _oq = re.search(r'〔句\d+[^〕〕]*〕["“]?([^"—\n]{2,64})', _ln)
-                                        _nq = re.search(r'〔句\d+[^〕〕]*〕["“]?([^"—\n]{2,64})', _out)
-                                        if _oq and _nq and _oq.group(1).strip() == _nq.group(1).strip():
-                                            _fix_map[_ln] = _out
-                                except Exception as _exc:
-                                    logger.warning("L4.5 逐句局部重写失败：%s", str(_exc)[:100])
+                                    try:
+                                        _res = await _ai_chat(
+                                            [{"role": "system", "content": system45},
+                                             {"role": "user", "content": _hint}],
+                                            model=model, max_tokens=2048, json_mode=False,
+                                            timeout=180, scene="tl45_sent_rewrite",
+                                        )
+                                        _out = ((_res or {}).get("reply") or "").strip()
+                                        _out = re.sub(r"^```(?:markdown)?\s*", "", _out)
+                                        _out = re.sub(r"\s*```\s*$", "", _out)
+                                        if re.match(r"〔句\d+", _out) and "【功能】" in _out and "【剪辑】" in _out:
+                                            # 新行必须保留原句号与原话（兼容有无引号两种格式）
+                                            _oq = re.search(r'〔句\d+[^〕〕]*〕["“]?([^"—\n]{2,64})', _ln)
+                                            _nq = re.search(r'〔句\d+[^〕〕]*〕["“]?([^"—\n]{2,64})', _out)
+                                            if _oq and _nq and _oq.group(1).strip() == _nq.group(1).strip():
+                                                _fix_map[_ln] = _out
+                                    except Exception as _exc:
+                                        logger.warning("L4.5 逐句局部重写失败：%s", str(_exc)[:100])
+                                        continue
+                                except Exception as _exc2:
+                                    logger.warning("L4.5 逐句局部重写失败：%s", str(_exc2)[:100])
+                                    continue
                             if _fix_map:
                                 _rw2 = full_script
                                 for _ln, _nw in _fix_map.items():
