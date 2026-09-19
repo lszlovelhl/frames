@@ -2340,6 +2340,34 @@ async def run_three_layer(
                     frames = ((manifest or {}).get("frames")) or []
                     dyns = (((manifest or {}).get("frame_plan") or {}).get("dynamic_events")) or []
 
+                    # 段间真空补段（编导要求全时段覆盖）：相邻段 gap ≥3s（如段1 0~28s → 段2 38~42s
+                    # 的 28~38s 空档）→ 成稿插入"节奏缓冲"区，显式说明原因+画面延续+剪辑建议
+                    _ts = sorted(seg_rows, key=lambda x: x.seq)
+                    if len(_ts) > 1:
+                        _ins = []
+                        for _a, _b in zip(_ts, _ts[1:]):
+                            _gap = _b.start_ms - _a.end_ms
+                            if _gap >= 3000:
+                                _st, _en = _a.end_ms, _b.start_ms
+                                _sf = [
+                                    f for f in frames
+                                    if int(f.get("start_ms") or 0) >= _st and int(f.get("start_ms") or 0) < _en
+                                ]
+                                _vis = "；".join(
+                                    dict.fromkeys(str(f.get("desc") or "").strip() for f in _sf[:2])
+                                )[:60] or "画面延续"
+                                _blk = (
+                                    f"\n### 节奏缓冲（{_st / 1000:.1f}s~{_en / 1000:.1f}s）\n"
+                                    f"- 该区间无口播对话（{(_en - _st) / 1000:.1f}s 空档），画面为：{_vis}；\n"
+                                    f"- 建议：保留直播环境音/垫乐作节奏缓冲，或插入关键信息字幕预告"
+                                    f"（如'金哥母带曝光'）防止观众流失，避免画面断层感。\n"
+                                )
+                                _ins.append((_b.seq, _blk))
+                        for _bseq, _blk in reversed(_ins):
+                            _pp = re.split(rf"(?=### 段{_bseq}[^\n]*)", full_script, maxsplit=1)
+                            if len(_pp) == 2:
+                                full_script = _pp[0] + _blk + _pp[1]
+
                     # 动态事件 → 编导语言（harness 确定性翻译，不再是算法原始数据）
                     def _evt_director(e: dict[str, Any]) -> str:
                         _t = int(e.get("t_ms") or 0) / 1000
