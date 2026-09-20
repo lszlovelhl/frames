@@ -1866,7 +1866,8 @@ async def run_three_layer(
     # ---------- L4.5 完整脚本还原（脚本厚度：成文、可读、可直接给编导用）----------
     full_script: str | None = None
     q45: dict[str, Any] = {"errors": []}
-    if seg_rows and sentence_rows:
+    if seg_rows:
+        # BGM/氛围型（sentence_rows 为空）也必须出成稿：L4.5 走"无口播"分支写画面内容行
         await report("L4.5", 76, "三层链路 · L4.5 完整脚本还原…")
         try:
             from app.ai import chat as _ai_chat  # 延迟导入，避免模块级循环
