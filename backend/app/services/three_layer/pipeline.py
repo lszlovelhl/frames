@@ -1638,6 +1638,7 @@ async def run_three_layer(
                 _prev.end_ms = _cur.end_ms
                 _prev.end_sentence_seq = _cur.end_sentence_seq
                 seg_rows.pop(_i)
+                db.delete(_cur)  # ORM 对象已 add 到 session，必须显式删除，否则 flush 仍会 INSERT
                 warnings.append(
                     f"BGM 型短段合并：段{_cur.seq}（{_cur.start_ms}~{_cur.end_ms}ms <3s）并入前段"
                 )
