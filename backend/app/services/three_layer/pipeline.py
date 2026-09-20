@@ -1627,6 +1627,37 @@ async def run_three_layer(
         # 合并后 seq 重排（避免跳号，fs 段落头 1..N 连续）
         for _n, _s in enumerate(seg_rows, start=1):
             _s.seq = _n
+    # --- BGM/氛围型 harness 确定性修复（编导审稿 v1 发现）---
+    # ① 短段合并：scenes 切出 <3s 的段（如 1.6s 高台）并入前一段，避免"1.6s 撑独立段+画面行时长矛盾"
+    if bgm_ambience and len(seg_rows) > 1:
+        _i = 1
+        while _i < len(seg_rows):
+            _cur = seg_rows[_i]
+            if (_cur.end_ms - _cur.start_ms) < 3000:
+                _prev = seg_rows[_i - 1]
+                _prev.end_ms = _cur.end_ms
+                _prev.end_sentence_seq = _cur.end_sentence_seq
+                seg_rows.pop(_i)
+                warnings.append(
+                    f"BGM 型短段合并：段{_cur.seq}（{_cur.start_ms}~{_cur.end_ms}ms <3s）并入前段"
+                )
+            else:
+                _i += 1
+        for _n, _s in enumerate(seg_rows, start=1):
+            _s.seq = _n
+    # ② 峰值按场景从情绪曲线算（BGM 型模型编的 emotion_peak 全相同=无曲线）：
+    #    每段时间范围内取 intensity_series 均值，覆盖模型编值
+    if bgm_ambience and curve is not None and curve.intensity_series:
+        _pts = curve.intensity_series
+        if _pts and isinstance(_pts[0], str):
+            try:
+                _pts = json.loads(_pts[0])
+            except Exception:
+                _pts = []
+        for _s in seg_rows:
+            _vals = [float(v) for (t, v) in _pts if _s.start_ms <= t <= _s.end_ms]
+            if _vals:
+                _s.emotion_peak = round(sum(_vals) / len(_vals), 1)
     await db.flush()
     counts["script_segment"] = len(seg_rows)
     await db.commit()
