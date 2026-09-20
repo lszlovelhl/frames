@@ -884,7 +884,26 @@ async def run_three_layer(
     # 不进句子层（避免直播弹幕"人气榜/抽奖"混入台词）；口播稀少（纯 BGM 视频）时
     # 画面字幕才是真实叙事，保留进句子层
     asr_count = sum(1 for u in units if str(u.get("source") or "") != "ocr")
-    if asr_count >= 6 and any(str(u.get("source") or "") == "ocr" for u in units):
+    # BGM/氛围型判定（扩品类验证·舞狮 43s 暴露）：
+    # 口播≤1句 + OCR 去重后≤2条（覆盖水印/标题，如"广西藤县狮王 高桩舞狮精彩绝伦无与伦比"
+    # 全程覆盖）→ 纯氛围视频：口播是背景音乐歌词/环境音、字幕是水印，都不是叙事台词。
+    # 句子层置空，拆解走纯画面场景分支（L3 按画面场景分段、逐句区写画面内容行），
+    # 避免 OCR 水印当台词反复逐句、乱码歌词被硬编语义（编导审稿红线）。
+    bgm_ambience = False
+    if asr_count < 6:
+        _ocr_t = {
+            str(u.get("text") or "").strip()
+            for u in units
+            if str(u.get("source") or "") == "ocr" and str(u.get("text") or "").strip()
+        }
+        if asr_count <= 1 and len(_ocr_t) <= 2:
+            bgm_ambience = True
+            warnings.append(
+                "BGM/氛围型视频（口播≤1句 + OCR 为覆盖水印/标题）：句子层置空，"
+                "拆解改走纯画面场景分支（L3 按画面场景分段、逐句区写画面内容行）")
+    if bgm_ambience:
+        units = []
+    elif asr_count >= 6 and any(str(u.get("source") or "") == "ocr" for u in units):
         ocr_n = sum(1 for u in units if str(u.get("source") or "") == "ocr")
         units = [u for u in units if str(u.get("source") or "") != "ocr"]
         warnings.append(f"口播句充足（{asr_count}句），画面字幕 {ocr_n} 条仅作画面参考，未进句子层")
@@ -1191,7 +1210,30 @@ async def run_three_layer(
         f"【#03 逐句转写（含毫秒，行号即 line_no）】\n{transcript}\n\n片长：{duration_ms}ms"
         + hint_text
     )
-    ok3, data3, q3 = await _run_layer(
+    if bgm_ambience:
+        # BGM/氛围型：无口播可锚定，跳过 L3 模型分段（flash 无台词可切必乱切），
+        # harness 按画面场景（scenes）确定性切段——时间精确归 harness、语义归画面场景。
+        _scenes = ((manifest or {}).get("scenes") or [])
+        if not _scenes:
+            _scenes = [{"start_ms": 0, "end_ms": dur_ms, "subject": str(video.title or "")[:12], "action": "", "change_note": ""}]
+        segments_json = [
+            {
+                "seq": i, "seg_type": "高潮" if i == len(_scenes) else "铺垫",
+                "title": (f"{sc.get('subject') or ''}{sc.get('action') or ''}")[:28],
+                "start_ms": int(sc.get("start_ms") or (0 if i == 1 else segments_json[-1]["end_ms"] if 'segments_json' in dir() else 0)),
+                "end_ms": int(sc.get("end_ms") or dur_ms),
+                "purpose": f"画面场景 {i}/{len(_scenes)}（{sc.get('change_note') or '画面延续'}）",
+                "summary": f"画面场景 {i}：{sc.get('subject') or ''}{sc.get('action') or ''}",
+                "emotion_level": stats["baseline_intensity"] or 0,
+            }
+            for i, sc in enumerate(_scenes, start=1)
+        ]
+        ok3, data3, q3 = True, {"segments": segments_json}, {
+            "items": len(segments_json), "skipped": "bgm_ambience", "prompt_version": 1}
+        quality["L3"] = q3
+        await report("L3", 62, f"三层链路 · L3 画面场景分段（BGM/氛围型，{len(segments_json)} 段）…")
+    else:
+        ok3, data3, q3 = await _run_layer(
         db, video=video, analysis_id=analysis_id, layer=3,
         user_text=l3_user, model=model, array_keys=LAYER_ARRAY_KEYS[3], max_tokens=16384,
     )
@@ -1200,7 +1242,7 @@ async def run_three_layer(
     # 段数契约强校验：目标段数按片长折算（编导颗粒度：50s 至少 5 个功能段），
     # 低于目标自动重试一次并附校验反馈（flash 免费档常见 1~4 段，需强反馈细分）
     target_seg_n = max(L3_SEGMENT_MIN, min(8, round(duration_ms / 10000)))
-    if len(segments_json) < target_seg_n:
+    if not bgm_ambience and len(segments_json) < target_seg_n:
         retry_hint = (
             f"\n\n【校验反馈】上次返回 {len(segments_json)} 段，本片 {duration_ms / 1000:.0f}s"
             f"按颗粒度应拆 {target_seg_n}~{L3_SEGMENT_MAX} 个功能段"
@@ -1233,7 +1275,7 @@ async def run_three_layer(
         if (s.get("line_from") is not None and s.get("line_from") != "")
         or (s.get("line_to") is not None and s.get("line_to") != "")
     )
-    if asr_count >= 6 and 0 < asr_seg_n < 2:
+    if not bgm_ambience and asr_count >= 6 and 0 < asr_seg_n < 2:
         retry_hint2 = (
             f"\n\n【校验反馈】口播句充足（{asr_count} 句），但口播段只有 {asr_seg_n} 个。"
             f"请按叙事阶段把口播内容切成 ≥2 个口播段（如：开场引入→冲突/话题展开→收尾/转折），"
@@ -1636,7 +1678,15 @@ async def run_three_layer(
     l4_chunks = [sentences[i:i + chunk_size] for i in range(0, len(sentences), chunk_size)]
     sentences_json: list[dict[str, Any]] = []
     q4_agg: dict[str, Any] = {"chunks": len(l4_chunks), "ok_chunks": 0, "items": 0, "layer_errors": []}
+    if bgm_ambience:
+        # BGM/氛围型：句子层已置空，无句子可还原，跳过 L4（L4.5 逐句区改画面内容行）
+        q4_agg["skipped"] = "bgm_ambience"
+        quality["L4"] = q4_agg
     for idx, part in enumerate(l4_chunks, start=1):
+        if bgm_ambience:
+            break
+        await report("L4", 70, f"三层链路 · L4 句子级还原（{idx}/{len(l4_chunks)} 批）…")
+        part_transcript = _fmt_transcript(part)
         await report("L4", 70, f"三层链路 · L4 句子级还原（{idx}/{len(l4_chunks)} 批）…")
         part_transcript = _fmt_transcript(part)
         l4_user = (
@@ -1659,7 +1709,7 @@ async def run_three_layer(
         else:
             q4_agg["layer_errors"].append(f"第{idx}批：{data4.get('layer_error')}")
     quality["L4"] = q4_agg
-    if not sentences_json:
+    if not sentences_json and not bgm_ambience:
         return {"ok": False, "error": "L4 全部批次调用失败：" + "；".join(map(str, q4_agg["layer_errors"]))[:300],
                 "counts": counts, "verdicts": verdicts}
     # 按行号归并、seq 重排，保证句序与时间轴一致
@@ -1837,6 +1887,8 @@ async def run_three_layer(
             # 口播充足时画面文字多为弹幕/UI 噪音，L4.5 场景记忆不传 text_overlay（防污染脚本）
             _overlay_is_signal = asr_count < 6
             l45_input = {
+                "口播情况": "无口播（BGM/氛围型，句子层为空，逐句区一律写画面内容行）"
+                    if bgm_ambience else f"口播 {len(sentences)} 句",
                 "定调": {
                     "核心思想": script.core_idea,
                     "内容走向": script.content_trend,
@@ -1941,7 +1993,8 @@ async def run_three_layer(
                     flags=re.M,
                 )
                 raw45 = re.sub(r"\n\s*[-*]?\s*\*\*?差异化硬约束\*\*?[:：]\s*", "\n补充：", raw45)
-                min_len = max(1600, len(seg_rows) * 500)  # 编导厚度下限：按段数 2段1600/3段1600/4段2000
+                min_len = (max(1000, len(seg_rows) * 400) if bgm_ambience
+                           else max(1600, len(seg_rows) * 500))  # 编导厚度下限：按段数 2段1600/3段1600/4段2000；BGM/氛围型画面内容行为主，下限放宽
                 hard_min = int(min_len * 0.9)  # 10% 容差：差一点不整稿作废，记 warning
                 seg_marks = raw45.count("###")
                 cliche_tail = len(re.findall(r"适用于任何需要[^\n。]*", raw45))
@@ -1981,7 +2034,8 @@ async def run_three_layer(
                         seg_marks = raw45.count("###")
                         placeholder_hit = bool(
                             re.search(r"\{[a-z_]+\}|段N\b|{seg|{title", raw45))
-                        min_len = max(1600, len(seg_rows) * 500)
+                        min_len = (max(1000, len(seg_rows) * 400) if bgm_ambience
+                                   else max(1600, len(seg_rows) * 500))
                         hard_min = int(min_len * 0.9)
                         thickness_hit = len(raw45) < hard_min  # 重试后仍薄 → 放行自愈加厚
                         if placeholder_hit or seg_marks < len(seg_rows):
