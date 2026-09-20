@@ -1814,7 +1814,7 @@ async def run_three_layer(
     verdicts.append(r4_verdict.as_dict())
     quality["sentence_range"] = list(validator.sentence_range())
 
-    if not sentence_rows:
+    if not sentence_rows and not bgm_ambience:
         return {"ok": False, "error": "L4 句子全部未通过校验（R8 原话一致/R11 反标签等硬拦截）", "counts": counts, "verdicts": verdicts}
 
     # 曲线值回填句级强度 + 峰/谷/turn 标记
