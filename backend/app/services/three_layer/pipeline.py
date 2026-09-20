@@ -1216,17 +1216,33 @@ async def run_three_layer(
         _scenes = ((manifest or {}).get("scenes") or [])
         if not _scenes:
             _scenes = [{"start_ms": 0, "end_ms": dur_ms, "subject": str(video.title or "")[:12], "action": "", "change_note": ""}]
+        # 短段合并：scenes 切出 <3s 的场景（如 1.6s 高台）并入前一场景，
+        # 避免"1.6s 撑独立段+画面行时长矛盾"（编导审稿 v1 发现）
+        _merged_scenes: list[dict] = []
+        for sc in _scenes:
+            _st = int(sc.get("start_ms") or 0)
+            _en = int(sc.get("end_ms") or dur_ms)
+            if _merged_scenes and (_en - _st) < 3000:
+                _merged_scenes[-1]["end_ms"] = _en
+                _merged_scenes[-1]["action"] = (
+                    (_merged_scenes[-1].get("action") or "") + "｜" + (sc.get("action") or "")
+                )[:40]
+            else:
+                _merged_scenes.append({"start_ms": _st, "end_ms": _en,
+                                       "subject": sc.get("subject") or "",
+                                       "action": sc.get("action") or "",
+                                       "change_note": sc.get("change_note") or "画面延续"})
         segments_json = [
             {
-                "seq": i, "seg_type": "高潮" if i == len(_scenes) else "铺垫",
+                "seq": i, "seg_type": "高潮" if i == len(_merged_scenes) else "铺垫",
                 "title": (f"{sc.get('subject') or ''}{sc.get('action') or ''}")[:28],
-                "start_ms": int(sc.get("start_ms") or (0 if i == 1 else segments_json[-1]["end_ms"] if 'segments_json' in dir() else 0)),
-                "end_ms": int(sc.get("end_ms") or dur_ms),
-                "purpose": f"画面场景 {i}/{len(_scenes)}（{sc.get('change_note') or '画面延续'}）",
+                "start_ms": sc.get("start_ms"),
+                "end_ms": sc.get("end_ms"),
+                "purpose": f"画面场景 {i}/{len(_merged_scenes)}（{sc.get('change_note') or '画面延续'}）",
                 "summary": f"画面场景 {i}：{sc.get('subject') or ''}{sc.get('action') or ''}",
                 "emotion_level": stats["baseline_intensity"] or 0,
             }
-            for i, sc in enumerate(_scenes, start=1)
+            for i, sc in enumerate(_merged_scenes, start=1)
         ]
         ok3, data3, q3 = True, {"segments": segments_json}, {
             "items": len(segments_json), "skipped": "bgm_ambience", "prompt_version": 1}
@@ -1628,26 +1644,8 @@ async def run_three_layer(
         for _n, _s in enumerate(seg_rows, start=1):
             _s.seq = _n
     # --- BGM/氛围型 harness 确定性修复（编导审稿 v1 发现）---
-    # ① 短段合并：scenes 切出 <3s 的段（如 1.6s 高台）并入前一段，避免"1.6s 撑独立段+画面行时长矛盾"
-    if bgm_ambience and len(seg_rows) > 1:
-        _i = 1
-        while _i < len(seg_rows):
-            _cur = seg_rows[_i]
-            if (_cur.end_ms - _cur.start_ms) < 3000:
-                _prev = seg_rows[_i - 1]
-                _prev.end_ms = _cur.end_ms
-                _prev.end_sentence_seq = _cur.end_sentence_seq
-                seg_rows.pop(_i)
-                db.delete(_cur)  # ORM 对象已 add 到 session，必须显式删除，否则 flush 仍会 INSERT
-                warnings.append(
-                    f"BGM 型短段合并：段{_cur.seq}（{_cur.start_ms}~{_cur.end_ms}ms <3s）并入前段"
-                )
-            else:
-                _i += 1
-        for _n, _s in enumerate(seg_rows, start=1):
-            _s.seq = _n
-    # ② 峰值按场景从情绪曲线算（BGM 型模型编的 emotion_peak 全相同=无曲线）：
-    #    每段时间范围内取 intensity_series 均值，覆盖模型编值
+    # 峰值按场景从情绪曲线算（BGM 型模型编的 emotion_peak 全相同=无曲线）：
+    # 每段时间范围内取 intensity_series 均值，覆盖模型编值
     if bgm_ambience and curve is not None and curve.intensity_series:
         _pts = curve.intensity_series
         if _pts and isinstance(_pts[0], str):
