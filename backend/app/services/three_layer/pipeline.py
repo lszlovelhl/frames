@@ -2251,9 +2251,18 @@ async def run_three_layer(
                             r"【剪辑】[^；\n]{0,8}(?:正常|常规|平稳|自然)",
                         ]
                         _sent_lines = re.findall(r"〔句\d+[^\n〕〕]*〕[^\n]*", full_script)
+                        _dub_q2 = {
+                            str(r.quote or "").strip()
+                            for r in sentence_rows if _flag_asr_dubious(str(r.quote or ""))
+                        }
                         _bad = [
                             ln for ln in _sent_lines
-                            if "语音不清" not in ln and any(re.search(pp, ln) for pp in _tpl_pats)
+                            if "语音不清" not in ln
+                            and not any(
+                                re.search(r'〔句\d+[^〕〕]*〕["“]?(' + re.escape(q)[:40] + ')', ln)
+                                for q in _dub_q2
+                            )
+                            and any(re.search(pp, ln) for pp in _tpl_pats)
                         ]
                         if _bad:
                             _fix_map = {}
@@ -2312,7 +2321,18 @@ async def run_three_layer(
                                             _qq = _oq.group(1).strip().replace(" ", "") if _oq else ""
                                             _nqq = _nq.group(1).strip().replace(" ", "") if _nq else ""
                                             if _oq and _nq and (_qq == _nqq or (_qq and _nqq and (_qq in _nqq or _nqq in _qq))):
-                                                _fix_map[_ln] = _out
+                                                # 模型常只输出【功能】→ 缺【剪辑】【节奏】时从原行补回（保证三要素完整）
+                                                _oc = re.search(r'【剪辑】[^；\n}]{2,44}', _ln)
+                                                _or = re.search(r'【节奏】[^；\n}]{2,20}', _ln)
+                                                if "【剪辑】" not in _out and _oc:
+                                                    _out = _out.rstrip("；。") + "；" + _oc.group(0)
+                                                if "【节奏】" not in _out and _or:
+                                                    _out = _out.rstrip("；。") + "；" + _or.group(0)
+                                                if "【剪辑】" in _out and "【节奏】" in _out:
+                                                    _fix_map[_ln] = _out
+                                                else:
+                                                    logger.warning(
+                                                        "L4.5 逐句局部重写三要素不全: %s", _out[:120])
                                             else:
                                                 logger.warning(
                                                     "L4.5 逐句局部重写 quote 不一致: %s", _out[:120])
@@ -2505,6 +2525,14 @@ async def run_three_layer(
                             for f in seg_frames[:4]:
                                 t = int(f.get("start_ms") or 0) / 1000
                                 desc = (f.get("desc") or "").strip().rstrip("。")[:46]
+                                # 编导审稿：分镜不得用主观心理描写（"眼神困惑/好奇"）——
+                                # 纯主观帧降级为"面部特写"标记；含视觉元素（标题/字幕/文字/背景）的帧保留
+                                if re.search(
+                                    r"眼神|表情|困惑|好奇|专注|思考|平静|严肃|微笑|皱眉|惊讶|神态|情绪", desc
+                                ) and not re.search(
+                                    r"标题|字幕|文字|数字|文本框|评论|背景|大字|沙发|墙壁|白色", desc
+                                ):
+                                    desc = "面部特写（表情延续，无新增画面信息）"
                                 style = f.get("style") or ""
                                 item = f"{desc}（{t:.0f}s，{style}）"
                                 if item not in seen:
