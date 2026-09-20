@@ -2055,8 +2055,44 @@ async def run_three_layer(
                 elif res45.get("finish_reason") == "length":
                     q45["errors"].append("成稿被 max_tokens 截断，请后续增大额度")
                 else:
+                    # 主调用返回空（provider 静默失败 ok=0/reply 空）→ 显式记错并重试一次
+                    if not raw45 and not retried:
+                        retried = True
+                        q45["warnings"] = (q45.get("warnings") or []) + [
+                            "首次成稿为空（provider 静默失败/无返回），自动重试"]
+                        logger.info("L4.5 空成稿重试：reply 为空")
+                        res45 = await _ai_chat(
+                            [
+                                {"role": "system", "content": system45},
+                                {
+                                    "role": "user",
+                                    "content": json.dumps(
+                                        l45_input, ensure_ascii=False, indent=1),
+                                },
+                            ],
+                            model=model,
+                            max_tokens=16384,
+                            json_mode=False,
+                            timeout=300,
+                            scene="tl45_script",
+                        )
+                        raw45 = (res45.get("reply") or "").strip()
+                        raw45 = re.sub(r"^```(?:markdown)?\s*", "", raw45)
+                        raw45 = re.sub(r"\s*```\s*$", "", raw45)
+                        seg_marks = raw45.count("###")
+                        placeholder_hit = bool(
+                            re.search(r"\{[a-z_]+\}|段N\b|{seg|{title", raw45))
+                        if not raw45:
+                            q45["errors"].append(
+                                "L4.5 重试后成稿仍为空（provider 无返回），请检查服务商状态")
+                        else:
+                            full_script = raw45[:20000]
+                            q45["errors"] = []
+                    elif not raw45:
+                        q45["errors"].append(
+                            "L4.5 主调用返回空且重试后仍空，成稿为空（provider 静默失败）")
                     # 多段且未重试过：先压缩重试一次（段落唯一性硬约束）
-                    if seg_marks > len(seg_rows) and not retried:
+                    elif seg_marks > len(seg_rows) and not retried:
                         retried = True
                         q45["warnings"] = (q45.get("warnings") or []) + [
                             f"首次成稿拆段（{seg_marks}段>输入{len(seg_rows)}段），自动重试压缩"
