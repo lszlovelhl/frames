@@ -2507,7 +2507,7 @@ async def run_three_layer(
                                     "剪辑必须点名具体动作（留白秒数/快切/卡点/切黑/特写/音效/镜头运动），"
                                     "结合本句原话，与已有逐句不雷同。")},
                                 {"role": "user", "content": f"缺失句：\n{_miss_txt}\n\n输出：每句一行。"},
-                            ])
+                            ], model="pro", timeout=600)  # 补齐用 pro（qwen3.5），格式一致
                             _new_lines = [
                                 ln.strip() for ln in ((_resp or {}).get("reply") or "").split("\n")
                                 if "〔句" in ln and "【剪辑】" in ln
