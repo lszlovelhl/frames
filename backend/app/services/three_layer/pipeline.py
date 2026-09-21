@@ -1987,10 +1987,10 @@ async def run_three_layer(
                                     l45_input, ensure_ascii=False, indent=1),
                             },
                         ],
-                        model=model,
+                        model="pro",  # 成稿用 pro（本地 qwen3.5）
                         max_tokens=16384,
                         json_mode=False,
-                        timeout=300,
+                        timeout=600,  # 本地推理慢，加长超时
                         scene="tl45_script",
                     )
                     break
@@ -2041,10 +2041,10 @@ async def run_three_layer(
                                         l45_input, ensure_ascii=False, indent=1),
                                 },
                             ],
-                            model=model,
+                            model="pro",  # 成稿用 pro（本地 qwen3.5）
                             max_tokens=16384,
                             json_mode=False,
-                            timeout=300,
+                            timeout=600,  # 本地推理慢，加长超时
                             scene="tl45_script",
                         )
                         raw45 = (res45.get("reply") or "").strip()
@@ -2089,10 +2089,10 @@ async def run_three_layer(
                                         l45_input, ensure_ascii=False, indent=1),
                                 },
                             ],
-                            model=model,
+                            model="pro",  # 成稿用 pro（本地 qwen3.5）
                             max_tokens=16384,
                             json_mode=False,
-                            timeout=300,
+                            timeout=600,  # 本地推理慢，加长超时
                             scene="tl45_script",
                         )
                         raw45 = (res45.get("reply") or "").strip()
