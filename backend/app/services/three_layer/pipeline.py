@@ -2004,6 +2004,13 @@ async def run_three_layer(
                 # harness 后处理：剥掉模型多余的 markdown 代码块围栏
                 raw45 = re.sub(r"^```(?:markdown)?\s*", "", raw45)
                 raw45 = re.sub(r"\s*```\s*$", "", raw45)
+                # harness 后处理：清理美妆模板残留术语
+                for kw in ["话题热度与变现能力", "直播环境音", "对峙点", "秘密开始抛出", "金哥母带曝光"]:
+                    raw45 = raw45.replace(kw, "")
+                # harness 后处理：清理多余闭合符和混排内容
+                raw45 = re.sub(r"\]\s*\n", "\n", raw45)  # 多余闭合符
+                raw45 = re.sub(r"\[实际执行说明\][^\n]*\n?", "", raw45)  # 混排内容
+                raw45 = re.sub(r"\[引用自\s*S\d+\]", "", raw45)  # 不明引用
                 # 模型偶发把"差异化硬约束"写作规则抄成输出字段：剥字段名、保留正文
                 raw45 = re.sub(
                     r"^\s*[-*]?\s*\*\*?差异化硬约束\*\*?[:：]\s*",
