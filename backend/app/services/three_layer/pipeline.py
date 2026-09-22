@@ -2498,6 +2498,7 @@ async def run_three_layer(
                     # 缺失句局部补齐（flash 小调用，三要素格式，插回所属段落逐句区）
                     _present_seqs = {int(m) for m in re.findall(r"〔句(\d+)", full_script)}
                     _all_seqs = {int(r.seq) for r in sentence_rows}
+                    _seg_rng = {sg.seq: (sg.start_sentence_seq, sg.end_sentence_seq) for sg in seg_rows}
                     _missing = sorted(x for x in _all_seqs if x not in _present_seqs)
                     if _missing:
                         q45["warnings"].append(f"L4.5 逐句缺失 {_missing}（模型漏写），触发局部补齐")
@@ -2557,7 +2558,6 @@ async def run_three_layer(
                     full_script = re.sub(r"### 段\d+[^\n]*\n(?=该段画面素材)", "", full_script)
                     # 逐句区按段归属过滤：L4.5 偶发把全片逐句重复写入每个段
                     # （段1 写句1-7、段2 也写句1-7）→ 各段逐句区只保留本段行号区间的句子行
-                    _seg_rng = {sg.seq: (sg.start_sentence_seq, sg.end_sentence_seq) for sg in seg_rows}
 
                     def _filt_seg_block(blk: str, sseq: int) -> str:
                         _lines = []
