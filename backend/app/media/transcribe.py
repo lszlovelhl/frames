@@ -120,7 +120,7 @@ _PROMPT_ECHO_MARKERS = (
 
 # 备用解码配置：(配置名, 是否启用 VAD)
 # 先全量（关 VAD，MV/BGM 混音下人声不会被误滤），退化时再试开 VAD 的配置。
-_DECODE_ATTEMPTS: tuple[tuple[str, bool], ...] = (("novad", False), ("vad", True))
+_DECODE_ATTEMPTS: tuple[tuple[str, bool], ...] = (("novad", False),)
 
 
 def _decode(model, wav: str, vad_filter: bool) -> tuple[str, float, list[dict]]:
