@@ -998,6 +998,7 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
 
   const segments = useMemo(() => result.layers.find((l) => l.layer === 3)?.segments ?? [], [result]);
   const notes = useMemo(() => result.layers.find((l) => l.layer === 4)?.notes ?? [], [result]);
+  const [activeTab, setActiveTab] = useState<"script" | "curve" | "segments" | "elements" | "transcript" | "other">("script");
   const l1c = useMemo(() => (result.layers.find((l) => l.layer === 1)?.content ?? {}) as Record<string, unknown>, [result]);
   const l2c = useMemo(() => (result.layers.find((l) => l.layer === 2)?.content ?? {}) as Record<string, unknown>, [result]);
   const videoUrl = video.media?.video_url ? `${BASE}${video.media.video_url}` : null;
@@ -1153,20 +1154,59 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
         )}
       </div>
 
-      {/* 右列：五层拆解内容 */}
-      <div className="min-w-0 space-y-6">
-        <FullScriptPanel
-          fullScript={result.full_script}
-          body={result.full_script_body}
-          storyboard={result.storyboard}
-        />
-        <L1Panel c={l1c} />
-        <L2Panel c={l2c} />
-        <SegmentsList segments={segments} currentMs={currentMs} onSeek={seekTo} />
-        <NotesList notes={notes} onSeek={seekTo} />
-        <ElementsPanel elements={elements} segments={segments} onSeek={seekTo} onReview={reviewElement} onCreateWithElements={onCreateWithElements} />
-        {detail && <TranscriptPanel segments={detail.transcript_segments} text={detail.transcript_text} onSeek={seekTo} />}
-        <AuditCard result={result} />
+      {/* 右列：五层拆解内容（编导视角 tab 切换） */}
+      <div className="min-w-0 space-y-4">
+        {/* tab 导航 */}
+        <div className="flex gap-1 border-b border-white/10 pb-1">
+          {([
+            ["script", "完整脚本"],
+            ["curve", "情绪曲线"],
+            ["segments", "段落分析"],
+            ["elements", "元素提炼"],
+            ["transcript", "转写"],
+            ["other", "其他"],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={`rounded-t px-3 py-1.5 text-xs transition ${
+                activeTab === key
+                  ? "bg-amber-400/10 text-amber-300 border-b-2 border-amber-400"
+                  : "text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* tab 内容 */}
+        {activeTab === "script" && (
+          <FullScriptPanel
+            fullScript={result.full_script}
+            body={result.full_script_body}
+            storyboard={result.storyboard}
+          />
+        )}
+        {activeTab === "curve" && <L2Panel c={l2c} />}
+        {activeTab === "segments" && (
+          <>
+            <L1Panel c={l1c} />
+            <SegmentsList segments={segments} currentMs={currentMs} onSeek={seekTo} />
+          </>
+        )}
+        {activeTab === "elements" && (
+          <ElementsPanel elements={elements} segments={segments} onSeek={seekTo} onReview={reviewElement} onCreateWithElements={onCreateWithElements} />
+        )}
+        {activeTab === "transcript" && detail && (
+          <TranscriptPanel segments={detail.transcript_segments} text={detail.transcript_text} onSeek={seekTo} />
+        )}
+        {activeTab === "other" && (
+          <>
+            <NotesList notes={notes} onSeek={seekTo} />
+            <AuditCard result={result} />
+          </>
+        )}
       </div>
     </div>
   );
