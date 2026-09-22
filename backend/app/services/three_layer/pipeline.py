@@ -2011,6 +2011,22 @@ async def run_three_layer(
                 raw45 = re.sub(r"\]\s*\n", "\n", raw45)  # 多余闭合符
                 raw45 = re.sub(r"\[实际执行说明\][^\n]*\n?", "", raw45)  # 混排内容
                 raw45 = re.sub(r"\[引用自\s*S\d+\]", "", raw45)  # 不明引用
+                # 编导审稿硬伤检测
+                _qc_issues = []
+                # 1. 美妆残留检测
+                for kw in ["金哥", "母带", "直播环境音", "对峙点", "秘密开始抛出", "话题热度与变现能力"]:
+                    if kw in raw45:
+                        _qc_issues.append(f"美妆残留术语：{kw}")
+                # 2. 剪辑空壳检测
+                _empty_clip = len(re.findall(r"【剪辑】无", raw45))
+                if _empty_clip > 0:
+                    _qc_issues.append(f"剪辑写'无' {_empty_clip} 处")
+                # 3. 套话检测
+                _cliche = len(re.findall(r"实现过渡|实现转折|展现[^，。]{0,4}|传递[^，。]{0,4}", raw45))
+                if _cliche > 3:
+                    _qc_issues.append(f"套话 {_cliche} 处（>3）")
+                if _qc_issues:
+                    q45["warnings"] = (q45.get("warnings") or []) + [f"编导审稿：{'; '.join(_qc_issues)}"]
                 # 模型偶发把"差异化硬约束"写作规则抄成输出字段：剥字段名、保留正文
                 raw45 = re.sub(
                     r"^\s*[-*]?\s*\*\*?差异化硬约束\*\*?[:：]\s*",
