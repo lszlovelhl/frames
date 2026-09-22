@@ -1203,10 +1203,7 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
         )}
         {activeTab === "curve" && <L2Panel c={l2c} />}
         {activeTab === "segments" && (
-          <>
-            <L1Panel c={l1c} />
-            <SegmentsList segments={segments} currentMs={currentMs} onSeek={seekTo} />
-          </>
+          <SegmentsFromScript fullScript={result.full_script} />
         )}
         {activeTab === "elements" && (
           <ElementsPanel elements={elements} segments={segments} onSeek={seekTo} onReview={reviewElement} onCreateWithElements={onCreateWithElements} />
@@ -1304,6 +1301,27 @@ function AuditField({ label, children }: { label: string; children: React.ReactN
     <div className="min-w-0">
       <div className="mb-0.5 text-[10px] uppercase tracking-wide text-zinc-600">{label}</div>
       <div className="break-words text-xs text-zinc-300">{children}</div>
+    </div>
+  );
+}
+
+/** 从 full_script 提取【分场脚本】段落 */
+function SegmentsFromScript({ fullScript }: { fullScript?: string }) {
+  if (!fullScript) return null;
+  // 提取【分场脚本】部分
+  const idx = fullScript.indexOf("【分场脚本】");
+  if (idx < 0) return null;
+  const segPart = fullScript.slice(idx);
+  // 按 ### 段 分割
+  const segs = segPart.split(/### 段/).slice(1);
+  if (!segs.length) return <pre className="text-sm text-zinc-300 whitespace-pre-wrap">{segPart}</pre>;
+  return (
+    <div className="space-y-4">
+      {segs.map((seg, i) => (
+        <div key={i} className="rounded-lg border border-white/10 bg-white/[0.02] p-4">
+          <pre className="text-sm text-zinc-300 whitespace-pre-wrap">{`段${seg}`}</pre>
+        </div>
+      ))}
     </div>
   );
 }
