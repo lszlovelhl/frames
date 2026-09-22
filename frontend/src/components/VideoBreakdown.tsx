@@ -153,17 +153,30 @@ function L2Panel({ c }: { c: Record<string, unknown> }) {
     <Card label="L2 宏观扫描">
       {curve.length > 0 && (
         <div className="mb-5">
-          <div className="mb-2 flex items-end gap-1.5" style={{ height: 80 }}>
+          <svg viewBox="0 0 1000 200" className="w-full" style={{ height: 160 }}>
+            {/* 网格线 */}
+            {[0, 50, 100, 150, 200].map((y) => (
+              <line key={y} x1="0" y1={y} x2="1000" y2={y} stroke="rgba(255,255,255,0.05)" strokeWidth="1" />
+            ))}
+            {/* 曲线 */}
+            <path
+              d={curve.map((pt, i) => {
+                const x = (i / (curve.length - 1)) * 1000;
+                const y = 200 - (Number(pt.level ?? 0) / 10) * 200;
+                return i === 0 ? `M ${x} ${y}` : `L ${x} ${y}`;
+              }).join(" ")}
+              fill="none"
+              stroke="#fbbf24"
+              strokeWidth="2.5"
+            />
+            {/* 数据点 */}
             {curve.map((pt, i) => {
-              const h = Math.max(8, Math.min(72, Number(pt.level ?? 0) * 8));
-              return (
-                <div key={i} className="flex flex-1 flex-col justify-end">
-                  <div className="w-full rounded-t bg-gradient-to-t from-amber-400/40 to-amber-300/70" style={{ height: h }} title={`${pt.phase ?? ""} ${pt.level ?? ""}`} />
-                </div>
-              );
+              const x = (i / (curve.length - 1)) * 1000;
+              const y = 200 - (Number(pt.level ?? 0) / 10) * 200;
+              return <circle key={i} cx={x} cy={y} r="3" fill="#fbbf24" title={`${pt.phase ?? ""} ${pt.level ?? ""}`} />;
             })}
-          </div>
-          <div className="flex gap-1.5">
+          </svg>
+          <div className="flex gap-1.5 mt-1">
             {curve.map((pt, i) => (
               <div key={i} className="flex-1 truncate text-center text-[9px] text-zinc-600">
                 {pt.phase}
