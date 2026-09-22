@@ -825,7 +825,8 @@ class LibTag(CreatedAtMixin, Base):
     __tablename__ = "lib_tag"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    code: Mapped[str] = mapped_column(String(64), unique=True)
+    code: Mapped[str] = mapped_column(String(64))
+    source_video_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # per-video 隔离
     label: Mapped[str] = mapped_column(String(64))
     dimension: Mapped[str] = mapped_column(String(32))
     is_controlled: Mapped[int] = mapped_column(
@@ -846,7 +847,8 @@ class LibTopic(TimestampMixin, Base):
     __tablename__ = "lib_topic"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    code: Mapped[str] = mapped_column(String(64), unique=True)
+    code: Mapped[str] = mapped_column(String(64))
+    source_video_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # per-video 隔离
     name: Mapped[str] = mapped_column(String(128))
     topic_type: Mapped[str] = mapped_column(String(32))
     audience: Mapped[str] = mapped_column(Text)
@@ -885,7 +887,8 @@ class LibHook(TimestampMixin, Base):
     __tablename__ = "lib_hook"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    code: Mapped[str] = mapped_column(String(64), unique=True)
+    code: Mapped[str] = mapped_column(String(64))
+    source_video_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # per-video 隔离
     name: Mapped[str] = mapped_column(String(128))
     hook_type: Mapped[str] = mapped_column(String(32))
     position: Mapped[str] = mapped_column(String(16))
@@ -920,7 +923,8 @@ class LibCopywriting(TimestampMixin, Base):
     __tablename__ = "lib_copywriting"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    code: Mapped[str] = mapped_column(String(64), unique=True)
+    code: Mapped[str] = mapped_column(String(64))
+    source_video_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # per-video 隔离
     name: Mapped[str] = mapped_column(String(128))
     copy_type: Mapped[str] = mapped_column(String(32))
     sentence_pattern: Mapped[str] = mapped_column(Text)
@@ -951,7 +955,8 @@ class LibQuote(TimestampMixin, Base):
     __tablename__ = "lib_quote"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    code: Mapped[str] = mapped_column(String(64), unique=True)
+    code: Mapped[str] = mapped_column(String(64))
+    source_video_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # per-video 隔离
     text: Mapped[str] = mapped_column(Text)
     structure: Mapped[str] = mapped_column(Text)
     rewrite_template: Mapped[str] = mapped_column(Text)
@@ -979,7 +984,8 @@ class LibMethod(TimestampMixin, Base):
     __tablename__ = "lib_method"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
-    code: Mapped[str] = mapped_column(String(64), unique=True)  # {类}.{域}.{短名}
+    code: Mapped[str] = mapped_column(String(64))
+    source_video_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # per-video 隔离  # {类}.{域}.{短名}
     name: Mapped[str] = mapped_column(String(128))
     category: Mapped[str] = mapped_column(String(32))
     controlled_tag: Mapped[str] = mapped_column(String(32))
