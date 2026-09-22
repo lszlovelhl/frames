@@ -803,6 +803,64 @@ async def purge_three_layer(db: AsyncSession, video_id) -> None:
     await db.flush()
 
 
+
+async def _understand_video_frames(
+    shots: list[dict[str, Any]],
+    model: str = "vision",
+) -> str:
+    """用 glm-4v-flash 分段理解视频关键帧，输出画面理解摘要。"""
+    import base64
+    import os
+    from app.ai import chat as _ai_chat
+
+    if not shots:
+        return ""
+
+    # 每 5 帧一段
+    frames_per_segment = 5
+    segments = []
+    for i in range(0, len(shots), frames_per_segment):
+        seg_shots = shots[i:i + frames_per_segment]
+        if seg_shots:
+            segments.append(seg_shots)
+
+    segment_summaries = []
+    for i, seg_shots in enumerate(segments):
+        content = [{"type": "text", "text": f"这是视频第 {i+1} 段的关键帧，简单描述画面内容、人物、场景、动作、字幕文字"}]
+        for s in seg_shots:
+            path = s.get("path", "")
+            if not path or not os.path.exists(path):
+                continue
+            try:
+                with open(path, 'rb') as fh:
+                    img_b64 = base64.b64encode(fh.read()).decode()
+                content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}})
+            except Exception:
+                continue
+
+        if len(content) <= 1:  # 没有图片
+            segment_summaries.append(f"第 {i+1} 段：无可用帧图")
+            continue
+
+        try:
+            res = await _ai_chat(
+                [{"role": "user", "content": content}],
+                model=model,
+                max_tokens=500,
+                timeout=60,
+                scene="video_understand",
+            )
+            summary = res.get("reply", "").strip()
+            t_start = seg_shots[0].get("start_ms", 0) / 1000
+            t_end = seg_shots[-1].get("end_ms", 0) / 1000
+            segment_summaries.append(f"第 {i+1} 段（{t_start:.1f}s-{t_end:.1f}s）：{summary}")
+        except Exception as e:
+            logger.warning("视频理解第 %d 段失败：%s", i+1, str(e)[:100])
+            segment_summaries.append(f"第 {i+1} 段：理解失败")
+
+    return "\n".join(segment_summaries)
+
+
 async def run_three_layer(
     db: AsyncSession,
     video: M.Video,
@@ -1905,7 +1963,14 @@ async def run_three_layer(
             }
             # 口播充足时画面文字多为弹幕/UI 噪音，L4.5 场景记忆不传 text_overlay（防污染脚本）
             _overlay_is_signal = asr_count < 6
+            # 分段理解视频关键帧（glm-4v-flash 看图）
+            try:
+                frame_summary = await _understand_video_frames(shots, model="vision")
+            except Exception as e:
+                logger.warning("视频理解失败：%s", str(e)[:100])
+                frame_summary = ""
             l45_input = {
+                "画面理解摘要": frame_summary,
                 "口播情况": "无口播（BGM/氛围型，句子层为空，逐句区一律写画面内容行）"
                     if bgm_ambience else f"口播 {len(sentences)} 句",
                 "定调": {
