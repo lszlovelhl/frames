@@ -36,25 +36,6 @@ const STAT_FIELDS: Array<[string, string]> = [
 const fmtShortTime = (iso: string | null): string =>
   iso ? new Date(iso).toLocaleString("zh-CN", { hour12: false }) : "—";
 
-const SEG_TYPE_COLORS: Record<string, string> = {
-  钩子: "bg-rose-400/15 text-rose-300 border-rose-400/20",
-  铺垫: "bg-zinc-400/10 text-zinc-300 border-zinc-400/20",
-  冲突: "bg-orange-400/15 text-orange-300 border-orange-400/20",
-  转折: "bg-violet-400/15 text-violet-300 border-violet-400/20",
-  高潮: "bg-amber-400/15 text-amber-300 border-amber-400/20",
-  干货: "bg-sky-400/15 text-sky-300 border-sky-400/20",
-  CTA: "bg-emerald-400/15 text-emerald-300 border-emerald-400/20",
-};
-
-const SEG_TYPE_BAR: Record<string, string> = {
-  钩子: "bg-rose-400",
-  铺垫: "bg-zinc-400",
-  冲突: "bg-orange-400",
-  转折: "bg-violet-400",
-  高潮: "bg-amber-400",
-  干货: "bg-sky-400",
-  CTA: "bg-emerald-400",
-};
 
 const NOTE_TYPE_LABEL: Record<string, string> = {
   transcript: "话术",
@@ -74,12 +55,6 @@ const ELEMENT_STATUS: Record<string, { label: string; cls: string; btn: string }
 
 const ELEMENT_CATEGORIES = ["选题", "钩子", "结构", "话术", "情绪", "视觉", "剪辑手法", "声音设计", "运营策略"];
 
-function segTypeColor(type: string): string {
-  return SEG_TYPE_COLORS[type] ?? "bg-zinc-400/10 text-zinc-300 border-zinc-400/20";
-}
-function segTypeBar(type: string): string {
-  return SEG_TYPE_BAR[type] ?? "bg-zinc-500";
-}
 
 function Card({ label, extra, children }: { label: string; extra?: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -102,48 +77,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-/* ---------------- L1 档案 ---------------- */
-function L1Panel({ c }: { c: Record<string, unknown> }) {
-  const oneLiner = (c.one_liner as string) || "";
-  const topic = c.topic as string;
-  const hook = c.hook_hypothesis as string;
-  const keyPerspective = c.key_perspective as string;
-  const audience = c.target_audience as string;
-  const structure = Array.isArray(c.expected_structure) ? (c.expected_structure as string[]) : [];
-  if (!oneLiner && !topic) return null;
-  return (
-    <div className="overflow-hidden rounded-2xl border border-amber-300/20 bg-gradient-to-br from-amber-300/10 via-[#1c1f26] to-transparent p-5">
-      <div className="flex items-center gap-2">
-        <span className="rounded bg-amber-300/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-200/70">L1</span>
-        <span className="text-[11px] uppercase tracking-wider text-amber-200/60">外围档案 · 一句话结论</span>
-      </div>
-      <div className="mt-3 text-lg font-medium leading-relaxed text-amber-50">{oneLiner || "—"}</div>
-      <div className="mt-5 grid gap-x-8 gap-y-4 text-sm sm:grid-cols-2">
-        <Field label="选题主题">{topic || "—"}</Field>
-        <Field label="目标人群">{audience || "—"}</Field>
-        <div className="sm:col-span-2">
-          <Field label="钩子假设">{hook || "—"}</Field>
-        </div>
-        <div className="sm:col-span-2">
-          <Field label="差异化视角 / 情绪切入点">{keyPerspective || "—"}</Field>
-        </div>
-        {structure.length > 0 && (
-          <div className="sm:col-span-2">
-            <div className="text-[11px] text-zinc-500">预期结构</div>
-            <ol className="mt-1 space-y-1 text-sm text-zinc-300">
-              {structure.map((s, i) => (
-                <li key={i} className="flex gap-2">
-                  <span className="text-zinc-600">{i + 1}.</span>
-                  <span>{s}</span>
-                </li>
-              ))}
-            </ol>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /* ---------------- L2 宏观 ---------------- */
 function L2Panel({ c }: { c: Record<string, unknown> }) {
@@ -200,60 +133,6 @@ function L2Panel({ c }: { c: Record<string, unknown> }) {
 }
 
 /* ---------------- 时间轴 ---------------- */
-function TimelineBar({
-  totalMs,
-  segments,
-  currentMs,
-  onSeek,
-}: {
-  totalMs: number;
-  segments: SegmentInfo[];
-  currentMs: number;
-  onSeek: (ms: number) => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  if (!totalMs || segments.length === 0) return null;
-  function handleClick(e: React.MouseEvent) {
-    const rect = ref.current?.getBoundingClientRect();
-    if (!rect) return;
-    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    onSeek(ratio * totalMs);
-  }
-  return (
-    <div
-      ref={ref}
-      onClick={handleClick}
-      className="relative h-9 w-full cursor-pointer rounded-xl bg-white/[0.03] ring-1 ring-white/5"
-      title="点击跳转到对应时间点"
-    >
-      {segments.map((sg) => {
-        const left = (sg.start_ms / totalMs) * 100;
-        const width = Math.max(1, ((sg.end_ms - sg.start_ms) / totalMs) * 100);
-        return (
-          <div
-            key={sg.seq}
-            className={`absolute top-0 h-full ${segTypeBar(sg.type)} opacity-70 hover:opacity-100`}
-            style={{ left: `${left}%`, width: `${width}%` }}
-            title={`${sg.seq} ${sg.type} ${fmt(sg.start_ms)}-${fmt(sg.end_ms)}`}
-          />
-        );
-      })}
-      {segments.filter((sg) => sg.hook_point).map((sg) => (
-        <span key={`h${sg.seq}`} className="absolute top-1 text-[10px] leading-none text-rose-300" style={{ left: `${(sg.start_ms / totalMs) * 100}%` }}>
-          ⚡
-        </span>
-      ))}
-      {segments.filter((sg) => sg.payoff_point).map((sg) => (
-        <span key={`p${sg.seq}`} className="absolute top-1 text-[10px] leading-none text-emerald-300" style={{ left: `${(sg.start_ms / totalMs) * 100}%` }}>
-          ★
-        </span>
-      ))}
-      {currentMs > 0 && currentMs <= totalMs && (
-        <div className="pointer-events-none absolute top-0 h-full w-0.5 bg-white shadow-[0_0_6px_rgba(255,255,255,0.9)]" style={{ left: `${(currentMs / totalMs) * 100}%` }} />
-      )}
-    </div>
-  );
-}
 
 /* ---------------- 帧条 ---------------- */
 function FrameStrip({ frames, currentMs, onSeek }: { frames: FrameInfo[]; currentMs: number; onSeek: (ms: number) => void }) {
@@ -279,66 +158,6 @@ function FrameStrip({ frames, currentMs, onSeek }: { frames: FrameInfo[]; curren
 }
 
 /* ---------------- L3 结构线 ---------------- */
-function SegmentsList({
-  segments,
-  currentMs,
-  onSeek,
-}: {
-  segments: SegmentInfo[];
-  currentMs: number;
-  onSeek: (ms: number) => void;
-}) {
-  if (segments.length === 0) return null;
-  const activeSeq = segments.find((s) => currentMs >= s.start_ms && currentMs < s.end_ms)?.seq;
-  return (
-    <Card label={`L3 结构线 · ${segments.length} 段`}>
-      <div className="mb-3 flex items-center gap-2">
-        <TimelineBar
-          totalMs={Math.max(...segments.map((s) => s.end_ms))}
-          segments={segments}
-          currentMs={currentMs}
-          onSeek={onSeek}
-        />
-        <div className="flex shrink-0 flex-col gap-0.5 text-[9px] leading-none text-zinc-600">
-          <span className="text-rose-300/80">⚡ HOOK</span>
-          <span className="text-emerald-300/80">★ PAYOFF</span>
-        </div>
-      </div>
-      <div className="flex flex-col gap-2">
-        {segments.map((sg) => {
-          const active = activeSeq === sg.seq;
-          return (
-            <button
-              key={sg.seq}
-              onClick={() => onSeek(sg.start_ms)}
-              className={`flex gap-3 rounded-lg border p-3 text-left transition ${
-                active ? "border-amber-300/50 bg-amber-300/5" : "border-white/5 bg-white/[0.02] hover:border-white/15"
-              }`}
-            >
-              <div className="flex w-7 shrink-0 items-center justify-center rounded bg-white/5 text-xs text-zinc-400">{sg.seq}</div>
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className={`rounded border px-1.5 py-0.5 text-[11px] ${segTypeColor(sg.type)}`}>{sg.type}</span>
-                  {sg.title ? <span className="text-sm font-medium text-zinc-100">{sg.title}</span> : null}
-                  <span className="ml-auto font-mono text-[10px] text-zinc-500">
-                    {fmt(sg.start_ms)}–{fmt(sg.end_ms)}
-                  </span>
-                </div>
-                {sg.summary ? <p className="mt-1 text-xs leading-relaxed text-zinc-400">{sg.summary}</p> : null}
-                {(sg.hook_point || sg.payoff_point) && (
-                  <div className="mt-1 flex gap-1.5 text-[10px]">
-                    {sg.hook_point ? <span className="text-rose-300">⚡ 钩子点</span> : null}
-                    {sg.payoff_point ? <span className="text-emerald-300">★ 兑现点</span> : null}
-                  </div>
-                )}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </Card>
-  );
-}
 
 /* ---------------- L4 细节 ---------------- */
 function NotesList({
@@ -1012,7 +831,6 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
   const segments = useMemo(() => result.layers.find((l) => l.layer === 3)?.segments ?? [], [result]);
   const notes = useMemo(() => result.layers.find((l) => l.layer === 4)?.notes ?? [], [result]);
   const [activeTab, setActiveTab] = useState<"script" | "curve" | "segments" | "elements" | "transcript" | "other">("script");
-  const l1c = useMemo(() => (result.layers.find((l) => l.layer === 1)?.content ?? {}) as Record<string, unknown>, [result]);
   const l2c = useMemo(() => (result.layers.find((l) => l.layer === 2)?.content ?? {}) as Record<string, unknown>, [result]);
   const videoUrl = video.media?.video_url ? `${BASE}${video.media.video_url}` : null;
 
