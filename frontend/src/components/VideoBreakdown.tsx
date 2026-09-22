@@ -173,7 +173,7 @@ function L2Panel({ c }: { c: Record<string, unknown> }) {
             {curve.map((pt, i) => {
               const x = (i / (curve.length - 1)) * 1000;
               const y = 200 - (Number(pt.level ?? 0) / 10) * 200;
-              return <circle key={i} cx={x} cy={y} r="3" fill="#fbbf24" title={`${pt.phase ?? ""} ${pt.level ?? ""}`} />;
+              return <circle key={i} cx={x} cy={y} r="3" fill="#fbbf24"><title>{`${pt.phase ?? ""} ${pt.level ?? ""}`}</title></circle>;
             })}
           </svg>
           <div className="flex gap-1.5 mt-1">
