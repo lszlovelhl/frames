@@ -1716,6 +1716,9 @@ async def run_three_layer(
                 _mult = 0.85 + (0.15 * _i / max(_n - 1, 1))
                 _s.emotion_peak = round(min(_base * _mult, 10.0), 1)
     await db.flush()
+    # 重新编号 seq，确保不重复
+    for i, s in enumerate(seg_rows, start=1):
+        s.seq = i
     counts["script_segment"] = len(seg_rows)
     await db.commit()
     if not seg_rows:
