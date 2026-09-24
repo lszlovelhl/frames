@@ -71,7 +71,7 @@ function Card({ label, extra, children }: { label: string; extra?: React.ReactNo
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="text-[11px] text-zinc-500">{label}</div>
+      <div className="text-xs text-zinc-500">{label}</div>
       <div className="mt-0.5 text-sm leading-relaxed text-zinc-300">{children}</div>
     </div>
   );
@@ -115,6 +115,12 @@ function L2Panel({ c }: { c: Record<string, unknown> }) {
                 {pt.phase}
               </div>
             ))}
+          </div>
+          {/* 时间轴标注 */}
+          <div className="flex gap-1.5 mt-1 text-[9px] text-zinc-600">
+            <div className="flex-1 text-left">0s</div>
+            <div className="flex-1 text-center">中段</div>
+            <div className="flex-1 text-right">结束</div>
           </div>
         </div>
       )}
@@ -177,7 +183,7 @@ function NotesList({
             onClick={() => (n.start_ms != null ? onSeek(n.start_ms) : undefined)}
             className="rounded-xl border border-white/5 bg-white/[0.02] p-4 text-left hover:border-white/15"
           >
-            <div className="flex items-center gap-2.5 text-[11px]">
+            <div className="flex items-center gap-2.5 text-xs">
               <span className="rounded bg-white/5 px-1.5 py-0.5 text-zinc-300">{NOTE_TYPE_LABEL[n.note_type] ?? n.note_type}</span>
               <span className="text-zinc-500">{n.role_view}</span>
               {n.start_ms != null ? <span className="font-mono text-zinc-600">{fmt(n.start_ms)}</span> : null}
@@ -224,14 +230,14 @@ function ElementCard({
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-white/5 bg-white/[0.02] p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="rounded bg-sky-400/10 px-1.5 py-0.5 text-[11px] text-sky-300">{e.category}</span>
+        <span className="rounded bg-sky-400/10 px-1.5 py-0.5 text-xs text-sky-300">{e.category}</span>
         <span className="text-sm font-medium text-zinc-100">{e.name}</span>
-        {typeof e.confidence === "number" ? <span className="text-[10px] text-zinc-600">{Math.round(e.confidence * 100)}%</span> : null}
-        <span className={`ml-auto rounded px-1.5 py-0.5 text-[10px] ${st.cls}`}>{st.label}</span>
+        {typeof e.confidence === "number" ? <span className="text-[11px] text-zinc-600">{Math.round(e.confidence * 100)}%</span> : null}
+        <span className={`ml-auto rounded px-1.5 py-0.5 text-[11px] ${st.cls}`}>{st.label}</span>
       </div>
       {e.description ? <p className="text-xs text-zinc-400">{e.description}</p> : null}
       {e.formula ? (
-        <p className="rounded border border-emerald-300/10 bg-emerald-300/5 p-2 font-mono text-[11px] leading-relaxed text-emerald-200/90">{e.formula}</p>
+        <p className="rounded border border-emerald-300/10 bg-emerald-300/5 p-2 font-mono text-xs leading-relaxed text-emerald-200/90">{e.formula}</p>
       ) : null}
       {e.evidence && e.evidence.length > 0 && (
         <div className="flex flex-col gap-1">
@@ -242,7 +248,7 @@ function ElementCard({
                 key={i}
                 onClick={() => (sg ? onSeek(sg.start_ms) : undefined)}
                 title={sg ? "跳转到该证据所在段落" : undefined}
-                className="rounded border border-white/5 bg-black/20 p-1.5 text-left text-[11px] italic text-zinc-500 hover:border-amber-300/30 hover:text-zinc-300"
+                className="rounded border border-white/5 bg-black/20 p-1.5 text-left text-xs italic text-zinc-500 hover:border-amber-300/30 hover:text-zinc-300"
               >
                 <span className="not-italic text-zinc-600">{sg ? `#${sg.seq} ${sg.type} ${fmt(sg.start_ms)} · ` : "#? "}</span>
                 {ev.quote || ""}
@@ -252,13 +258,13 @@ function ElementCard({
         </div>
       )}
       <div className="mt-0.5 flex items-center gap-1.5 border-t border-white/5 pt-2">
-        <button onClick={() => void act("accept")} disabled={busy} className={`rounded px-2 py-1 text-[11px] ${st.btn}`}>
+        <button onClick={() => void act("accept")} disabled={busy} className={`rounded px-2 py-1 text-xs ${st.btn}`}>
           采纳
         </button>
-        <button onClick={() => setEditing(true)} disabled={busy} className="rounded px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/5">
+        <button onClick={() => setEditing(true)} disabled={busy} className="rounded px-2 py-1 text-xs text-zinc-400 hover:bg-white/5">
           纠错
         </button>
-        <button onClick={() => void act("reject")} disabled={busy} className="rounded px-2 py-1 text-[11px] text-zinc-500 hover:bg-rose-400/10 hover:text-rose-300">
+        <button onClick={() => void act("reject")} disabled={busy} className="rounded px-2 py-1 text-xs text-zinc-500 hover:bg-rose-400/10 hover:text-rose-300">
           驳回
         </button>
       </div>
@@ -268,7 +274,7 @@ function ElementCard({
           <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-xl border border-white/10 bg-[#17191d] p-4 shadow-2xl" onClick={(ev) => ev.stopPropagation()}>
             <div className="mb-3 text-sm font-medium text-zinc-100">纠错元素</div>
             <label className="mb-2 block">
-              <span className="text-[11px] text-zinc-500">分类</span>
+              <span className="text-xs text-zinc-500">分类</span>
               <select value={category} onChange={(e) => setCategory(e.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-[#1f2228] px-2 py-1.5 text-sm text-zinc-200 outline-none">
                 {ELEMENT_CATEGORIES.map((c) => (
                   <option key={c} value={c}>{c}</option>
@@ -276,15 +282,15 @@ function ElementCard({
               </select>
             </label>
             <label className="mb-2 block">
-              <span className="text-[11px] text-zinc-500">元素名</span>
+              <span className="text-xs text-zinc-500">元素名</span>
               <input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-[#1f2228] px-2 py-1.5 text-sm text-zinc-200 outline-none" />
             </label>
             <label className="mb-2 block">
-              <span className="text-[11px] text-zinc-500">一句话说明</span>
+              <span className="text-xs text-zinc-500">一句话说明</span>
               <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="mt-1 w-full rounded-lg border border-white/10 bg-[#1f2228] px-2 py-1.5 text-sm text-zinc-200 outline-none" />
             </label>
             <label className="mb-3 block">
-              <span className="text-[11px] text-zinc-500">可复用配方</span>
+              <span className="text-xs text-zinc-500">可复用配方</span>
               <textarea value={formula} onChange={(e) => setFormula(e.target.value)} rows={4} className="mt-1 w-full rounded-lg border border-white/10 bg-[#1f2228] px-2 py-1.5 font-mono text-xs text-emerald-200 outline-none" />
             </label>
             <div className="flex justify-end gap-2">
@@ -319,17 +325,23 @@ function ElementsPanel({
   onReview: (id: string, action: "accept" | "reject" | "adjust", patch?: Partial<Pick<ElementInfo, "category" | "name" | "description" | "formula">>) => Promise<void>;
   onCreateWithElements?: (elementIds: string[]) => void;
 }) {
+  const [filterCategory, setFilterCategory] = useState("all");
   if (elements.length === 0) return null;
   const counts = elements.reduce<Record<string, number>>((acc, e) => {
     acc[e.status] = (acc[e.status] ?? 0) + 1;
     return acc;
   }, {});
   const creatable = elements.filter((e) => e.status !== "rejected").map((e) => e.id);
+  
+  // 获取所有分类
+  const categories = [...new Set(elements.map((e) => e.category))];
+  const filtered = filterCategory === "all" ? elements : elements.filter((e) => e.category === filterCategory);
+  
   return (
     <Card
       label={`L5 提炼元素 · ${elements.length} 张`}
       extra={
-        <div className="flex items-center gap-2 text-[10px] text-zinc-500">
+        <div className="flex items-center gap-2 text-[11px] text-zinc-500">
           {counts.accepted ? <span className="text-emerald-300">已采纳 {counts.accepted}</span> : null}
           {counts.adjusted ? <span className="text-sky-300">已纠错 {counts.adjusted}</span> : null}
           {counts.rejected ? <span className="text-rose-300">已驳回 {counts.rejected}</span> : null}
@@ -337,7 +349,7 @@ function ElementsPanel({
           {onCreateWithElements && creatable.length > 0 && (
             <button
               onClick={() => onCreateWithElements(creatable)}
-              className="ml-1 rounded-md border border-emerald-300/20 bg-emerald-400/10 px-2 py-1 text-[10px] text-emerald-200 hover:bg-emerald-400/20"
+              className="ml-1 rounded-md border border-emerald-300/20 bg-emerald-400/10 px-2 py-1 text-[11px] text-emerald-200 hover:bg-emerald-400/20"
               title={`带本片 ${creatable.length} 个元素去创作台，AI 基于它们生成脚本`}
             >
               用这些元素创作 ✎
@@ -346,8 +358,28 @@ function ElementsPanel({
         </div>
       }
     >
+      {/* 分类筛选 */}
+      {categories.length > 1 && (
+        <div className="mb-3 flex flex-wrap gap-1.5">
+          <button
+            onClick={() => setFilterCategory("all")}
+            className={`rounded px-2 py-0.5 text-[11px] ${filterCategory === "all" ? "bg-amber-400/20 text-amber-300" : "bg-white/5 text-zinc-400 hover:bg-white/10"}`}
+          >
+            全部
+          </button>
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setFilterCategory(cat)}
+              className={`rounded px-2 py-0.5 text-[11px] ${filterCategory === cat ? "bg-amber-400/20 text-amber-300" : "bg-white/5 text-zinc-400 hover:bg-white/10"}`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      )}
       <div className="grid gap-3 md:grid-cols-2">
-        {elements.map((e) => (
+        {filtered.map((e) => (
           <ElementCard key={e.id} e={e} segments={segments} onSeek={onSeek} onReview={onReview} />
         ))}
       </div>
@@ -365,7 +397,7 @@ function TranscriptPanel({
   text: string;
   onSeek: (ms: number) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   if (segments.length === 0 && !text) return null;
   return (
     <section className="rounded-xl border border-white/5 bg-[#1c1f26]/80 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
@@ -374,13 +406,13 @@ function TranscriptPanel({
           <span className="h-3.5 w-1 rounded-full bg-amber-300/70" />
           <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500">字幕 / 转写全文 · {segments.length} 条</h3>
         </div>
-        <span className="text-[10px] text-zinc-500">{open ? "收起" : "展开"}</span>
+        <span className="text-[11px] text-zinc-500">{open ? "收起" : "展开"}</span>
       </button>
       {open && (
         <div className="mt-4 space-y-1">
           {segments.map((s, i) => (
             <button key={i} onClick={() => onSeek(s.start * 1000)} className="flex w-full gap-3 rounded-lg px-1.5 py-1.5 text-left hover:bg-white/5">
-              <span className="w-10 shrink-0 font-mono text-[10px] text-zinc-600">{fmt(s.start * 1000)}</span>
+              <span className="w-10 shrink-0 font-mono text-[11px] text-zinc-600">{fmt(s.start * 1000)}</span>
               <span className="text-xs leading-relaxed text-zinc-400">{s.text}</span>
             </button>
           ))}
@@ -476,7 +508,7 @@ function StatsTrendChart({ history }: { history: VideoStatsHistoryView }) {
     <div>
       <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
         {series.map((s) => (
-          <span key={s.key} className="inline-flex items-center gap-1.5 text-[11px] text-zinc-400">
+          <span key={s.key} className="inline-flex items-center gap-1.5 text-xs text-zinc-400">
             <span className="inline-block h-0.5 w-4 rounded-full" style={{ backgroundColor: s.color }} />
             {s.label}
             <span className="font-mono text-zinc-200">{fmtNum(s.last)}</span>
@@ -623,7 +655,7 @@ function StatsSection({
           <span className="text-xs font-medium uppercase tracking-wider text-zinc-400">作者与互动数据</span>
         </div>
         <div className="flex items-center gap-3">
-          {stats?.updated_at && <span className="text-[10px] text-zinc-600">更新于 {fmtShortTime(stats.updated_at)}</span>}
+          {stats?.updated_at && <span className="text-[11px] text-zinc-600">更新于 {fmtShortTime(stats.updated_at)}</span>}
           <button
             onClick={() => setAuto((a) => !a)}
             className={`rounded-lg border px-3 py-1.5 text-xs transition ${
@@ -667,7 +699,7 @@ function StatsSection({
             )}
             <div>
               <div className="text-sm font-medium text-zinc-100">{author?.name ?? "未知作者"}</div>
-              <div className="mt-0.5 flex flex-wrap gap-3 text-[11px] text-zinc-500">
+              <div className="mt-0.5 flex flex-wrap gap-3 text-xs text-zinc-500">
                 <span>粉丝 {fmtNum(author?.fans)}</span>
                 <span>获赞 {fmtNum(author?.likes)}</span>
                 {stats.baseline_at && <span>初始于 {fmtShortTime(stats.baseline_at)}</span>}
@@ -679,7 +711,7 @@ function StatsSection({
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-white/5 text-[10px] uppercase tracking-wider text-zinc-500">
+                <tr className="border-b border-white/5 text-[11px] uppercase tracking-wider text-zinc-500">
                   <th className="py-1.5 pr-3 font-medium">指标</th>
                   <th className="py-1.5 pr-3 text-right font-medium">初始值</th>
                   <th className="py-1.5 pr-3 text-right font-medium">当前值</th>
@@ -707,13 +739,13 @@ function StatsSection({
             </table>
           </div>
           {stats.warnings?.length > 0 && (
-            <p className="mt-2 text-[10px] text-amber-200/80">{stats.warnings.join("；")}</p>
+            <p className="mt-2 text-[11px] text-amber-200/80">{stats.warnings.join("；")}</p>
           )}
 
           {/* 互动数据历史趋势 */}
           {history !== null && (
             <div className="mt-4 rounded-lg bg-white/[0.03] p-3">
-              <div className="mb-2 text-[10px] uppercase tracking-wider text-zinc-500">互动数据趋势</div>
+              <div className="mb-2 text-[11px] uppercase tracking-wider text-zinc-500">互动数据趋势</div>
               {history.points.length < 2 ? (
                 <p className="text-xs leading-relaxed text-zinc-500">
                   历史快照不足（当前 {history.points.length} 个时间点），至少累计 2 次刷新后才能绘制趋势曲线。
@@ -727,11 +759,11 @@ function StatsSection({
           {/* 热评 */}
           {stats.comments.length > 0 && (
             <div className="mt-4">
-              <div className="mb-2 text-[10px] uppercase tracking-wider text-zinc-500">高赞热评 TOP {Math.min(stats.comments.length, 8)}</div>
+              <div className="mb-2 text-[11px] uppercase tracking-wider text-zinc-500">高赞热评 TOP {Math.min(stats.comments.length, 8)}</div>
               <div className="space-y-2">
                 {stats.comments.slice(0, 8).map((cm) => (
                   <div key={cm.comment_id} className="rounded-lg bg-white/[0.03] p-3">
-                    <div className="flex items-center gap-2 text-[11px]">
+                    <div className="flex items-center gap-2 text-xs">
                       <span className="font-medium text-zinc-300">{cm.user_name}</span>
                       <span className="rounded bg-amber-300/10 px-1.5 py-0.5 text-[9px] text-amber-200/90">{cm.like_count.toLocaleString()} 赞</span>
                       {cm.reply_count > 0 && <span className="text-zinc-600">{cm.reply_count} 回复</span>}
@@ -764,12 +796,12 @@ function NoLocalMediaBox({ video, frames }: { video: VideoItem; frames: FrameInf
       )}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/80 to-transparent" />
       <div className="absolute inset-x-0 bottom-0 flex flex-wrap items-center gap-2 p-3">
-        <span className="rounded bg-amber-300/90 px-2 py-0.5 text-[10px] font-semibold text-zinc-900">
+        <span className="rounded bg-amber-300/90 px-2 py-0.5 text-[11px] font-semibold text-zinc-900">
           {cleaned ? "原片已清理" : "无本地原片"}
         </span>
-        <span className="rounded bg-white/10 px-2 py-0.5 text-[10px] text-zinc-300">已降级为关键帧预览</span>
+        <span className="rounded bg-white/10 px-2 py-0.5 text-[11px] text-zinc-300">已降级为关键帧预览</span>
         {video.media?.audio_track_url ? (
-          <span className="rounded bg-white/10 px-2 py-0.5 text-[10px] text-zinc-400">保留音轨 m4a</span>
+          <span className="rounded bg-white/10 px-2 py-0.5 text-[11px] text-zinc-400">保留音轨 m4a</span>
         ) : null}
       </div>
       {video.url ? (
@@ -777,7 +809,7 @@ function NoLocalMediaBox({ video, frames }: { video: VideoItem; frames: FrameInf
           href={video.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="absolute right-3 top-3 rounded-lg border border-white/15 bg-black/60 px-3 py-1.5 text-[11px] text-zinc-200 backdrop-blur transition hover:border-amber-300/40 hover:text-amber-200"
+          className="absolute right-3 top-3 rounded-lg border border-white/15 bg-black/60 px-3 py-1.5 text-xs text-zinc-200 backdrop-blur transition hover:border-amber-300/40 hover:text-amber-200"
         >
           回源打开原视频 ↗
         </a>
@@ -881,7 +913,7 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
             ) : (
               <span className="text-xs opacity-40">▤</span>
             )}
-            <span className="whitespace-nowrap text-[10px] [writing-mode:vertical-rl] tracking-widest">{video.title || video.platform}</span>
+            <span className="whitespace-nowrap text-[11px] [writing-mode:vertical-rl] tracking-widest">{video.title || video.platform}</span>
             <span className="mt-auto whitespace-nowrap text-[9px] text-zinc-600 [writing-mode:vertical-rl]">hover 展开</span>
           </button>
         ) : (
@@ -900,12 +932,12 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
                         referrerPolicy="no-referrer"
                       />
                     ) : null}
-                    <span className="text-[11px] text-zinc-400" title={video.author_id ?? undefined}>
+                    <span className="text-xs text-zinc-400" title={video.author_id ?? undefined}>
                       {video.author_name ?? "未知作者"}
                     </span>
-                    <span className="text-[11px] text-zinc-600">· {video.platform}</span>
+                    <span className="text-xs text-zinc-600">· {video.platform}</span>
                   </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-zinc-600">
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-zinc-600">
                     {video.publish_time ? <span>发布于 {fmtShortTime(video.publish_time)}</span> : null}
                     {video.subtitle_source ? (
                       <span className="rounded bg-white/5 px-1.5 py-px text-zinc-500">字幕：{video.subtitle_source}</span>
@@ -919,7 +951,7 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
                       target="_blank"
                       rel="noopener noreferrer"
                       title="打开平台原视频"
-                      className="rounded-lg border border-white/10 px-2 py-1 text-[10px] text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                      className="rounded-lg border border-white/10 px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
                     >
                       回源 ↗
                     </a>
@@ -931,7 +963,7 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
                       else setRail(true);
                     }}
                     title={rail && hoverOpen ? "固定展开" : "收窄为竖条，鼠标移入展开"}
-                    className="shrink-0 rounded-lg border border-white/10 px-2 py-1 text-[10px] text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                    className="shrink-0 rounded-lg border border-white/10 px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
                   >
                     {rail && hoverOpen ? "固定 ◉" : "收窄 ◂"}
                   </button>
@@ -954,7 +986,7 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
               )}
 
               <div className="space-y-3 p-3">
-                <div className="flex flex-wrap gap-2 text-[10px] text-zinc-500">
+                <div className="flex flex-wrap gap-2 text-[11px] text-zinc-500">
                   {video.duration_ms != null ? <span>时长 {fmt(video.duration_ms)}</span> : null}
                   {video.media?.bpm ? <span>BPM {video.media.bpm}</span> : null}
                   {detail ? <span>{detail.frames.length} 关键帧</span> : null}
@@ -970,7 +1002,7 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
                 </div>
                 {detail && detail.frames.length > 0 && (
                   <div>
-                    <div className="mb-2 text-[10px] uppercase tracking-wider text-zinc-600">关键帧 · 点击跳转</div>
+                    <div className="mb-2 text-[11px] uppercase tracking-wider text-zinc-600">关键帧 · 点击跳转</div>
                     <FrameStrip frames={detail.frames} currentMs={currentMs} onSeek={seekTo} />
                   </div>
                 )}
@@ -1031,6 +1063,9 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
         )}
         {activeTab === "other" && (
           <>
+            <div className="mb-3 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3 text-xs text-amber-200/80">
+              ⚠️ 以下内容为辅助参考信息，仅供参考，不建议直接用于创作
+            </div>
             <NotesList notes={notes} onSeek={seekTo} />
             <AuditCard result={result} />
           </>
@@ -1062,49 +1097,49 @@ function FullScriptPanel({
   return (
     <div className="rounded-xl border border-emerald-300/20 bg-gradient-to-br from-emerald-300/5 to-transparent p-4">
       <div className="flex items-center justify-between">
-        <div className="text-[11px] uppercase tracking-wider text-emerald-200/70">完整脚本 · 编导还原（口播 + 画面双轨）</div>
-        <span className="rounded bg-emerald-400/10 px-1.5 py-0.5 text-[10px] text-emerald-300">L4.5</span>
+        <div className="text-xs uppercase tracking-wider text-emerald-200/70">完整脚本 · 编导还原（口播 + 画面双轨）</div>
+        <span className="rounded bg-emerald-400/10 px-1.5 py-0.5 text-[11px] text-emerald-300">L4.5</span>
       </div>
-      <div className="mt-2 grid gap-3 lg:grid-cols-2">
+      <div className="mt-2 space-y-4">
         <div className="min-w-0">
-          <div className="mb-1 text-[10px] uppercase tracking-wide text-emerald-200/50">口播文案轨</div>
-          <pre className="max-h-[520px] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[#14161a] p-3 font-mono text-[12px] leading-relaxed text-zinc-200">
+          <div className="mb-1 text-[11px] uppercase tracking-wide text-emerald-200/50">📝 口播文案轨</div>
+          <pre className="max-h-[400px] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[#14161a] p-3 font-mono text-[12px] leading-relaxed text-zinc-200">
             {showBody}
           </pre>
         </div>
         <div className="min-w-0">
-          <div className="mb-1 text-[10px] uppercase tracking-wide text-emerald-200/50">画面分镜轨 · harness 帧级对齐</div>
+          <div className="mb-1 text-[11px] uppercase tracking-wide text-emerald-200/50">🎬 画面分镜轨 · harness 帧级对齐</div>
           {storyboard?.length ? (
             <div className="max-h-[520px] space-y-2 overflow-auto pr-1">
               {storyboard.map((sb) => (
                 <div key={sb.seg} className="rounded-lg border border-white/5 bg-[#14161a] p-2.5">
                   <div className="mb-1 flex items-baseline justify-between">
-                    <span className="text-[11px] font-semibold text-emerald-300">
+                    <span className="text-xs font-semibold text-emerald-300">
                       段{sb.seg}
                     </span>
-                    <span className="text-[10px] text-zinc-500">
+                    <span className="text-[11px] text-zinc-500">
                       {sb.start_s}s~{sb.end_s}s
                     </span>
                   </div>
                   {sb.shots.map((s, i) => (
-                    <div key={i} className="mb-1 flex gap-1.5 text-[11px] leading-relaxed text-zinc-300">
+                    <div key={i} className="mb-1 flex gap-1.5 text-xs leading-relaxed text-zinc-300">
                       <span className="mt-0.5 h-1 w-1 shrink-0 rounded-full bg-emerald-400/60" />
                       <span>{s}</span>
                     </div>
                   ))}
                   {sb.overlay && (
-                    <div className="mt-1 border-t border-white/5 pt-1 text-[11px] text-amber-200/80">
+                    <div className="mt-1 border-t border-white/5 pt-1 text-xs text-amber-200/80">
                       字幕：{sb.overlay}
                     </div>
                   )}
                   {sb.dynamics && (
-                    <div className="mt-0.5 text-[10px] text-sky-300/70">动态：{sb.dynamics}</div>
+                    <div className="mt-0.5 text-[11px] text-sky-300/70">动态：{sb.dynamics}</div>
                   )}
                 </div>
               ))}
             </div>
           ) : (
-            <div className="rounded-lg bg-[#14161a] p-3 text-[11px] text-zinc-500">
+            <div className="rounded-lg bg-[#14161a] p-3 text-xs text-zinc-500">
               画面分镜未生成（视频暂无帧级画面数据）
             </div>
           )}
@@ -1117,7 +1152,7 @@ function FullScriptPanel({
 function AuditField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0">
-      <div className="mb-0.5 text-[10px] uppercase tracking-wide text-zinc-600">{label}</div>
+      <div className="mb-0.5 text-[11px] uppercase tracking-wide text-zinc-600">{label}</div>
       <div className="break-words text-xs text-zinc-300">{children}</div>
     </div>
   );
@@ -1135,11 +1170,26 @@ function SegmentsFromScript({ fullScript }: { fullScript?: string }) {
   if (!segs.length) return <pre className="text-sm text-zinc-300 whitespace-pre-wrap">{segPart}</pre>;
   return (
     <div className="space-y-4">
-      {segs.map((seg, i) => (
-        <div key={i} className="rounded-lg border border-white/10 bg-white/[0.02] p-4">
-          <pre className="text-sm text-zinc-300 whitespace-pre-wrap">{`段${seg}`}</pre>
-        </div>
-      ))}
+      <div className="text-xs text-zinc-500">共 {segs.length} 个段落 · 点击段落可查看详细分析</div>
+      {segs.map((seg, i) => {
+        const lines = seg.trim().split("\n");
+        const title = lines[0]?.trim() || `段 ${i + 1}`;
+        const body = lines.slice(1).join("\n").trim();
+        return (
+          <details key={i} className="group rounded-lg border border-white/10 bg-white/[0.02] p-4">
+            <summary className="cursor-pointer select-none">
+              <div className="flex items-center gap-3">
+                <span className="rounded bg-amber-400/10 px-2 py-0.5 text-xs text-amber-300">段 {i + 1}</span>
+                <span className="text-sm font-medium text-zinc-200">{title}</span>
+                <span className="ml-auto text-[11px] text-zinc-600 group-open:rotate-90 inline-block transition-transform">▶</span>
+              </div>
+            </summary>
+            {body && (
+              <pre className="mt-3 text-xs text-zinc-300 whitespace-pre-wrap leading-relaxed">{body}</pre>
+            )}
+          </details>
+        );
+      })}
     </div>
   );
 }
@@ -1156,9 +1206,9 @@ function AuditCard({ result }: { result: AnalysisResult }) {
   return (
     <details className="group rounded-xl border border-white/5 bg-[#1c1f26]">
       <summary className="cursor-pointer select-none px-4 py-3 text-xs text-zinc-400 transition-colors hover:text-zinc-200">
-        <span className="mr-2 text-[10px] text-zinc-600 group-open:rotate-90 inline-block transition-transform">▶</span>
+        <span className="mr-2 text-[11px] text-zinc-600 group-open:rotate-90 inline-block transition-transform">▶</span>
         审计信息
-        <span className="ml-2 text-[10px] text-zinc-600">AI 置信度 · 人工复核 · 模型与提示词版本</span>
+        <span className="ml-2 text-[11px] text-zinc-600">AI 置信度 · 人工复核 · 模型与提示词版本</span>
       </summary>
       <div className="border-t border-white/5 px-4 py-3">
         {top.length > 0 ? (
@@ -1172,14 +1222,14 @@ function AuditCard({ result }: { result: AnalysisResult }) {
           <div className="space-y-2">
             {layerEntries.map(({ l }, idx) => (
               <div key={`${l.layer}-${idx}`} className="rounded-lg bg-black/20 p-2.5">
-                <div className="mb-1 text-[10px] text-zinc-500">L{l.layer} · {l.role_view}</div>
+                <div className="mb-1 text-[11px] text-zinc-500">L{l.layer} · {l.role_view}</div>
                 <div className="flex flex-wrap gap-x-5 gap-y-2">
                   {l.model != null && <AuditField label="模型">{String(l.model)}</AuditField>}
                   {l.prompt_version != null && <AuditField label="提示词版本">{String(l.prompt_version)}</AuditField>}
                   {l.raw_response != null && (
                     <div className="min-w-0 flex-1">
-                      <div className="mb-0.5 text-[10px] uppercase tracking-wide text-zinc-600">原始响应</div>
-                      <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-[#14161a] px-2 py-1.5 font-mono text-[10px] leading-relaxed text-zinc-400">{String(l.raw_response)}</pre>
+                      <div className="mb-0.5 text-[11px] uppercase tracking-wide text-zinc-600">原始响应</div>
+                      <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-[#14161a] px-2 py-1.5 font-mono text-[11px] leading-relaxed text-zinc-400">{String(l.raw_response)}</pre>
                     </div>
                   )}
                 </div>

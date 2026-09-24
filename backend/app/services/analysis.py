@@ -342,7 +342,16 @@ async def analysis_result(db: AsyncSession, job: M.BreakdownJob) -> dict:
             "ai_confidence": None,
             "reviewed_by_user": False,
             "summary": {},
-            "meta": {"three_layer": evidence, "progress": _progress_dict(job)},
+            "meta": {
+                "three_layer": evidence,
+                "progress": {
+                    "stage": job.stage or None,
+                    "message": job.message or "",
+                    "layer": None,
+                    "pct": job.pct or (100 if job.status in SETTLED_STATUSES else 0),
+                    "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+                },
+            },
             "layers": [],
             "video": _video_public(video) if video else None,
         }
@@ -420,7 +429,13 @@ async def analysis_result(db: AsyncSession, job: M.BreakdownJob) -> dict:
         "summary": summary,
         "meta": {
             "three_layer": evidence,
-            "progress": _progress_dict(job),
+            "progress": {
+                "stage": job.stage or None,
+                "message": job.message or "",
+                "layer": None,
+                "pct": job.pct or (100 if job.status in SETTLED_STATUSES else 0),
+                "updated_at": job.updated_at.isoformat() if job.updated_at else None,
+            },
             "model": model,
             "script_id": str(script.id),
             "sentence_count": len(sentences),

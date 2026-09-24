@@ -1490,9 +1490,13 @@ async def run_three_layer(
             seg_type = str(item.get("seg_type") or "").strip()
             if seg_type not in validator.wl.get("seg_type", set()):
                 seg_type = "铺垫"
+            _existing_seqs = {s.seq for s in seg_rows}
+            _new_seq = int(item.get("seq") or 0)
+            while _new_seq in _existing_seqs:
+                _new_seq += 1
             row = M.ScriptSegment(
                 script_id=script.id,
-                seq=int(item.get("seq") or len(seg_rows) + 1),
+                seq=_new_seq,
                 seg_type=seg_type,
                 title=(str(item.get("title") or "")[:128] or None),
                 start_ms=st_ms,
@@ -1565,9 +1569,13 @@ async def run_three_layer(
         seg_type = str(item.get("seg_type") or "").strip()
         if seg_type not in validator.wl.get("seg_type", set()):
             seg_type = "铺垫"
+        _existing_seqs = {s.seq for s in seg_rows}
+        _new_seq = int(item.get("seq") or 0)
+        while _new_seq in _existing_seqs:
+            _new_seq += 1
         row = M.ScriptSegment(
             script_id=script.id,
-            seq=int(item.get("seq") or len(seg_rows) + 1),
+            seq=_new_seq,
             seg_type=seg_type,
             title=(str(item.get("title") or "")[:128] or None),
             start_ms=start_ms,
@@ -1609,9 +1617,13 @@ async def run_three_layer(
             st = max(last.end_ms, last_asr_end)
             en = dur_ms
             if en - st >= 3000:
+                _existing_seqs = {s.seq for s in seg_rows}
+                _new_seq = 1
+                while _new_seq in _existing_seqs:
+                    _new_seq += 1
                 row = M.ScriptSegment(
                     script_id=script.id,
-                    seq=len(seg_rows) + 1,
+                    seq=_new_seq,
                     seg_type="干货",
                     title=None,
                     start_ms=st,
@@ -1627,7 +1639,7 @@ async def run_three_layer(
                 v = validator.validate(
                     "script_segment",
                     {
-                        "seq": len(seg_rows) + 1,
+                        "seq": _new_seq,
                         "seg_type": "干货",
                         "title": None,
                         "start_ms": st,
@@ -1819,7 +1831,7 @@ async def run_three_layer(
             segment_id=(segment_of_line(int(raw["seq"])).id if segment_of_line(int(raw["seq"])) else None),
             seq=int(item.get("seq") or len(sentence_rows) + 1),
             raw_sentence_id=raw["id"],
-            source_video_id=video.id,
+            source_video_id=str(video.id),
             quote=quote or str(raw["text"]),
             start_ms=start_ms,
             end_ms=end_ms,
@@ -1873,7 +1885,7 @@ async def run_three_layer(
             evidence_type=ev_type,
             raw_sentence_id=raw_id if ev_type == "transcript" else None,
             raw_shot_id=None,
-            source_video_id=video.id,
+            source_video_id=str(video.id),
             quote=ev_quote,
             start_ms=ev_start,
             end_ms=ev_end,
@@ -2835,7 +2847,7 @@ async def run_three_layer(
             element_table=element_table,
             element_id=lib_row.id,
             source_script_id=script.id,
-            source_video_id=video.id,
+            source_video_id=str(video.id),
             source_sentence_id=(sent_row.id if sent_row else None),
             source_segment_id=(segment_of_line(int(raw["seq"])).id if segment_of_line(int(raw["seq"])) else None),
             quote=str(raw["text"])[:4000],
@@ -2846,6 +2858,14 @@ async def run_three_layer(
 
     async def _upsert_lib(model_cls, code: str, values: dict[str, Any], source_video_id: str | None = None):
         # per-video 隔离：按 (code, source_video_id) upsert
+        # 先删除同 code 不同 source_video_id 的旧记录（避免 UNIQUE (code) 冲突）
+        if source_video_id:
+            await db.execute(
+                delete(model_cls).where(
+                    model_cls.code == code,
+                    model_cls.source_video_id != source_video_id,
+                )
+            )
         stmt = select(model_cls).where(model_cls.code == code)
         if source_video_id:
             stmt = stmt.where(model_cls.source_video_id == source_video_id)
@@ -2935,7 +2955,7 @@ async def run_three_layer(
                 verdicts.append(v.as_dict())
                 continue
             values, v = await _deepen_and_validate("lib_topic", code, item, values, v, ref)
-            row, _ = await _upsert_lib(M.LibTopic, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"}, source_video_id=video.id)
+            row, _ = await _upsert_lib(M.LibTopic, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"}, source_video_id=str(video.id))
             ref.element_id = row.id
             db.add(ref)
             verdicts.append(v.as_dict())
@@ -2977,7 +2997,7 @@ async def run_three_layer(
                 verdicts.append(v.as_dict())
                 continue
             values, v = await _deepen_and_validate("lib_hook", code, item, values, v, ref)
-            row, _ = await _upsert_lib(M.LibHook, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"}, source_video_id=video.id)
+            row, _ = await _upsert_lib(M.LibHook, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"}, source_video_id=str(video.id))
             ref.element_id = row.id
             db.add(ref)
             verdicts.append(v.as_dict())
@@ -3018,7 +3038,7 @@ async def run_three_layer(
                 verdicts.append(v.as_dict())
                 continue
             values, v = await _deepen_and_validate("lib_copywriting", code, item, values, v, ref)
-            row, _ = await _upsert_lib(M.LibCopywriting, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"}, source_video_id=video.id)
+            row, _ = await _upsert_lib(M.LibCopywriting, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"}, source_video_id=str(video.id))
             ref.element_id = row.id
             db.add(ref)
             verdicts.append(v.as_dict())
@@ -3053,7 +3073,7 @@ async def run_three_layer(
                 verdicts.append(v.as_dict())
                 continue
             values, v = await _deepen_and_validate("lib_quote", code, item, values, v, ref)
-            row, _ = await _upsert_lib(M.LibQuote, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"}, source_video_id=video.id)
+            row, _ = await _upsert_lib(M.LibQuote, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"}, source_video_id=str(video.id))
             ref.element_id = row.id
             db.add(ref)
             verdicts.append(v.as_dict())
@@ -3098,7 +3118,7 @@ async def run_three_layer(
                 verdicts.append(v.as_dict())
                 continue
             values, v = await _deepen_and_validate("lib_method", code, item, values, v, ref)
-            row, _ = await _upsert_lib(M.LibMethod, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"}, source_video_id=video.id)
+            row, _ = await _upsert_lib(M.LibMethod, code, {**values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"}, source_video_id=str(video.id))
             ref.element_id = row.id
             db.add(ref)
             verdicts.append(v.as_dict())
@@ -3225,7 +3245,7 @@ async def run_three_layer(
         validator.r14_combo(combo_payload, slot_payload, v)
         verdicts.append(v.as_dict())
         if v.accepted:
-            combo_row, _ = await _upsert_lib(M.LibCombo, code, {**combo_values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"}, source_video_id=video.id)
+            combo_row, _ = await _upsert_lib(M.LibCombo, code, {**combo_values, "quality_score": v.quality_score, "status": "active", "review_status": "accepted" if v.status == "active" else "draft"}, source_video_id=str(video.id))
             if ref is not None:
                 ref.element_id = combo_row.id
                 db.add(ref)

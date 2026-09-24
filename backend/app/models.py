@@ -1046,6 +1046,7 @@ class LibCombo(TimestampMixin, Base):
     review_status: Mapped[str] = mapped_column(
         String(16), default="draft", server_default=_sa_text("'draft'")
     )  # 元素质控：draft/accepted/adjusted/rejected（前端元素库四态）
+    source_video_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # per-video 隔离
 
     __table_args__ = (
         CheckConstraint(
