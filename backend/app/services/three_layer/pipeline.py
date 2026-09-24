@@ -806,9 +806,19 @@ async def purge_three_layer(db: AsyncSession, video_id) -> None:
 
 async def _understand_video_frames(
     shots: list[dict[str, Any]],
+    scenes: list[dict[str, Any]] | None = None,
     model: str = "vision",
 ) -> str:
-    """用 glm-4v-flash 分段理解视频关键帧，输出画面理解摘要。"""
+    """用 glm-4v-flash 分段理解视频关键帧，输出画面理解摘要。
+    
+    I帧/P帧思路（借鉴视频压缩）：
+    - 场景切换 = I帧 = 完整分析画面
+    - 场景延续 = P帧 = 只记录与上一个场景的变化
+    """
+    # 如果有 scenes，按场景分组（I帧/P帧思路）
+    if scenes and len(scenes) > 1:
+        return await _understand_video_frames_ip(shots, scenes, model)
+    
     import base64
     import os
     from app.ai import chat as _ai_chat
@@ -859,6 +869,86 @@ async def _understand_video_frames(
             segment_summaries.append(f"第 {i+1} 段：理解失败")
 
     return "\n".join(segment_summaries)
+
+
+async def _understand_video_frames_ip(
+    shots: list[dict[str, Any]],
+    scenes: list[dict[str, Any]],
+    model: str = "vision",
+) -> str:
+    """I帧/P帧思路的视频理解。
+    
+    - I帧：场景切换时完整分析画面
+    - P帧：场景延续时只记录与上一个场景的变化
+    """
+    import base64
+    import os
+    from app.ai import chat as _ai_chat
+
+    # 把 shots 按场景分组
+    scene_shots = [[] for _ in scenes]
+    for s in shots:
+        s_start = s.get("start_ms", 0)
+        for i, sc in enumerate(scenes):
+            sc_start = sc.get("start_ms", 0)
+            sc_end = sc.get("end_ms", 0)
+            if sc_start <= s_start < sc_end:
+                scene_shots[i].append(s)
+                break
+
+    scene_summaries = []
+    prev_summary = ""
+
+    for i, sc in enumerate(scenes):
+        sc_shots = scene_shots[i]
+        if not sc_shots:
+            continue
+
+        t_start = sc.get("start_ms", 0) / 1000
+        t_end = sc.get("end_ms", 0) / 1000
+
+        # I帧：第一个场景或场景切换时完整分析
+        # P帧：后续场景只记录变化
+        is_i_frame = (i == 0)  # 第一个场景是 I帧
+
+        if is_i_frame:
+            prompt = f"这是视频第 {i+1} 个场景（{t_start:.1f}s-{t_end:.1f}s）的关键帧，完整描述画面内容、人物、场景、动作、字幕文字"
+        else:
+            prompt = f"这是视频第 {i+1} 个场景（{t_start:.1f}s-{t_end:.1f}s）的关键帧。\n上一个场景的描述：{prev_summary}\n请只描述这个场景与上一个场景相比有什么变化（人物变化、场景变化、动作变化、新出现的字幕等）"
+
+        content = [{"type": "text", "text": prompt}]
+        for s in sc_shots:
+            path = s.get("path", "")
+            if not path or not os.path.exists(path):
+                continue
+            try:
+                with open(path, 'rb') as fh:
+                    img_b64 = base64.b64encode(fh.read()).decode()
+                content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}})
+            except Exception:
+                continue
+
+        if len(content) <= 1:  # 没有图片
+            scene_summaries.append(f"场景 {i+1}（{t_start:.1f}s-{t_end:.1f}s）：无可用帧图")
+            continue
+
+        try:
+            res = await _ai_chat(
+                [{"role": "user", "content": content}],
+                model=model,
+                max_tokens=500 if is_i_frame else 300,  # P帧少一点 token
+                timeout=60,
+                scene="video_understand",
+            )
+            summary = res.get("reply", "").strip()
+            frame_type = "I帧（完整画面）" if is_i_frame else "P帧（变化）"
+            scene_summaries.append(f"场景 {i+1}（{t_start:.1f}s-{t_end:.1f}s）[{frame_type}]：{summary}")
+            prev_summary = summary
+        except Exception as e:
+            logger.warning("视频理解场景 %d 失败：%s", i+1, str(e)[:100])
+            scene_summaries.append(f"场景 {i+1}：理解失败")
+
+    return "\n".join(scene_summaries)
 
 
 async def run_three_layer(
@@ -1980,7 +2070,7 @@ async def run_three_layer(
             _overlay_is_signal = asr_count < 6
             # 分段理解视频关键帧（glm-4v-flash 看图）
             try:
-                frame_summary = await _understand_video_frames(shots, model="vision")
+                frame_summary = await _understand_video_frames(shots, scenes=(manifest or {}).get("scenes"), model="vision")
             except Exception as e:
                 logger.warning("视频理解失败：%s", str(e)[:100])
                 frame_summary = ""
