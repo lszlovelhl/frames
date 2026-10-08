@@ -219,6 +219,9 @@ export default function LibraryView({ focusVideoId, onFocusConsumed, onCreateWit
     collapseOtherGroups(groupKeyOf(v));
     setResult(null);
     onFocusConsumed?.();
+    // 选择视频后自动收窄左侧栏，给详情区更多空间
+    // 用户想看列表时鼠标移入左侧即可展开
+    setRail(true);
     if (v.latest_analysis) {
       api
         .getAnalysis(v.latest_analysis.id)
@@ -231,6 +234,8 @@ export default function LibraryView({ focusVideoId, onFocusConsumed, onCreateWit
     setSelected(v);
     collapseOtherGroups(groupKeyOf(v));
     setResult(null);
+    // 选择视频后自动收窄左侧栏
+    setRail(true);
     if (v.latest_analysis) {
       try {
         const r = await api.getAnalysis(v.latest_analysis.id);

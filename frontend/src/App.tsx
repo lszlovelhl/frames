@@ -10,8 +10,9 @@ import SettingsView from "./views/SettingsView";
 import AccountsView from "./views/AccountsView";
 import PromptsView from "./views/PromptsView";
 import ProductsView from "./views/ProductsView";
+import CollectionView from "./views/CollectionView";
 
-type ViewKey = "breakdown" | "library" | "elements" | "create" | "products" | "prompts" | "usage" | "models" | "accounts" | "settings";
+type ViewKey = "breakdown" | "library" | "elements" | "create" | "products" | "prompts" | "usage" | "models" | "accounts" | "settings" | "collection";
 
 const NAV_GROUPS: Array<{ group: string; items: Array<{ key: ViewKey; label: string; icon: string; hint: string }> }> = [
   {
@@ -32,6 +33,7 @@ const NAV_GROUPS: Array<{ group: string; items: Array<{ key: ViewKey; label: str
   {
     group: "系统管理",
     items: [
+      { key: "collection", label: "自动采集", icon: "⟳", hint: "热榜/关键词自动采集热门视频" },
       { key: "prompts", label: "提示词", icon: "¶", hint: "分层/创作提示词模板 · 版本管理" },
       { key: "usage", label: "AI 用量", icon: "◍", hint: "服务商卡片 · 用量 · 余额预警" },
       { key: "models", label: "模型管理", icon: "⌘", hint: "接入各家模型 · api-key 管理" },
@@ -100,6 +102,7 @@ export default function App() {
       {view === "usage" && <UsageView />}
       {view === "models" && <ModelsView />}
       {view === "accounts" && <AccountsView />}
+      {view === "collection" && <CollectionView />}
       {view === "settings" && <SettingsView />}
     </main>
   );
@@ -173,9 +176,9 @@ export default function App() {
           ))}
         </nav>
         <div className="rounded-lg bg-white/5 px-3 py-2 text-[11px] leading-relaxed text-zinc-400">
-          v0.3 · 拆解主链路已通
+          v0.4 · 两层拆解 + 自动采集
           <br />
-          素材：手动粘贴字幕（v1）
+          L1云端定框架 + L2本地展开成稿
         </div>
       </aside>
 

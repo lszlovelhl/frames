@@ -3,6 +3,8 @@ node_modules/
 dist/
 build/
 .venv/
+.venv312/
+.venv_old/
 __pycache__/
 *.pyc
 *.egg-info/
@@ -38,6 +40,10 @@ backend/data/backup/
 backend/data/models/
 backend/data/media/
 backend/data/cookies/
+
+# 数据目录整体（仅保留 .gitkeep 占位；防止未来误提交 frames.db / 侧车 jsonl 等运行数据）
+backend/data/*
+!backend/data/.gitkeep
 
 # 临时与备份文件
 *.bak

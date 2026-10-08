@@ -31,6 +31,10 @@ DEEPSEEK_MODEL_FLASH = os.getenv("DEEPSEEK_MODEL_FLASH", "deepseek-v4-flash")
 DEEPSEEK_MODEL_PRO = os.getenv("DEEPSEEK_MODEL_PRO", "deepseek-v4-pro")
 DEEPSEEK_MODEL_VISION = os.getenv("DEEPSEEK_MODEL_VISION", "deepseek-v4-flash-vision-exp")
 
+# --- 智谱 GLM（免费档 glm-4-flash / glm-4v-flash） ---
+# 从 backend/.env 读取，禁止硬编码进代码
+GLM_API_KEY = os.getenv("GLM_API_KEY", "")
+
 # --- AI 费用估算单价（元 / 百万 token，输入 / 输出） ---
 # 按 DeepSeek 公开价近似维护，可在 .env 以 AI_PRICE_*_CNY_PER_M=flash:1,pro:2 覆盖；
 # 展示口径一律标注「估算」，仅用于成本可视化，不代表账单。

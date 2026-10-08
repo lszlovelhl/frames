@@ -22,6 +22,7 @@ from app.db import engine
 from app.media import cookies
 from app.routers import ai as ai_router
 from app.routers import billing as billing_router
+from app.routers import collection as collection_router
 from app.routers import creations as creations_router
 from app.routers import elements as elements_router
 from app.routers import platforms as platforms_router
@@ -45,6 +46,12 @@ async def lifespan(_: FastAPI):
     from app.services.stats_scheduler import periodic_stats_refresh
 
     stats_task = asyncio.create_task(periodic_stats_refresh())
+
+    # 自动采集定时任务
+    from app.services.collection_scheduler import collection_loop, daily_report_loop
+    collection_task = asyncio.create_task(collection_loop())
+    report_task = asyncio.create_task(daily_report_loop())
+
     # 拆解后台队列（批量提交用）：串行执行，进度落库供前端常驻展示
     from app.services import breakdown_jobs
 
@@ -64,7 +71,7 @@ async def lifespan(_: FastAPI):
         yield
     finally:
         await breakdown_jobs.stop_workers()
-        for t in (task, stats_task):
+        for t in (task, stats_task, collection_task, report_task):
             t.cancel()
             try:
                 await t
@@ -93,6 +100,7 @@ app.include_router(products_router.router)
 app.include_router(usage_router.router)
 app.include_router(providers_router.router)
 app.include_router(billing_router.router)
+app.include_router(collection_router.router)
 
 # 本地媒体静态服务：/media/<work_dir>/...
 app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")

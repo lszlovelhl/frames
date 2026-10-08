@@ -1149,3 +1149,49 @@ class LibMixDraft(TimestampMixin, Base):
         ),
         Index("ix_lib_mix_draft_status", "review_status"),
     )
+
+
+# ---------- 热榜与自动采集 ----------
+
+class DailyHotlist(TimestampMixin, Base):
+    """每日热榜（按日期+平台存储）"""
+
+    __tablename__ = "daily_hotlist"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    date: Mapped[str] = mapped_column(String(10))  # YYYY-MM-DD
+    platform: Mapped[str] = mapped_column(String(32))  # douyin / bilibili
+    hotlist_type: Mapped[str] = mapped_column(String(32))  # 热搜 / 上升 / 爆款
+    title: Mapped[str] = mapped_column(String(256))
+    hot_value: Mapped[int] = mapped_column(Integer, default=0)  # 热度值
+    rank: Mapped[int] = mapped_column(Integer)  # 排名
+    video_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    author: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # AI生成的摘要
+    ai_summary: Mapped[str | None] = mapped_column(Text, nullable=True)  # 整体热榜分析
+    collected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("date", "platform", "title", name="uq_daily_hotlist"),
+        Index("ix_daily_hotlist_date_platform", "date", "platform"),
+    )
+
+
+class CollectionConfig(TimestampMixin, Base):
+    """自动采集配置"""
+
+    __tablename__ = "collection_config"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)  # 总开关
+    hotlist_enabled: Mapped[bool] = mapped_column(Boolean, default=True)  # 热榜模式
+    keyword_enabled: Mapped[bool] = mapped_column(Boolean, default=False)  # 关键词模式
+    keywords: Mapped[list] = mapped_column(JSON, default=list, server_default=_sa_text("'[]'"))  # 关键词列表
+    platforms: Mapped[list] = mapped_column(JSON, default=list, server_default=_sa_text("'[]'"))  # 平台列表
+    max_videos_per_run: Mapped[int] = mapped_column(Integer, default=10)  # 每次最多采集多少个
+    min_likes: Mapped[int] = mapped_column(Integer, default=10000)  # 最低点赞数
+    interval_minutes: Mapped[int] = mapped_column(Integer, default=60)  # 采集间隔（分钟）
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

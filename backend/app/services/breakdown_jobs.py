@@ -23,6 +23,7 @@ from app.services.analysis import (
     build_media_brief,
     mark_failed,
     run_three_layer_breakdown,
+    run_two_layer_breakdown,
     set_progress,
 )
 from app.services.runtime_config import breakdown_alias
@@ -163,13 +164,24 @@ async def process(job_id: str) -> None:
                 return
 
             media_brief = build_media_brief(manifest)
-            await set_progress(db, job, stage="breakdown", message="多模态融合 · 三层拆解开始…", pct=50)
 
-            action = billing.action_for_video(video.duration_ms)
-            acc, points = await billing.precheck(db, action)
-            result = await run_three_layer_breakdown(
-                db, video, job, manifest=manifest, model=model
-            )
+            # 选择 pipeline：两层（新）还是三层（旧）
+            # 环境变量 FRAMES_PIPELINE=two 用新的两层，默认用旧的三层
+            import os
+            use_two_layer = os.getenv("FRAMES_PIPELINE", "three") == "two"
+
+            if use_two_layer:
+                await set_progress(db, job, stage="breakdown", message="两层简化 pipeline 开始…", pct=50)
+                result = await run_two_layer_breakdown(
+                    db, video, job, manifest=manifest, model=model
+                )
+            else:
+                await set_progress(db, job, stage="breakdown", message="多模态融合 · 三层拆解开始…", pct=50)
+                action = billing.action_for_video(video.duration_ms)
+                acc, points = await billing.precheck(db, action)
+                result = await run_three_layer_breakdown(
+                    db, video, job, manifest=manifest, model=model
+                )
             if not result.get("ok"):
                 logger.warning(
                     "三层拆解未成功：job=%s error=%s", job.id, result.get("error")

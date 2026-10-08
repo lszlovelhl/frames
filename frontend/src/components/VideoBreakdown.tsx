@@ -93,11 +93,20 @@ function L2Panel({ c }: { c: Record<string, unknown> }) {
             ))}
             {/* 曲线 */}
             <path
-              d={curve.map((pt, i) => {
-                const x = (i / (curve.length - 1)) * 1000;
-                const y = 200 - (Number(pt.level ?? 0) / 10) * 200;
-                return i === 0 ? `M ${x} ${y}` : `L ${x} ${y}`;
-              }).join(" ")}
+              d={(() => {
+                if (curve.length < 2) return "";
+                const pts = curve.map((pt, i) => ({
+                  x: (i / (curve.length - 1)) * 1000,
+                  y: 200 - (Number(pt.level ?? 0) / 10) * 200,
+                }));
+                // 用贝塞尔曲线平滑连接
+                let d = `M ${pts[0].x} ${pts[0].y}`;
+                for (let i = 0; i < pts.length - 1; i++) {
+                  const xc = (pts[i].x + pts[i + 1].x) / 2;
+                  d += ` C ${xc} ${pts[i].y}, ${xc} ${pts[i + 1].y}, ${pts[i + 1].x} ${pts[i + 1].y}`;
+                }
+                return d;
+              })()}
               fill="none"
               stroke="#fbbf24"
               strokeWidth="2.5"
@@ -238,6 +247,24 @@ function ElementCard({
       {e.description ? <p className="text-xs text-zinc-400">{e.description}</p> : null}
       {e.formula ? (
         <p className="rounded border border-emerald-300/10 bg-emerald-300/5 p-2 font-mono text-xs leading-relaxed text-emerald-200/90">{e.formula}</p>
+      ) : null}
+      {e.mechanism ? (
+        <div className="rounded border border-sky-300/10 bg-sky-300/5 p-2">
+          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-sky-300/70">为什么有效</div>
+          <p className="text-xs leading-relaxed text-sky-200/90">{e.mechanism}</p>
+        </div>
+      ) : null}
+      {e.usage_steps ? (
+        <div className="rounded border border-violet-300/10 bg-violet-300/5 p-2">
+          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-violet-300/70">使用步骤</div>
+          <p className="text-xs leading-relaxed text-violet-200/90">{e.usage_steps}</p>
+        </div>
+      ) : null}
+      {e.imagination ? (
+        <div className="rounded border border-amber-300/10 bg-amber-300/5 p-2">
+          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-amber-300/70">换个场景怎么用</div>
+          <p className="text-xs leading-relaxed text-amber-200/90">{e.imagination}</p>
+        </div>
       ) : null}
       {e.evidence && e.evidence.length > 0 && (
         <div className="flex flex-col gap-1">
@@ -1027,7 +1054,7 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
             ["segments", "段落分析"],
             ["elements", "元素提炼"],
             ["transcript", "转写"],
-            ["other", "其他"],
+            ["other", "辅助参考"],
           ] as const).map(([key, label]) => (
             <button
               key={key}
@@ -1102,8 +1129,8 @@ function FullScriptPanel({
       </div>
       <div className="mt-2 space-y-4">
         <div className="min-w-0">
-          <div className="mb-1 text-[11px] uppercase tracking-wide text-emerald-200/50">📝 口播文案轨</div>
-          <pre className="max-h-[400px] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[#14161a] p-3 font-mono text-[12px] leading-relaxed text-zinc-200">
+          <div className="mb-1 text-[11px] uppercase tracking-wide text-emerald-200/50">📝 完整编导脚本（Markdown）</div>
+          <pre className="max-h-[75vh] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[#14161a] p-3 font-mono text-[12px] leading-relaxed text-zinc-200">
             {showBody}
           </pre>
         </div>

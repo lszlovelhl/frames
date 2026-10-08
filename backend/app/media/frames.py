@@ -23,8 +23,8 @@ from app.media import ffbin
 logger = logging.getLogger(__name__)
 
 PROBE_W, PROBE_H = 160, 90
-MAX_FRAMES = 90          # 长视频视觉成本上限（默认超则限幅）
-MIN_FRAMES = 12
+MAX_FRAMES = 35          # 长视频视觉成本上限（去重后30-35帧足够）
+MIN_FRAMES = 10
 # 分档阈值（diffs 分位）
 _HI = 82
 _LO = 45
@@ -43,15 +43,15 @@ _PEAK = 95
 # 抽帧策略版本：分档间隔 / 帧数上限 / 锚点规则任何变更都要递增。
 # services/media_prep.ensure_media 复用素材前会比对该版本，落后则强制重抽帧
 # （否则「复用已有素材」短路会让密集档对老链接永远不生效）。
-FRAMES_POLICY_VERSION = 5  # v5：merge_scenes 提示词强化叙事合并 + _coalesce_scenes harness 兜底（32→10 场景）
+FRAMES_POLICY_VERSION = 6  # v6：滑动窗口去重 + 帧数预算从90降到35，借鉴claude-real-video思路
 
 SHORT_MAX_S = 300.0          # 时长阈值：< 5 分钟按短视频处理
 SHORT_IV_HIGH = 0.8
 SHORT_IV_MID = 1.6
 SHORT_IV_STATIC = 4.0
-SHORT_MAX_FRAMES = 120       # 短视频帧数上限（长视频仍为 90）
-SHORT_MIN_FRAMES = 24
-SHORT_FRAME_INTERVAL = 1.0   # 短视频目标平均间隔（秒）：1fps 密集档，让模型"看完整视频"
+SHORT_MAX_FRAMES = 40       # 短视频帧数上限（去重后30-40帧足够）
+SHORT_MIN_FRAMES = 15
+SHORT_FRAME_INTERVAL = 2.0   # 短视频目标平均间隔（秒）：去重后保证信息密度
 
 
 def profile_for(duration: float) -> dict:
@@ -207,6 +207,65 @@ def _plan_times(
             keep.extend(rest[::step_i][:n_rest])
         times = sorted(keep)[:budget]
     return times
+
+
+def _dedup_frames_by_similarity(frames: list[dict[str, Any]], similarity_threshold: float = 0.92) -> list[dict[str, Any]]:
+    """滑动窗口去重：去掉和前N帧相似度太高的重复镜头。
+    
+    借鉴 claude-real-video 的思路：A-B-A 切换的镜头只保留一次，
+    避免重复占用模型上下文。
+    """
+    if len(frames) <= 5:
+        return frames
+    
+    try:
+        from PIL import Image
+        import numpy as np
+    except ImportError:
+        logger.warning("Pillow未安装，跳过去重")
+        return frames
+    
+    kept: list[dict[str, Any]] = []
+    window_size = 4  # 滑动窗口：和前4帧比较
+    
+    for frame in frames:
+        path = frame.get("path")
+        if not path:
+            kept.append(frame)
+            continue
+        
+        try:
+            # 缩小到32x32计算相似度，速度快
+            img = Image.open(path).convert("L").resize((32, 32))
+            arr = np.array(img, dtype=np.float32) / 255.0
+        except Exception:
+            kept.append(frame)
+            continue
+        
+        # 和窗口内的帧比较
+        is_duplicate = False
+        recent = kept[-window_size:]
+        for prev in recent:
+            prev_path = prev.get("path")
+            if not prev_path:
+                continue
+            try:
+                prev_img = Image.open(prev_path).convert("L").resize((32, 32))
+                prev_arr = np.array(prev_img, dtype=np.float32) / 255.0
+                # 计算余弦相似度
+                sim = float(np.dot(arr.flatten(), prev_arr.flatten()) / 
+                           (np.linalg.norm(arr) * np.linalg.norm(prev_arr) + 1e-8))
+                if sim > similarity_threshold:
+                    is_duplicate = True
+                    break
+            except Exception:
+                continue
+        
+        if not is_duplicate:
+            kept.append(frame)
+    
+    logger.info(f"帧去重：{len(frames)} → {len(kept)}（去掉{len(frames)-len(kept)}重复帧）")
+    return kept
 
 
 def detect_dynamic_events(
@@ -377,4 +436,13 @@ async def sample_frames(
     events = detect_dynamic_events(diffs, duration)
     if plan_info is not None:
         plan_info["dynamic_events"] = events
+    
+    # 滑动窗口去重：去掉相似的重复镜头（A-B-A切换只保留一次）
+    # 借鉴 claude-real-video 思路，减少token消耗
+    frames = _dedup_frames_by_similarity(frames, similarity_threshold=0.90)
+    
+    # 重新编号
+    for i, f in enumerate(frames):
+        f["seq"] = i
+    
     return frames

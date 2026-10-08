@@ -1383,7 +1383,7 @@ async def run_three_layer(
     else:
         ok3, data3, q3 = await _run_layer(
         db, video=video, analysis_id=analysis_id, layer=3,
-        user_text=l3_user, model=model, array_keys=LAYER_ARRAY_KEYS[3], max_tokens=16384,
+        user_text=l3_user, model="flash", array_keys=LAYER_ARRAY_KEYS[3], max_tokens=16384,
     )
     quality["L3"] = q3
     segments_json = (data3.get("segments") or []) if ok3 else []
@@ -1559,6 +1559,60 @@ async def run_three_layer(
                 for i, _g in enumerate(_segs, start=1)
             ]
             warnings.append(f"L3 harness 兜底重建 {len(segments_json)} 个口播段（按停顿）")
+
+    # --- L3b：段落内容扩写（qwen3.5 把短 purpose/summary 写厚）---
+    # qwen3:4b 切分段快但内容短，用 qwen3.5 专门把每段 purpose/summary 写厚
+    await report("L3", 65, "三层链路 · L3b 段落内容扩写（qwen3.5）…")
+    for _seg in segments_json:
+        try:
+            _p = str(_seg.get("purpose") or "")
+            _s = str(_seg.get("summary") or "")
+            # 如果 purpose < 80 字或 summary < 50 字，触发扩写
+            if len(_p) < 80 or len(_s) < 50:
+                # 收集这段的台词
+                _f = _seg.get("line_from")
+                _t = _seg.get("line_to")
+                _lines = []
+                if _f and _t:
+                    for _sent in sentences:
+                        if int(_sent["seq"]) >= int(_f) and int(_sent["seq"]) <= int(_t):
+                            _lines.append(f"#{_sent['seq']}: {_sent.get('quote', '')}")
+                _lines_txt = "\n".join(_lines) if _lines else "（无口播台词，纯画面段）"
+                
+                _expand_prompt = f"""你是短视频编导。下面是一段视频的段落切分结果，但 purpose 和 summary 写得太短了，请把它们写厚。
+
+【这段的台词】
+{_lines_txt}
+
+【当前 purpose】{_p}
+【当前 summary】{_s}
+
+请输出 JSON，格式：
+{{"purpose": "≥80字，写清：①这段在全片叙事里承担什么具体动作（不是'铺垫/过渡'功能名，而是'承接上文的X，把观众从A情绪推往B情绪'）；②为什么必须放在这个位置；③去掉这段会损失什么",
+ "summary": "≥50字，陈述具体事实，要点名这段里的关键事件/台词/画面"}}
+
+只输出 JSON，不要其他内容。"""
+                
+                _resp = await complete_json(
+                    [{"role": "user", "content": _expand_prompt}],
+                    array_keys=["purpose", "summary"],
+                    model="pro",  # 用 qwen3.5 写厚
+                    temperature=0.3,
+                    max_tokens=1024,
+                    timeout=120,
+                    scene="three_layer_l3b",
+                    ref_type="analysis",
+                    ref_id=str(analysis_id),
+                    max_rounds=2,
+                )
+                if _resp and _resp[0]:
+                    _expanded = _resp[0]
+                    if _expanded.get("purpose") and len(str(_expanded["purpose"])) > len(_p):
+                        _seg["purpose"] = str(_expanded["purpose"])[:4000]
+                    if _expanded.get("summary") and len(str(_expanded["summary"])) > len(_s):
+                        _seg["summary"] = str(_expanded["summary"])[:4000]
+        except Exception as _exc:
+            logger.warning("L3b 段落扩写失败（段 %s）：%s", _seg.get("seq"), _exc)
 
     # --- harness 段落时间锚定（语义归模型，精确时间归 harness）---
     # 契约：段 1 从 0 起、首尾相接、严格单调（_TL3 第 1 条）。
@@ -2223,7 +2277,7 @@ async def run_three_layer(
                         q45["warnings"] = q45.get("warnings") or []
                         reason = "占位符未替换（{seg_type}/段N 等字面输出）" if placeholder_hit else \
                             f"漏段（{seg_marks}/{len(seg_rows)}）"
-                        q45["warnings"].append(f"首次成稿{reason}，自动重试")
+                        q45.setdefault("warnings", []).append(f"首次成稿{reason}，自动重试")
                         logger.info("L4.5 重试：%s seg_marks=%s/%s", reason, seg_marks, len(seg_rows))
                         res45 = await _ai_chat(
                             [
@@ -2441,11 +2495,11 @@ async def run_three_layer(
                                         f"套话自愈：检测 {len(dup)} 条 → 自动重写 → 剩余 {len(dup2)} 条"
                                     ] + dup2
                                     if len(raw45) >= hard_min:
-                                        q45["warnings"].append(f"自愈后成稿 {len(raw45)} 字达标")
+                                        q45.setdefault("warnings", []).append(f"自愈后成稿 {len(raw45)} 字达标")
                                 elif rw_marks != len(seg_rows):
                                     # 重写破坏了段落结构 → 弃用重写稿，保留原稿（结构正确优先）
                                     q45["warnings"] = q45.get("warnings") or []
-                                    q45["warnings"].append(
+                                    q45.setdefault("warnings", []).append(
                                         f"套话自愈重写稿段落数 {rw_marks} ≠ L3 {len(seg_rows)}，"
                                         f"弃用重写稿、保留原稿（段落结构正确优先）"
                                     )
@@ -2687,7 +2741,7 @@ async def run_three_layer(
                     _seg_rng = {sg.seq: (sg.start_sentence_seq, sg.end_sentence_seq) for sg in seg_rows}
                     _missing = sorted(x for x in _all_seqs if x not in _present_seqs)
                     if _missing:
-                        q45["warnings"].append(f"L4.5 逐句缺失 {_missing}（模型漏写），触发局部补齐")
+                        q45.setdefault("warnings", []).append(f"L4.5 逐句缺失 {_missing}（模型漏写），触发局部补齐")
                         _miss_txt = "\n".join(
                             f"- 〔句{r.seq}〕{r.quote}（{r.start_ms / 1000:.1f}s~{r.end_ms / 1000:.1f}s，句功能：{r.sentence_function}）"
                             for r in sentence_rows if int(r.seq) in _missing
@@ -2734,11 +2788,11 @@ async def run_three_layer(
                                         _pt = _ins_missing(_pt, int(_mh.group(1)))
                                     _out2.append(_pt)
                                 full_script = "".join(_out2)
-                                q45["warnings"].append(f"逐句补齐 {len(_new_lines)} 行（缺失句 {_missing}）")
+                                q45.setdefault("warnings", []).append(f"逐句补齐 {len(_new_lines)} 行（缺失句 {_missing}）")
                             else:
-                                q45["warnings"].append("逐句补齐响应无有效行，保留原稿")
+                                q45.setdefault("warnings", []).append("逐句补齐响应无有效行，保留原稿")
                         except Exception as _exc:
-                            q45["warnings"].append(f"逐句补齐失败：{str(_exc)[:80]}")
+                            q45.setdefault("warnings", []).append(f"逐句补齐失败：{str(_exc)[:80]}")
                     # 段标题重复清洗：模型偶发在"该段画面素材"前重复写"### 段N · 标题"行
                     # （段落区已写过一次）→ 删除重复标题行，保留画面素材内容行
                     full_script = re.sub(r"### 段\d+[^\n]*\n(?=该段画面素材)", "", full_script)

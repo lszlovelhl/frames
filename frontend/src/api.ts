@@ -187,6 +187,9 @@ export interface ElementInfo {
   name: string;
   description: string | null;
   formula: string | null;
+  mechanism: string | null;
+  imagination: string | null;
+  usage_steps: string | null;
   confidence: number | null;
   role_view: string;
   evidence: Array<{ seg?: number; quote?: string }>;
@@ -690,4 +693,12 @@ export const api = {
     request<BillingAccountResp>("/api/billing/recharge", { method: "POST", body: JSON.stringify({ package: packageKey }) }),
   billingFreeClaim: () =>
     request<BillingAccountResp>("/api/billing/free-claim", { method: "POST" }),
+
+  // ---- 自动采集 ----
+  getCollectionConfig: () => request<any>("/api/collection/config"),
+  updateCollectionConfig: (payload: any) =>
+    request<any>("/api/collection/config", { method: "PUT", body: JSON.stringify(payload) }),
+  getHotlistByDate: (date: string) => request<any>(`/api/collection/hotlist/${date}`),
+  getHotlistDates: () => request<any>("/api/collection/hotlist/dates"),
+  refreshHotlist: () => request<any>("/api/collection/hotlist/refresh", { method: "POST" }),
 };

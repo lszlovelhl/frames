@@ -306,15 +306,22 @@ async def start_analysis(
     job = resume or await create_job(db, video.id, model=breakdown_alias())
     job.status = "running"
     job.started_at = job.started_at or datetime.now(UTC)
-    await set_progress(db, job, stage="breakdown", message="多模态融合 · 三层拆解开始…", pct=50)
-    try:
+
+    # 选择 pipeline：两层（新）还是三层（旧）
+    import os
+    use_two_layer = os.getenv("FRAMES_PIPELINE", "three") == "two"
+
+    if use_two_layer:
+        await set_progress(db, job, stage="breakdown", message="两层简化 pipeline 开始…", pct=50)
+        from app.services.analysis import run_two_layer_breakdown
+        result = await run_two_layer_breakdown(
+            db, video, job, manifest=manifest, model=breakdown_alias()
+        )
+    else:
+        await set_progress(db, job, stage="breakdown", message="多模态融合 · 三层拆解开始…", pct=50)
         result = await run_three_layer_breakdown(
             db, video, job, manifest=manifest, model=breakdown_alias()
         )
-    except Exception as exc:  # noqa: BLE001
-        await db.rollback()
-        logger.exception("拆解执行失败")
-        raise HTTPException(status_code=502, detail=f"拆解执行失败: {exc}") from exc
 
     if not result.get("ok"):
         await db.commit()

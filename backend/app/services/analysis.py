@@ -257,6 +257,228 @@ async def run_three_layer_breakdown(
     return result
 
 
+# ------------------------------------------------------------------ 两层简化 pipeline
+
+async def run_two_layer_breakdown(
+    db: AsyncSession,
+    video: M.Video,
+    job: M.BreakdownJob,
+    *,
+    manifest: dict | None = None,
+    model: str = "local",
+) -> dict[str, Any]:
+    """两层简化 pipeline：L1 出框架 → Harness → L2 出成稿。
+
+    与旧三层 pipeline 的区别：
+    - 旧：七层模型调用（L1→L2→L3→L4→L45→L5→L6），出错点多
+    - 新：两次模型调用（L1 结构化 JSON + L2 Markdown 成稿）+ 一次 harness 后处理
+    """
+    from app.services.two_layer.pipeline import run_pipeline
+    from sqlalchemy import text as sql_text
+
+    _vid = video.id
+    _job_id = job.id
+
+    try:
+        await set_progress(db, job, stage="two_l1", message="L1：出整体框架...", pct=30)
+
+        duration_sec = video.duration_ms / 1000 if video.duration_ms else 100
+        vid_str = str(_vid)
+
+        # 1. 先在异步 session 里把数据都查出来（避免线程池里查数据库导致锁冲突）
+        # 从 raw_files.transcript 读转写数据（不是从 raw_transcript_sentence 表）
+        raw_files = video.raw_files or {}
+        transcript_data = raw_files.get("transcript", {})
+        transcript_segments = transcript_data.get("segments", [])
+
+        subtitle_lines = []
+        for seg in transcript_segments:
+            start_s = seg.get("start", 0)
+            end_s = seg.get("end", 0)
+            text = seg.get("text", "") or ""
+            if text.strip():
+                subtitle_lines.append(f"[{start_s:.1f}s-{end_s:.1f}s] {text}")
+        subtitle_text = "\n".join(subtitle_lines)
+
+        # 场景数据：从 raw_files.frames 读画面帧描述（每帧都有画面描述+字幕+情绪）
+        frames = raw_files.get("frames", [])
+        frame_lines = []
+        for f in frames:
+            time_s = f.get("time_ms", 0) / 1000
+            desc = f.get("desc", "") or ""
+            overlay = f.get("text_overlay", "") or ""
+            emotion = f.get("emotion", "") or ""
+            kind = f.get("kind", "") or ""
+            if desc:
+                parts = [f"{desc}"]
+                if overlay:
+                    parts.append(f"字幕：{overlay[:50]}")  # 字幕太长截断
+                if emotion:
+                    parts.append(f"情绪：{emotion}")
+                if kind == "motion":
+                    parts.append("【运动镜头】")
+                elif kind == "transition":
+                    parts.append("【转场】")
+                frame_lines.append(f"[{time_s:.0f}s] {' | '.join(parts)}")
+        scenes_text = "\n".join(frame_lines[:35])  # 去重后30-35帧全部传给模型，信息不丢
+
+        logger.info(f"两层拆解：{len(subtitle_lines)} 句转写，{len(frame_lines)} 个画面帧，{duration_sec:.0f}s")
+
+        # 2. 只把跑 pipeline 的部分放到线程池里（不查数据库，不会锁冲突）
+        import asyncio
+        loop = asyncio.get_event_loop()
+        from app.services.two_layer.pipeline import run_pipeline
+
+        pipeline_result = await loop.run_in_executor(
+            None,
+            lambda: run_pipeline(subtitle_text, scenes_text, duration_sec),
+        )
+
+        await set_progress(db, job, stage="two_l2", message="L2：出完整成稿...", pct=70)
+
+        # 把结果存到数据库
+        import uuid
+        script_id = uuid.uuid4().hex
+
+        l1_data = pipeline_result["l1_data"]
+        markdown = pipeline_result["markdown"]
+
+        # 从 markdown 提取标题（第一行 # 后面的内容）
+        title = video.title or "未命名"
+        for line in markdown.splitlines():
+            if line.startswith("# "):
+                title = line[2:].strip()
+                break
+
+        # 1. 创建 script_script 记录（先删旧的，因为 video_id 有 UNIQUE 约束）
+        await db.execute(sql_text("DELETE FROM script_script WHERE video_id = :vid"), {"vid": str(video.id)})
+        
+        script = M.ScriptScript(
+            video_id=str(video.id),
+            title=title,
+            platform=video.platform or "",
+            category="教育",
+            duration_ms=video.duration_ms or 0,
+            core_idea=l1_data.get("core_idea", title),
+            content_trend="情感治愈类",
+            target_audience="家长、教师",
+            summary=markdown[:500] if markdown else "",
+            sentence_count=len(subtitle_lines),
+            status="active",
+            full_script=markdown,
+        )
+        db.add(script)
+        await db.flush()  # 让 SQLAlchemy 生成 id
+        script_id = script.id
+
+        # 2. 存 segments
+        seg_type_map = {"hook": "钩子", "template": "铺垫", "technique": "干货", "climax": "高潮", "cta": "CTA"}
+        for i, seg in enumerate(l1_data.get("segments", []), 1):
+            seg_type_raw = seg.get("type", "segment").lower()
+            seg_type = seg_type_map.get(seg_type_raw, "干货")
+            segment = M.ScriptSegment(
+                script_id=script_id,
+                seq=i,
+                seg_type=seg_type,
+                title=seg.get("title", ""),
+                start_ms=int(seg.get("start_sec", 0) * 1000),
+                end_ms=int(seg.get("end_sec", 0) * 1000),
+                start_sentence_seq=1,
+                end_sentence_seq=len(subtitle_lines),
+                purpose=seg.get("purpose", ""),
+                summary=seg.get("summary", ""),
+                hook_point=0,
+                payoff_point=0,
+                emotion_peak=5.0,
+            )
+            db.add(segment)
+
+        # 3. 存 emotion_curve（整个JSON序列）
+        curve_points = l1_data.get("emotion_curve", [])
+        if curve_points:
+            intensity_series = [p.get("intensity", 5.0) for p in curve_points]
+            curve = M.ScriptEmotionCurve(
+                script_id=script_id,
+                sample_interval_ms=10000,
+                duration_ms=video.duration_ms or 100000,
+                sample_count=len(curve_points),
+                intensity_series=intensity_series,
+                series_min=min(intensity_series),
+                series_max=max(intensity_series),
+                shape="波浪",
+                peak_position_ratio=0.7,
+                peak_count=1,
+                valley_count=1,
+                baseline_intensity=5.0,
+                method="model",
+            )
+            db.add(curve)
+
+        # 4. 存 elements 到 lib 表
+        for elem in l1_data.get("elements", []):
+            elem_type = elem.get("type", "technique")
+            elem_id = uuid.uuid4().hex
+            elem_name = elem.get("name", "")
+            elem_formula = elem.get("formula", elem.get("example", ""))
+
+            if elem_type == "hook":
+                lib_item = M.LibHook(
+                    code=elem_name,
+                    name=elem_name,
+                    hook_type="悬念",
+                    position="前3秒",
+                    sentence_pattern=elem_formula,
+                    variables=[],
+                    expected_effect=elem.get("mechanism", ""),
+                    mechanism=elem.get("mechanism", ""),
+                    variants=[],
+                    imagination="",
+                    status="active",
+                    quality_score=7.0,
+                    source_video_id=str(video.id),
+                )
+                db.add(lib_item)
+            elif elem_type == "technique":
+                lib_item = M.LibMethod(
+                    code=elem_name,
+                    name=elem_name,
+                    category="叙事",
+                    controlled_tag="通用",
+                    abstraction_level="段落级",
+                    mechanism=elem.get("mechanism", ""),
+                    usage_steps="",
+                    counter_example="",
+                    variants=[],
+                    imagination="",
+                    status="active",
+                    quality_score=7.0,
+                    source_video_id=str(video.id),
+                )
+                db.add(lib_item)
+
+        evidence = {
+            "pipeline": "two_layer",
+            "l1_segments": len(l1_data.get("segments", [])),
+            "l1_elements": len(l1_data.get("elements", [])),
+            "transcript_lines": len(subtitle_lines),
+            "scenes": len(frame_lines),
+            "markdown_length": len(markdown),
+        }
+
+        await mark_done(db, job, evidence=evidence, script_id=script_id, status="done")
+        await db.commit()
+
+        return {"ok": True, "evidence": evidence, "script_id": script_id, "markdown": markdown}
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "两层拆解失败：video=%s job=%s", _vid, str(_job_id)[:8],
+            exc_info=True,
+        )
+        await db.rollback()
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
 # ------------------------------------------------------------------ 结果组装
 
 async def _script_of(db: AsyncSession, video_id) -> M.ScriptScript | None:
@@ -401,6 +623,8 @@ async def analysis_result(db: AsyncSession, job: M.BreakdownJob) -> dict:
         if script.quality_score is not None
         else None
     )
+    # 刷新 job 对象，避免 MissingGreenlet 错误
+    await db.refresh(job)
     model = job.model
     layers = [
         _layer1(script, segments, sentences, elements, model),
@@ -416,6 +640,27 @@ async def analysis_result(db: AsyncSession, job: M.BreakdownJob) -> dict:
         "target_audience": _clean_text(script.target_audience),
         "key_perspective": _clean_text(script.core_idea),
     }
+    # 如果full_script是空的（单pipeline结构化存储），就从segments+sentences自动拼接
+    full_script_text = _clean_text(script.full_script or "")
+    if not full_script_text and segments:
+        full_script_text = _build_full_script_from_segments(segments, sentences)
+
+    # 从raw_files读转写数据
+    raw = video.raw_files or {}
+    transcript = raw.get("transcript") or {}
+    transcript_segments_raw = transcript.get("segments") or []
+    transcript_text = transcript.get("text") or ""
+    
+    # 转换格式
+    transcript_segments = [
+        {
+            "start": float(s.get("start", 0)),
+            "end": float(s.get("end", 0)),
+            "text": s.get("text", ""),
+        }
+        for s in transcript_segments_raw
+    ]
+
     return {
         "id": str(job.id),
         "video_id": str(job.video_id),
@@ -423,10 +668,14 @@ async def analysis_result(db: AsyncSession, job: M.BreakdownJob) -> dict:
         "current_layer": len(segments) and len(layers) or 0,
         "ai_confidence": confidence,
         "reviewed_by_user": False,
-        "full_script": _clean_text(script.full_script or ""),
-        "full_script_body": _split_storyboard(_clean_text(script.full_script or ""))[0],
-        "storyboard": _split_storyboard(_clean_text(script.full_script or ""))[1],
+        "full_script": full_script_text,
+        "full_script_body": _split_storyboard(full_script_text)[0],
+        "storyboard": _split_storyboard(full_script_text)[1],
         "summary": summary,
+        "detail": {
+            "transcript_segments": transcript_segments,
+            "transcript_text": transcript_text,
+        },
         "meta": {
             "three_layer": evidence,
             "progress": {
@@ -478,6 +727,55 @@ def _hook_hypothesis(sentences: list[M.ScriptSentence]) -> str:
     return ""
 
 
+def _build_full_script_from_segments(segments: list[M.ScriptSegment], sentences: list[M.ScriptSentence]) -> str:
+    """从结构化的segments+sentences拼接出完整的markdown脚本。"""
+    lines = []
+    
+    # 标题
+    if segments:
+        lines.append(f"# {segments[0].title or '完整脚本'}")
+        lines.append("")
+    
+    # 按分段组织
+    seg_sentence_map: dict[str, list[M.ScriptSentence]] = {}
+    for s in sentences:
+        sid = s.segment_id or ""
+        if sid not in seg_sentence_map:
+            seg_sentence_map[sid] = []
+        seg_sentence_map[sid].append(s)
+    
+    for seg in segments:
+        # 分段标题
+        start_s = int(seg.start_ms / 1000) if seg.start_ms else 0
+        end_s = int(seg.end_ms / 1000) if seg.end_ms else 0
+        lines.append(f"## 段{seg.seq} · {seg.seg_type}｜{start_s}s~{end_s}s")
+        lines.append("")
+        
+        # 分段内容
+        if seg.summary:
+            lines.append(f"**内容概要**：{seg.summary}")
+            lines.append("")
+        
+        if seg.purpose:
+            lines.append(f"**创作目的**：{seg.purpose}")
+            lines.append("")
+        
+        # 逐句分析
+        seg_sents = seg_sentence_map.get(seg.id, [])
+        if seg_sents:
+            lines.append("### 逐句分析")
+            lines.append("")
+            for s in seg_sents:
+                s_start = int(s.start_ms / 1000) if s.start_ms else 0
+                intensity = s.emotion_intensity or 5.0
+                lines.append(f"**句{s.seq}（{s_start}s）**：「{s.quote}」")
+                lines.append(f"- **功能**：{s.sentence_function} — {s.function_reason}")
+                lines.append(f"- **情绪强度**：{intensity}/10")
+                lines.append("")
+    
+    return "\n".join(lines)
+
+
 def _layer1(script, segments, sentences, elements, model) -> dict:
     content = {
         "one_liner": _clean_text(script.summary or script.core_idea),
@@ -519,8 +817,8 @@ def _curve_pairs(curve) -> list[tuple[int, float]]:
 
 def _layer2(script, segments, curve, turns, sentences, model) -> dict:
     pairs = _curve_pairs(curve)
-    # 等间隔采样 → 12 个展示点（保留原始时间锚与所属段落，避免丢时间锚）
-    step = max(1, len(pairs) // 12) if pairs else 1
+    # 等间隔采样 → 50 个展示点（保留原始时间锚与所属段落，避免丢时间锚）
+    step = max(1, len(pairs) // 50) if pairs else 1
     points = []
     for i in range(0, len(pairs), step):
         t_ms, level = pairs[i]
@@ -603,7 +901,7 @@ def _layer4(sentences, turns, model) -> dict:
         }
         for s in sentences
         if s.sentence_function in ("冲突", "转折", "高潮", "钩子", "CTA")
-    ][:60]
+    ][:20]
     notes += [
         {
             "note_type": f"情绪{_clean_text(t.turn_type)}",
@@ -613,7 +911,7 @@ def _layer4(sentences, turns, model) -> dict:
             "content": _clean_text(t.note),
             "confidence": None,
         }
-        for t in turns[:20]
+        for t in turns[:10]
     ]
     return {
         "layer": 4,
@@ -715,6 +1013,9 @@ async def _element_cards(db, script, segments, sentences) -> list[dict]:
                 "name": element_library._row_name(key[0], row)[:100],
                 "description": element_library._row_description(key[0], row) or None,
                 "formula": element_library._row_formula(key[0], row) or None,
+                "mechanism": getattr(row, "mechanism", None),
+                "imagination": getattr(row, "imagination", None),
+                "usage_steps": getattr(row, "usage_steps", None),
                 "confidence": element_library._row_confidence(row),
                 "role_view": getattr(row, "role_view", None) or "编导",
                 "evidence": evidence,
