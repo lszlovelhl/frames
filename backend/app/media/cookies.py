@@ -14,6 +14,7 @@
 import asyncio
 import json
 import logging
+import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -221,10 +222,10 @@ def mark_expired(platform: str, reason: str = "") -> None:
 
 
 def get_cookie_file_for(platform: str) -> str | None:
-    """返回给下载器用的 cookie 文件路径；无有效登录态返回 None。"""
-    st = get_status(platform)
-    if st["status"] in ("valid", "imported") and st["has_cookie"]:
-        return str(cookie_path(platform))
+    """返回给下载器用的 cookie 文件路径；只要有cookie就返回，状态只是提示。"""
+    path = cookie_path(platform)
+    if os.path.exists(path):
+        return str(path)
     return None
 
 

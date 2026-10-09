@@ -202,7 +202,7 @@ async def search_douyin_videos(keyword: str, limit: int = 20) -> list[dict[str, 
         
         # 提取视频卡片
         items = []
-        cards = await page.query_selectorAll('div[class*="search-result-card"], div[class*="video-card"]')
+        cards = await page.query_selector_all('div[class*="search-result-card"], div[class*="video-card"]')
         
         for card in cards[:limit]:
             try:

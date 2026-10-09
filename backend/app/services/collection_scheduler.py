@@ -26,8 +26,10 @@ async def add_video_to_queue(url: str, platform: str = "bilibili"):
                 logger.info("视频已存在: %s", url)
                 return existing.id
 
-        # 下载视频
-        work_dir = Path(f"backend/data/videos/{url[-20:]}")
+        # 下载视频 - 用绝对路径，避免相对路径问题
+        import os
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        work_dir = Path(base_dir) / "data" / "videos" / url[-20:].replace("/", "_")
         work_dir.mkdir(parents=True, exist_ok=True)
 
         dl = await download(url, work_dir, platform=platform)
