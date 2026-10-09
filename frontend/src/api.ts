@@ -608,6 +608,12 @@ export const api = {
   clearPlatformCookies: (platform: string) =>
     request<{ ok: boolean } & PlatformStatus>(`/api/platforms/${platform}/cookies`, { method: "DELETE" }),
   platformLoginUrl: (platform: string) => request<{ platform: string; login_url: string; label: string }>(`/api/platforms/${platform}/login-url`),
+  startQrLogin: (platform: string) => request<{ session_id: string; qr_image: string; status: string }>(`/api/collection/qr-login/start/${platform}`, { method: "POST" }),
+  getQrLoginStatus: (sessionId: string) => request<{ session_id: string; status: string; platform: string; qr_image?: string }>(`/api/collection/qr-login/status/${sessionId}`),
+  manualSearch: (keyword: string, limit: number = 10) => request<{ ok: boolean; keyword: string; added: { bilibili: number; douyin: number }; total: number; message: string }>("/api/collection/search", {
+    method: "POST",
+    body: JSON.stringify({ keyword, limit }),
+  }),
   creationsChat: (messages: Array<{ role: "user" | "assistant"; content: string }>, elementIds: string[], productIds: string[] = [], platform?: string, intent?: string) =>
     request<{ reply: string; model?: string; used_elements: UsedElementRef[]; used_products?: UsedProductRef[] }>("/api/creations/chat", {
       method: "POST",

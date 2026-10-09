@@ -34,6 +34,10 @@ export default function CollectionView() {
   const [newKeyword, setNewKeyword] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+  
+  // 手动搜索
+  const [manualKeyword, setManualKeyword] = useState("");
+  const [searching, setSearching] = useState(false);
 
   useEffect(() => {
     loadConfig();
@@ -106,6 +110,21 @@ export default function CollectionView() {
     }
   }
 
+  // 手动搜索关键词
+  async function handleManualSearch() {
+    if (!manualKeyword.trim()) return;
+    setSearching(true);
+    try {
+      const result = await api.manualSearch(manualKeyword.trim(), 10);
+      setMessage(result.message);
+      setTimeout(() => setMessage(""), 5000);
+    } catch (e: any) {
+      setMessage("搜索失败：" + (e.message || "未知错误"));
+    } finally {
+      setSearching(false);
+    }
+  }
+
   if (!config) return <div className="text-zinc-400">加载中...</div>;
 
   return (
@@ -122,6 +141,31 @@ export default function CollectionView() {
           {message}
         </div>
       )}
+
+      {/* 手动搜索 */}
+      <div className="rounded-xl border border-white/5 bg-[#1c1f26] p-6 mb-4">
+        <h3 className="text-base font-semibold text-zinc-100 mb-2">🔍 手动搜索</h3>
+        <p className="text-sm text-zinc-500 mb-4">
+          输入关键词，立即搜索B站+抖音的热门视频，自动加入拆解队列
+        </p>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={manualKeyword}
+            onChange={(e) => setManualKeyword(e.target.value)}
+            placeholder="输入关键词，比如：爬泰山、美妆教程、科技数码"
+            className="flex-1 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-emerald-400/40"
+            onKeyDown={(e) => e.key === "Enter" && handleManualSearch()}
+          />
+          <button
+            onClick={handleManualSearch}
+            disabled={searching || !manualKeyword.trim()}
+            className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-medium text-black hover:bg-emerald-300 disabled:opacity-50"
+          >
+            {searching ? "搜索中..." : "立即搜索"}
+          </button>
+        </div>
+      </div>
 
       {/* 采集开关 */}
       <div className="rounded-xl border border-white/5 bg-[#1c1f26] p-6 mb-4">

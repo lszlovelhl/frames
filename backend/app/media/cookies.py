@@ -228,6 +228,82 @@ def get_cookie_file_for(platform: str) -> str | None:
     return None
 
 
+async def verify_cookie(platform: str) -> dict:
+    """真实验证cookie是否有效，更新状态。"""
+    import httpx
+    import os
+    
+    cookie_file = get_cookie_file_for(platform)
+    if not cookie_file or not os.path.exists(cookie_file):
+        return get_status(platform)
+    
+    # 读取cookie文件
+    with open(cookie_file, "r", encoding="utf-8") as f:
+        cookie_text = f.read()
+    
+    # 把Netscape格式cookie转成dict
+    cookie_dict = {}
+    for line in cookie_text.strip().split("\n"):
+        if line.startswith("#") or not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) >= 7:
+            cookie_dict[parts[5]] = parts[6]
+    
+    if not cookie_dict:
+        return get_status(platform)
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    }
+    
+    is_valid = False
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0, cookies=cookie_dict, headers=headers, follow_redirects=True) as client:
+            if platform == "bilibili":
+                # B站nav接口
+                resp = await client.get("https://api.bilibili.com/x/web-interface/nav")
+                data = resp.json()
+                if data.get("code") == 0 and data.get("data", {}).get("isLogin"):
+                    is_valid = True
+            elif platform == "douyin":
+                # 抖音个人信息接口，需要带正确的headers
+                douyin_headers = {
+                    **headers,
+                    "Referer": "https://www.douyin.com/",
+                    "Accept": "application/json, text/plain, */*",
+                }
+                resp = await client.get(
+                    "https://www.douyin.com/aweme/v1/web/user/profile/self/",
+                    headers=douyin_headers,
+                )
+                data = resp.json()
+                # 只要返回不是未登录，就算有效
+                if data.get("status_code") == 0 and data.get("user"):
+                    is_valid = True
+                # 如果返回的是需要登录，就不算
+                elif "not login" in str(data).lower():
+                    is_valid = False
+    except Exception as e:
+        logger.warning("验证cookie失败 %s: %s", platform, e)
+    
+    # 更新状态
+    state = _load_state()
+    rec = state.setdefault(platform, {})
+    if is_valid:
+        rec["status"] = "valid"
+        rec["last_success_at"] = _now()
+        logger.info("登录态验证成功: %s", platform)
+    else:
+        rec["status"] = "expired"
+        rec["last_fail_at"] = _now()
+        logger.info("登录态验证失败: %s", platform)
+    _save_state(state)
+    
+    return get_status(platform)
+
+
 async def periodic_check() -> None:
     """定期巡检（每小时）：对超期未成功使用的登录态标 expired。"""
     while True:

@@ -34,12 +34,17 @@ async def save_platform_cookies(platform: str, body: CookieBody):
 
 @router.post("/{platform}/detect")
 async def detect_platform(platform: str):
-    st = cookies.get_status(platform)
-    # 结构性检查在 get_status 内已自动完成；这里额外给出人工复核指引
+    # 真实验证cookie是否有效
+    st = await cookies.verify_cookie(platform)
+    # 根据状态返回不同的提示
+    if st["status"] == "valid":
+        hint = "登录态验证通过，现在可以正常抓取了。"
+    else:
+        hint = "登录态验证失败，请重新扫码登录。"
     return {
         **st,
         "detected_at": cookies._now(),
-        "hint": "登录态真实验证以最近一次抓取结果为准：抓取成功自动标记有效，失效自动标记过期。",
+        "hint": hint,
     }
 
 

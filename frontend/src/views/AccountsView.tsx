@@ -20,6 +20,15 @@ export default function AccountsView() {
   const [busy, setBusy] = useState("");
   const [editing, setEditing] = useState<PlatformStatus | null>(null);
   const [cookiesText, setCookiesText] = useState("");
+  
+  // 扫码登录状态
+  const [qrLogin, setQrLogin] = useState<{
+    platform: PlatformStatus;
+    sessionId: string;
+    qrImage: string;
+    status: string;
+  } | null>(null);
+  const [verifyCode, setVerifyCode] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -66,6 +75,56 @@ export default function AccountsView() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
+  }
+
+  // 扫码登录
+  async function startQrLogin(p: PlatformStatus) {
+    setError("");
+    try {
+      const result = await api.startQrLogin(p.platform);
+      setQrLogin({
+        platform: p,
+        sessionId: result.session_id,
+        qrImage: result.qr_image,
+        status: result.status,
+      });
+      // 启动轮询
+      pollQrLogin(result.session_id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function pollQrLogin(sessionId: string) {
+    const interval = setInterval(async () => {
+      try {
+        const status = await api.getQrLoginStatus(sessionId);
+        setQrLogin((prev) => {
+          if (!prev || prev.sessionId !== sessionId) {
+            clearInterval(interval);
+            return prev;
+          }
+          return {
+            ...prev,
+            status: status.status,
+            qrImage: status.qr_image || prev.qrImage,
+          };
+        });
+        
+        // 登录成功或过期，停止轮询
+        if (status.status === "success" || status.status === "expired") {
+          clearInterval(interval);
+          if (status.status === "success") {
+            // 登录成功，刷新列表
+            await load();
+            // 2秒后关闭弹窗
+            setTimeout(() => setQrLogin(null), 2000);
+          }
+        }
+      } catch (e) {
+        console.error("轮询扫码状态失败", e);
+      }
+    }, 3000);
   }
 
   return (
@@ -117,6 +176,13 @@ export default function AccountsView() {
                       disabled={busy === `save:${p.platform}`}
                     >
                       {p.has_cookie ? "更新登录态" : "导入登录态"}
+                    </button>
+                    <button
+                      onClick={() => startQrLogin(p)}
+                      className="rounded-lg bg-emerald-400/15 px-2.5 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-400/25 disabled:opacity-50"
+                      disabled={busy === `qr:${p.platform}`}
+                    >
+                      📱 扫码登录
                     </button>
                     <button
                       onClick={() => openLogin(p)}
@@ -180,6 +246,76 @@ export default function AccountsView() {
               >
                 保存登录态
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 扫码登录弹窗 */}
+      {qrLogin && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6" onClick={() => setQrLogin(null)}>
+          <div className="w-full max-w-sm rounded-xl border border-white/10 bg-[#171a20] p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-1 flex items-center justify-between">
+              <h3 className="text-base font-medium text-zinc-100">扫码登录 {qrLogin.platform.label}</h3>
+              <button onClick={() => setQrLogin(null)} className="text-zinc-500 hover:text-zinc-300">✕</button>
+            </div>
+            <p className="mb-4 text-xs text-zinc-500">
+              打开{qrLogin.platform.label}手机App → 扫一扫，即可自动登录
+            </p>
+            
+            <div className="flex justify-center py-4">
+              {(qrLogin.status === "waiting" || qrLogin.status === "waiting_verify") && (
+                <div className="text-center">
+                  <img src={qrLogin.qrImage} alt="登录二维码" className="mx-auto h-48 w-48 rounded-lg border border-white/10 opacity-80" />
+                  {qrLogin.status === "waiting" ? (
+                    <p className="mt-3 text-xs text-zinc-500">请使用手机扫码登录（二维码自动刷新）</p>
+                  ) : (
+                    <>
+                      <p className="mt-3 text-xs text-amber-300">📱 请在手机上完成验证，或输入收到的短信验证码</p>
+                      <div className="mt-3 flex gap-2 justify-center">
+                        <input
+                          type="text"
+                          value={verifyCode}
+                          onChange={(e) => setVerifyCode(e.target.value)}
+                          placeholder="输入6位验证码"
+                          className="w-32 rounded-lg border border-white/10 bg-black/30 px-3 py-1.5 text-sm text-zinc-200 outline-none focus:border-amber-300/40"
+                          maxLength={6}
+                        />
+                        <button
+                          onClick={async () => {
+                            if (!verifyCode.trim() || !qrLogin) return;
+                            try {
+                              await fetch(`/api/collection/qr-login/submit-code/${qrLogin.sessionId}`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ code: verifyCode.trim() }),
+                              });
+                              setVerifyCode("");
+                            } catch (e) {
+                              console.error("提交验证码失败", e);
+                            }
+                          }}
+                          className="rounded-lg bg-amber-300 px-3 py-1.5 text-xs font-medium text-black hover:bg-amber-200"
+                        >
+                          提交
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+              {qrLogin.status === "success" && (
+                <div className="py-8 text-center">
+                  <div className="mb-2 text-4xl">✅</div>
+                  <p className="text-sm text-emerald-300">登录成功！</p>
+                </div>
+              )}
+              {qrLogin.status === "expired" && (
+                <div className="py-8 text-center">
+                  <div className="mb-2 text-4xl">⏰</div>
+                  <p className="text-sm text-rose-300">二维码已过期，请关闭后重新扫码</p>
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.models import CollectionConfig, Video
-from app.services.hotlist import fetch_bilibili_hotlist, fetch_douyin_hotlist, save_hotlist_to_db, search_bilibili_videos
+from app.services.hotlist import fetch_bilibili_hotlist, fetch_douyin_hotlist, save_hotlist_to_db, search_bilibili_videos, search_douyin_videos
 
 logger = logging.getLogger(__name__)
 
@@ -114,20 +114,23 @@ async def collection_loop():
                     except Exception as e:
                         logger.error("自动采集热榜失败: %s", e)
 
-                # 2. 关键词模式：按关键词搜视频
+                # 2. 关键词模式：按关键词搜视频（B站+抖音）
                 if config.keyword_enabled and config.keywords:
                     for keyword in config.keywords[:3]:  # 每次最多搜3个关键词
                         try:
                             logger.info("搜索关键词: %s", keyword)
-                            search_results = await search_bilibili_videos(
-                                keyword,
-                                limit=config.max_videos_per_run // len(config.keywords)
-                            )
-
-                            for item in search_results:
-                                # 检查播放量是否达标
+                            per_platform_limit = config.max_videos_per_run // max(len(config.keywords), 1) // 2
+                            
+                            # 搜B站
+                            bili_results = await search_bilibili_videos(keyword, limit=per_platform_limit)
+                            for item in bili_results:
                                 if item.get("hot_value", 0) >= config.min_likes:
                                     await add_video_to_queue(item["video_url"], "bilibili")
+                            
+                            # 搜抖音
+                            douyin_results = await search_douyin_videos(keyword, limit=per_platform_limit)
+                            for item in douyin_results:
+                                await add_video_to_queue(item["video_url"], "douyin")
 
                         except Exception as e:
                             logger.error("关键词搜索失败 %s: %s", keyword, e)

@@ -155,6 +155,92 @@ async def search_bilibili_videos(keyword: str, limit: int = 20) -> list[dict[str
             return []
 
 
+async def search_douyin_videos(keyword: str, limit: int = 20) -> list[dict[str, Any]]:
+    """按关键词搜索抖音视频（用Playwright，需要登录态）"""
+    from app.media.cookies import get_cookie_file_for
+    import os
+    
+    cookie_file = get_cookie_file_for("douyin")
+    if not cookie_file or not os.path.exists(cookie_file):
+        logger.warning("抖音未登录，无法搜索关键词")
+        return []
+    
+    # 读取cookie文件
+    with open(cookie_file, "r", encoding="utf-8") as f:
+        cookies_text = f.read()
+    
+    try:
+        from playwright.async_api import async_playwright
+        
+        pw = await async_playwright().start()
+        browser = await pw.chromium.launch(
+            channel="chrome",
+            headless=True,
+        )
+        context = await browser.new_context()
+        
+        # 加载cookies
+        cookie_list = []
+        for line in cookies_text.strip().split("\n"):
+            if line.startswith("#") or not line.strip():
+                continue
+            parts = line.split("\t")
+            if len(parts) >= 7:
+                cookie_list.append({
+                    "name": parts[5],
+                    "value": parts[6],
+                    "domain": parts[0],
+                    "path": parts[2],
+                    "secure": parts[3] == "TRUE",
+                })
+        if cookie_list:
+            await context.add_cookies(cookie_list)
+        
+        page = await context.new_page()
+        await page.goto(f"https://www.douyin.com/search/{keyword}?type=video", wait_until="networkidle")
+        await asyncio.sleep(3)  # 等页面加载
+        
+        # 提取视频卡片
+        items = []
+        cards = await page.query_selectorAll('div[class*="search-result-card"], div[class*="video-card"]')
+        
+        for card in cards[:limit]:
+            try:
+                title_el = await card.query_selector('a[class*="title"], p[class*="title"]')
+                title = await title_el.inner_text() if title_el else ""
+                
+                link_el = await card.query_selector('a[href*="/video/"]')
+                href = await link_el.get_attribute("href") if link_el else ""
+                video_url = f"https:{href}" if href.startswith("//") else href
+                
+                author_el = await card.query_selector('span[class*="author"], a[class*="author"]')
+                author = await author_el.inner_text() if author_el else ""
+                
+                # 精确匹配：标题必须包含关键词
+                if keyword.lower() in title.lower():
+                    items.append({
+                        "platform": "douyin",
+                        "title": title,
+                        "hot_value": 0,  # 抖音搜索暂时拿不到点赞数
+                        "video_url": video_url,
+                        "author": author,
+                        "summary": "",
+                        "keyword": keyword,
+                    })
+            except Exception:
+                continue
+        
+        await browser.close()
+        await pw.stop()
+        
+        logger.info("抖音搜索 '%s' 成功，共 %d 条", keyword, len(items))
+        return items
+        
+    except Exception as e:
+        logger.error("抖音搜索异常: %s", e)
+        return []
+
+
 async def save_hotlist_to_db(items: list[dict], db_session):
     """把热榜数据存入数据库"""
     from sqlalchemy import select

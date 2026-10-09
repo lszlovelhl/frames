@@ -168,6 +168,49 @@ async def refresh_hotlist(db: AsyncSession = Depends(get_session)):
     }
 
 
+# ---------- 手动关键词搜索 ----------
+
+@router.post("/search")
+async def manual_search(payload: dict):
+    """手动触发关键词搜索，立即搜B站+抖音，把视频加入拆解队列。"""
+    keyword = payload.get("keyword", "").strip()
+    if not keyword:
+        raise HTTPException(status_code=400, detail="请输入关键词")
+    
+    limit = min(int(payload.get("limit", 10)), 30)
+    
+    from app.services.hotlist import search_bilibili_videos, search_douyin_videos
+    from app.services.collection_scheduler import add_video_to_queue
+    
+    added = {"bilibili": 0, "douyin": 0}
+    
+    # 搜B站
+    bili_results = await search_bilibili_videos(keyword, limit=limit)
+    for item in bili_results:
+        try:
+            await add_video_to_queue(item["video_url"], "bilibili")
+            added["bilibili"] += 1
+        except Exception:
+            pass
+    
+    # 搜抖音
+    douyin_results = await search_douyin_videos(keyword, limit=limit)
+    for item in douyin_results:
+        try:
+            await add_video_to_queue(item["video_url"], "douyin")
+            added["douyin"] += 1
+        except Exception:
+            pass
+    
+    return {
+        "ok": True,
+        "keyword": keyword,
+        "added": added,
+        "total": added["bilibili"] + added["douyin"],
+        "message": f"搜索完成！B站新增 {added['bilibili']} 个，抖音新增 {added['douyin']} 个",
+    }
+
+
 # ---------- 扫码登录 ----------
 
 @router.post("/qr-login/start/{platform}")
@@ -184,3 +227,12 @@ async def start_qr_login(platform: str):
 async def get_qr_login_status(session_id: str):
     """查询扫码登录状态。"""
     return qr_login.get_qr_login_status(session_id)
+
+
+@router.post("/qr-login/submit-code/{session_id}")
+async def submit_qr_verify_code(session_id: str, payload: dict):
+    """用户输入手机验证码，自动填入页面提交。"""
+    code = payload.get("code", "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="请输入验证码")
+    return await qr_login.submit_verify_code(session_id, code)
