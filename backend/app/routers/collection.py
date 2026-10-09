@@ -1,4 +1,5 @@
 """自动采集配置与热榜管理"""
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +11,7 @@ from app.services.hotlist import fetch_bilibili_hotlist, fetch_douyin_hotlist, s
 from app.services.hotlist_ai import analyze_hotlist
 from app.services import qr_login
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/collection", tags=["采集配置"])
 
 
@@ -186,12 +188,13 @@ async def manual_search(payload: dict):
     
     # 搜B站
     bili_results = await search_bilibili_videos(keyword, limit=limit)
+    logger.info("B站搜索返回 %d 条结果", len(bili_results))
     for item in bili_results:
         try:
             await add_video_to_queue(item["video_url"], "bilibili")
             added["bilibili"] += 1
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("加入队列失败 %s: %s", item["video_url"], e)
     
     # 搜抖音
     douyin_results = await search_douyin_videos(keyword, limit=limit)

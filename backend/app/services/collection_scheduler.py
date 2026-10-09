@@ -30,7 +30,7 @@ async def add_video_to_queue(url: str, platform: str = "bilibili"):
         work_dir = Path(f"backend/data/videos/{url[-20:]}")
         work_dir.mkdir(parents=True, exist_ok=True)
 
-        dl = await download(url, str(work_dir), platform=platform)
+        dl = await download(url, work_dir, platform=platform)
         meta = dl["meta"]
 
         # 创建视频记录
