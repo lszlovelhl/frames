@@ -175,7 +175,7 @@ async def search_douyin_videos(keyword: str, limit: int = 20) -> list[dict[str, 
         pw = await async_playwright().start()
         browser = await pw.chromium.launch(
             channel="chrome",
-            headless=True,
+            headless=False,  # 有头模式，避免抖音人机验证
         )
         context = await browser.new_context()
         
@@ -198,46 +198,68 @@ async def search_douyin_videos(keyword: str, limit: int = 20) -> list[dict[str, 
         
         page = await context.new_page()
         await page.goto(f"https://www.douyin.com/search/{keyword}?type=video", wait_until="networkidle")
-        await asyncio.sleep(3)  # 等页面加载
+        await asyncio.sleep(5)  # 等页面加载
+        
+        # 截图看看页面结构
+        await page.screenshot(path="/tmp/douyin_search.png", full_page=False)
+        logger.info("抖音搜索页面截图已保存到 /tmp/douyin_search.png")
         
         # 提取视频卡片
         items = []
-        cards = await page.query_selector_all('div[class*="search-result-card"], div[class*="video-card"]')
+        # 先试试所有带/video/链接的a标签
+        links = await page.query_selector_all('a[href*="/video/"]')
+        logger.info("抖音搜索找到 %d 个视频链接", len(links))
         
-        for card in cards[:limit]:
+        for link in links[:limit*2]:  # 多找几个，去重
             try:
-                title_el = await card.query_selector('a[class*="title"], p[class*="title"]')
-                title = await title_el.inner_text() if title_el else ""
-                
-                link_el = await card.query_selector('a[href*="/video/"]')
-                href = await link_el.get_attribute("href") if link_el else ""
+                href = await link.get_attribute("href")
+                if not href:
+                    continue
                 video_url = f"https:{href}" if href.startswith("//") else href
                 
-                author_el = await card.query_selector('span[class*="author"], a[class*="author"]')
-                author = await author_el.inner_text() if author_el else ""
+                # 找标题：a标签的文本
+                title = await link.inner_text()
+                if not title or len(title) < 5:
+                    continue
                 
-                # 精确匹配：标题必须包含关键词
-                if keyword.lower() in title.lower():
-                    items.append({
-                        "platform": "douyin",
-                        "title": title,
-                        "hot_value": 0,  # 抖音搜索暂时拿不到点赞数
-                        "video_url": video_url,
-                        "author": author,
-                        "summary": "",
-                        "keyword": keyword,
-                    })
-            except Exception:
+                items.append({
+                    "platform": "douyin",
+                    "title": title,
+                    "hot_value": 0,
+                    "video_url": video_url,
+                    "author": "",
+                    "summary": "",
+                    "keyword": keyword,
+                })
+            except Exception as e:
+                logger.warning("提取抖音视频失败: %s", e)
                 continue
+        
+        # 去重
+        seen = set()
+        unique_items = []
+        for item in items:
+            if item["video_url"] not in seen:
+                seen.add(item["video_url"])
+                unique_items.append(item)
+        
+        logger.info("抖音搜索 '%s' 成功，共 %d 条", keyword, len(unique_items))
         
         await browser.close()
         await pw.stop()
         
-        logger.info("抖音搜索 '%s' 成功，共 %d 条", keyword, len(items))
-        return items
+        return unique_items[:limit]
         
     except Exception as e:
         logger.error("抖音搜索异常: %s", e)
+        # 出错也尝试关浏览器
+        try:
+            if 'browser' in dir():
+                await browser.close()
+            if 'pw' in dir():
+                await pw.stop()
+        except:
+            pass
         return []
 
 

@@ -153,7 +153,7 @@ async def mark_failed(db: AsyncSession, job: M.BreakdownJob, *, message: str) ->
     job.pct = 100
     job.stage = "failed"
     job.message = message
-    job.failed_reason = message
+    job.failed_reason = message or "unknown_error"
     job.finished_at = _now()
 
 
@@ -794,7 +794,7 @@ def _layer1(script, segments, sentences, elements, model) -> dict:
 def _curve_pairs(curve) -> list[tuple[int, float]]:
     """把 intensity_series 归一为 [(t_ms, intensity), ...]。
 
-    三层链路落库口径是 ``[[t_ms, intensity], ...]``（见 three_layer/prompts.py 契约），
+    三层链路落库口径是 ``[[t_ms, intensity], ...]``（见 three_layer/prompts/contract.py 契约），
     旧版遗留口径是纯数值 ``[v, ...]``。此处一并兼容：是二元组就取时间锚+强度，
     是裸数值就按 sample_interval_ms 推算时间锚，避免下游 float() 直接吃到 list。
     """

@@ -25,6 +25,7 @@ from app.services.llm_json import complete_json, count_items
 from app.services.zh import simplify_obj
 
 from . import emotion, validate
+from .few_shot import render_few_shots
 from .prompts import (
     LAYER_ARRAY_KEYS,
     LAYER_CODES,
@@ -33,6 +34,9 @@ from .prompts import (
     THREE_LAYER_CONTRACT,
 )
 from .raw import load_raw_context, persist_raw_layer
+
+from app.core.categories import normalize_category
+from app.core.category_templates import render_template_hint
 
 logger = logging.getLogger(__name__)
 
@@ -735,6 +739,17 @@ async def _run_layer(
         system = template.content + THREE_LAYER_CONTRACT
         version = template.version
 
+    # P0：L5 积木提炼按品类注入 few-shot 示范 + 品类模板（对齐 C-1~C-8 / R1~R15）
+    if layer == 5:
+        cat = normalize_category(getattr(video, "category_guess", None))
+        extra = [render_few_shots(cat, layer=5)]
+        tpl_hint = render_template_hint(cat)
+        if tpl_hint:
+            extra.append(tpl_hint)
+        extra = [e for e in extra if e]
+        if extra:
+            system = system + "\n\n" + "\n\n".join(extra)
+
     schema_hint = json.dumps(SCHEMAS[layer], ensure_ascii=False, indent=1)
     messages = [
         {"role": "system", "content": system},
@@ -951,6 +966,34 @@ async def _understand_video_frames_ip(
     return "\n".join(scene_summaries)
 
 
+class _PipelineAbort(Exception):
+    """三层链路确定性失败：携带展示给调用方的错误信息（W2 事务化改造引入）。"""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+async def _abort_cleanup(db: AsyncSession, video_id) -> None:
+    """三层链路失败后的统一收尾：回滚未提交写入 + 清理已提交的中间产物。
+
+    - 先 rollback：撤销本阶段（未 commit）的写入，如 L4 批调用中途的 flush；
+    - 再 purge + commit：把已提交的中间产物（如 L3 段落、L4 句子）按依赖顺序删除，
+      并让清理显式落库——避免外层调用方后续 rollback 空事务时把清理一起撤销。
+    清理失败仅告警，保证 job 可被外层标记 failed，不二次抛出。
+    """
+    try:
+        await db.rollback()
+        await purge_three_layer(db, video_id)
+        await db.commit()
+    except Exception:  # noqa: BLE001
+        logger.warning("三层链路失败后清理中间产物失败：video=%s", video_id, exc_info=True)
+        try:
+            await db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 async def run_three_layer(
     db: AsyncSession,
     video: M.Video,
@@ -961,7 +1004,39 @@ async def run_three_layer(
     model: str = "flash",
     progress: Progress | None = None,
 ) -> dict[str, Any]:
-    """执行 L1~L6 并把结果写入三层表，返回落库统计与校验证据。"""
+    """执行 L1~L6 并把结果写入三层表，返回落库统计与校验证据。
+
+    事务语义（W2）：成功路径沿用原有阶段 commit（SQLite 单写者锁需及时释放，
+    避免阻塞 ai_usage_logs 等独立连接写入）；失败路径统一 rollback 未提交写入、
+    purge 已提交的中间产物，保证失败不留下半成品行、可整体重试。
+    """
+    counts: dict[str, int] = {}
+    verdicts: list[dict[str, Any]] = []
+    try:
+        return await _run_three_layer_main(
+            db, video,
+            analysis_id=analysis_id, manifest=manifest, ctx=ctx,
+            model=model, progress=progress,
+        )
+    except _PipelineAbort as exc:
+        await _abort_cleanup(db, video.id)
+        return {"ok": False, "error": exc.message, "counts": counts, "verdicts": verdicts}
+    except Exception as exc:  # noqa: BLE001
+        await _abort_cleanup(db, video.id)
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}", "counts": counts, "verdicts": verdicts}
+
+
+async def _run_three_layer_main(
+    db: AsyncSession,
+    video: M.Video,
+    *,
+    analysis_id: str,
+    manifest: dict[str, Any] | None = None,
+    ctx: dict[str, Any] | None = None,
+    model: str = "flash",
+    progress: Progress | None = None,
+) -> dict[str, Any]:
+    """原 run_three_layer 主体（W2 事务化改造后搬移至此，行为保持一致）。"""
 
     async def report(stage: str, pct: int, msg: str) -> None:
         if progress is not None:
@@ -982,7 +1057,7 @@ async def run_three_layer(
             if not ctx["sentences"]:
                 ctx = await persist_raw_layer(db, video, {})
     if not ctx.get("sentences"):
-        return {"ok": False, "error": "保真原料层无可用转写句子（raw_transcript_sentence 为空），无法执行拆解", "counts": {}, "verdicts": []}
+        raise _PipelineAbort("保真原料层无可用转写句子（raw_transcript_sentence 为空），无法执行拆解")
     raw_sentences: list[dict[str, Any]] = ctx["sentences"]
     shots: list[dict[str, Any]] = list(ctx["shots"])
     duration_ms: int = int(ctx["duration_ms"] or video.duration_ms or 0)
@@ -1113,7 +1188,7 @@ async def run_three_layer(
     )
     quality["L1"] = q1
     if not ok:
-        return {"ok": False, "error": data1.get("layer_error", "L1 失败"), "counts": counts, "verdicts": verdicts}
+        raise _PipelineAbort(data1.get("layer_error", "L1 失败"))
 
     script = M.ScriptScript(
         video_id=video.id,
@@ -1129,7 +1204,7 @@ async def run_three_layer(
     )
     verdict = validator.validate("script_script", {"core_idea": script.core_idea, "content_trend": script.content_trend, "target_audience": script.target_audience, "summary": script.summary, "duration_ms": duration_ms}, label=f"script:{title[:20]}")
     if not verdict.accepted:
-        return {"ok": False, "error": "L1 结构校验未通过：" + "；".join(verdict.hard), "counts": counts, "verdicts": [verdict.as_dict()]}
+        raise _PipelineAbort("L1 结构校验未通过：" + "；".join(verdict.hard))
     # ---- L1 核心思想事实锚定（编导自审①：核心思想误读，如直播八卦读成'揭秘产品'） ----
     # key_facts 实体须出现在 core_idea 中；未锚定即判解读漂移，触发定点重写
     # （一次小调用，把 core_idea/content_trend/target_audience/summary 一起按事实修正）。
@@ -1866,7 +1941,7 @@ async def run_three_layer(
     counts["script_segment"] = len(seg_rows)
     await db.commit()
     if not seg_rows:
-        return {"ok": False, "error": "L3 段落全部未通过校验", "counts": counts, "verdicts": verdicts}
+        raise _PipelineAbort("L3 段落全部未通过校验")
     if len(seg_rows) < L3_SEGMENT_MIN:
         warnings.append(
             f"L3 落库段数 {len(seg_rows)} 仍低于契约下限 {L3_SEGMENT_MIN}"
@@ -1945,8 +2020,9 @@ async def run_three_layer(
             q4_agg["layer_errors"].append(f"第{idx}批：{data4.get('layer_error')}")
     quality["L4"] = q4_agg
     if not sentences_json and not bgm_ambience:
-        return {"ok": False, "error": "L4 全部批次调用失败：" + "；".join(map(str, q4_agg["layer_errors"]))[:300],
-                "counts": counts, "verdicts": verdicts}
+        raise _PipelineAbort(
+            "L4 全部批次调用失败：" + "；".join(map(str, q4_agg["layer_errors"]))[:300]
+        )
     # 按行号归并、seq 重排，保证句序与时间轴一致
     def _line_key(it: dict[str, Any]) -> tuple[int, int]:
         raw_line = it.get("line_no")
@@ -1984,6 +2060,7 @@ async def run_three_layer(
             end_ms=end_ms,
             sentence_function=function,
             function_reason=str(item.get("function_reason") or "")[:4000] or "（缺失）",
+            editing_note=str(item.get("editing_note") or "")[:1000],
             method_refs=list(item.get("method_refs") or []),
             emotion_intensity=_clamp_intensity(item.get("emotion_intensity")),
             is_hook=1 if item.get("is_hook") else 0,
@@ -1997,6 +2074,7 @@ async def run_three_layer(
             "script_sentence",
             {**item, "raw_sentence_id": raw["id"], "source_video_id": video.id, "quote": row.quote,
              "start_ms": start_ms, "end_ms": end_ms,
+             "subtitle_source": raw.get("subtitle_source") or "asr",
              "emotion_intensity": row.emotion_intensity, "function_reason": row.function_reason,
              "variants": row.variants, "imagination": row.imagination, "sentence_function": function},
             label=f"句 {raw['seq']}",
@@ -2050,7 +2128,7 @@ async def run_three_layer(
     quality["sentence_range"] = list(validator.sentence_range())
 
     if not sentence_rows and not bgm_ambience:
-        return {"ok": False, "error": "L4 句子全部未通过校验（R8 原话一致/R11 反标签等硬拦截）", "counts": counts, "verdicts": verdicts}
+        raise _PipelineAbort("L4 句子全部未通过校验（R8 原话一致/R11 反标签等硬拦截）")
 
     # 曲线值回填句级强度 + 峰/谷/turn 标记
     for row in sentence_rows:

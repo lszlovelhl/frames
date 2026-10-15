@@ -38,6 +38,10 @@ from app.services.analysis import (
     run_three_layer_breakdown,
     set_progress,
 )
+from app.services.three_layer.quality_feedback import (
+    collect_job_quality,
+    quality_overview,
+)
 from app.services.categorize import classify_category
 from app.services import billing
 from app.services.media_prep import ensure_media, subtitle_for_breakdown
@@ -539,6 +543,18 @@ async def video_stats_refresh(video_id: str, db: AsyncSession = Depends(get_sess
     return view
 
 
+# ---------- P0 评估闭环（拆解→校验→评估→反馈） ----------
+
+
+@router.get("/api/analyses/quality-overview")
+async def analyses_quality_overview(
+    limit: int = 20, db: AsyncSession = Depends(get_session)
+):
+    """最近拆解任务质量看板（只读）。limit 上限 100，默认 20。"""
+    limit = max(1, min(limit, 100))
+    return {"items": await quality_overview(db, limit=limit)}
+
+
 @router.get("/api/analyses/{analysis_id}")
 async def get_analysis(
     analysis_id: str, db: AsyncSession = Depends(get_session)
@@ -546,6 +562,19 @@ async def get_analysis(
     """单次拆解结果（承载表：breakdown_jobs；结果现场聚合自三层分库）。"""
     job = await _job_or_404(db, analysis_id)
     return await analysis_result(db, job)
+
+
+@router.get("/api/analyses/{analysis_id}/quality")
+async def analysis_quality(
+    analysis_id: str, db: AsyncSession = Depends(get_session)
+):
+    """单次拆解质量聚合（script + 六表积木 + validation evidence）。
+
+    数据来源：lib_* 表 quality_score/review_status（pipeline 校验回写）+ script.quality_score
+    + breakdown_jobs.evidence（validation 统计）。只读，不触发重算。
+    """
+    job = await _job_or_404(db, analysis_id)
+    return await collect_job_quality(db, job)
 
 
 # ---------- A+B 素材保留策略 ----------

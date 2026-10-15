@@ -293,7 +293,7 @@ class BreakdownJob(TimestampMixin, Base):
     evidence: Mapped[dict] = mapped_column(
         JSON, default=dict, server_default=_sa_text("'{}'")
     )
-    failed_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    failed_reason: Mapped[str | None] = mapped_column(Text, nullable=True, server_default="unknown_error")
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -692,6 +692,7 @@ class ScriptSentence(TimestampMixin, Base):
     end_ms: Mapped[int] = mapped_column(Integer)
     sentence_function: Mapped[str] = mapped_column(String(32))
     function_reason: Mapped[str] = mapped_column(Text)
+    editing_note: Mapped[str] = mapped_column(Text, default="", server_default="")
     method_refs: Mapped[list] = mapped_column(
         JSON, default=list, server_default=_sa_text("'[]'")
     )

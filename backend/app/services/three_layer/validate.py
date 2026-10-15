@@ -435,6 +435,7 @@ class Validator:
         *,
         raw_text: str | None = None,
         anchor_ids: Sequence[str] = (),
+        quote_source: str | None = None,
     ) -> None:
         """R8 原话一致度（含跨句拼接口径）。
 
@@ -449,6 +450,11 @@ class Validator:
         4. 其余 → 硬拦截（既非原料连续子串、相似度也不足 0.9，判为改写）。
 
         非 transcript 类证据（ocr / frame / audio）没有可逐字比对的原料，直接跳过。
+
+        W3 分流（R8 按来源软校验）：``quote_source`` 非 transcript（OCR 字幕句等）
+        时降级为软校验——省略标记记 soft、逐字命中照常通过（跨句留痕）、未命中记
+        soft 提示，不再做锚点邻域兜底与硬拦截（非口播来源不承担"口播原话一致"
+        义务，仅留痕供人工核对）。None 或缺省时走原 transcript 严格判定链。
         """
         quote = str(row.get("quote") or "")
         if not quote.strip():
@@ -456,7 +462,11 @@ class Validator:
         ev_type = str(row.get("evidence_type") or "transcript").lower()
         if ev_type != "transcript":
             return
+        non_verbatim = bool(quote_source) and quote_source.lower() != "transcript"
         if "…" in quote or "..." in quote:
+            if non_verbatim:
+                v.soft.append(f"R8 非口播来源原话含省略标记（{quote_source}，软校验）")
+                return
             v.hard.append("R8 原话含省略标记（视为改写）")
             return
 
@@ -472,11 +482,21 @@ class Validator:
                     f"（{span['span']} 条原料句，ASR 断句口径）"
                 )
             if anchor and not (set(anchor) & set(span["raw_ids"])):
+                if non_verbatim:
+                    v.soft.append(
+                        "R8 回指不在覆盖区间（OCR 分流软校验，仅留痕）：quote 位于 raw #"
+                        f"{span['raw_seqs'][0]}，锚点未覆盖"
+                    )
+                    return
                 v.hard.append(
                     "R8 回指不实：quote 在原料链上的位置（raw #"
                     f"{span['raw_seqs'][0]}）不在回指锚点覆盖范围内"
                 )
                 return
+            return
+
+        if non_verbatim:
+            v.soft.append("R8 非口播来源原话未命中原料链（OCR 分流软校验，仅留痕）")
             return
 
         expected = anchor or [str(x) for x in (self._anchor_ids_by_seq(row) or ())]
@@ -498,6 +518,20 @@ class Validator:
         if isinstance(ids, (list, tuple)) and ids:
             return [str(x) for x in ids]
         return [str(src.get("id"))] if src.get("id") else []
+
+    def _raw_source_of(self, row: dict[str, Any]) -> str:
+        """句级 R8 分流的来源判定：evidence_type / subtitle_source 非 transcript 视为非口播。
+
+        优先级：evidence_type（证据行显式来源）→ subtitle_source（句子行原料来源，
+        ``asr``/``ocr``）→ 默认 transcript（口播，走严格判定链）。
+        """
+        src = str(row.get("evidence_type") or "").lower()
+        if src and src != "transcript":
+            return src
+        src = str(row.get("subtitle_source") or "").lower()
+        if src and src != "asr":
+            return src
+        return "transcript"
 
     def r9_refs(self, refs: Sequence[dict[str, Any]], v: Verdict) -> None:
         if not refs:
@@ -613,7 +647,8 @@ class Validator:
             self.r2_enum(row_type, row, v)
             self.r6_triplet(row, v)
             self.r7_raw_ref(row, v)
-            self.r8_quote(row, v, raw_text=raw_text, anchor_ids=anchor_ids)
+            self.r8_quote(row, v, raw_text=raw_text, anchor_ids=anchor_ids,
+                          quote_source=self._raw_source_of(row))
             self.r11_label(row, v)
             self.r12_divergence(row, v)
             if not (0 <= float(row.get("emotion_intensity") or 0) <= 10):
@@ -624,7 +659,8 @@ class Validator:
             self.r1_required(row_type, row, v)
             self.r2_enum(row_type, row, v)
             self.r3_time(row, v)
-            self.r8_quote(row, v, raw_text=raw_text, anchor_ids=anchor_ids)
+            self.r8_quote(row, v, raw_text=raw_text, anchor_ids=anchor_ids,
+                          quote_source=self._raw_source_of(row))
         elif row_type == "script_turn_point":
             self.r1_required(row_type, row, v)
             self.r2_enum(row_type, row, v)

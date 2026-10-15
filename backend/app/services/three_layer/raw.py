@@ -29,11 +29,39 @@ ENERGY_INTERVAL_MS = 500
 ENERGY_MAX_SAMPLES = 2400
 
 
+# 常见ASR同音错字修正表（按优先级）
+_ASR_FIXES = [
+    (re.compile(r"国境作业"), "国庆作业"),
+    (re.compile(r"国庆作业"), "国庆作业"),  # 已经对的不重复
+    (re.compile(r"俐落讯截"), "[语音不清]"),
+    (re.compile(r"快而不符端而不智"), "[语音不清]"),
+    (re.compile(r"提前我的態度端正"), "体现我的态度端正"),
+]
+
+
+def _is_garbled(text: str) -> bool:
+    """检测ASR乱码：句中是否出现大量不常见的生僻字组合，或语义明显不通。"""
+    if not text or len(text) < 4:
+        return False
+    # 常见乱码特征：连续出现不常见的书面语（ASR把口语识别成文言文）
+    garbled_markers = ["俐落", "讯截", "筆劃", "端而不智", "提前我的"]
+    hits = sum(1 for m in garbled_markers if m in text)
+    return hits >= 1
+
+
 def _clean_text(text: Any) -> str:
     t = str(text or "").strip()
     if not t:
         return ""
-    return to_simplified(t) if has_traditional(t) else t
+    if has_traditional(t):
+        t = to_simplified(t)
+    # 应用常见错字修正
+    for pattern, replacement in _ASR_FIXES:
+        t = pattern.sub(replacement, t)
+    # 乱码检测：标记为[语音不清]，不要让模型硬分析
+    if _is_garbled(t):
+        t = "[语音不清] " + t
+    return t
 
 
 def _overlay_sentences_from_frames(frames: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:

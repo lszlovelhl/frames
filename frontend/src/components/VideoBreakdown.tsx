@@ -889,7 +889,7 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
 
   const segments = useMemo(() => result.layers.find((l) => l.layer === 3)?.segments ?? [], [result]);
   const notes = useMemo(() => result.layers.find((l) => l.layer === 4)?.notes ?? [], [result]);
-  const [activeTab, setActiveTab] = useState<"script" | "curve" | "segments" | "elements" | "transcript" | "other">("script");
+  const [activeTab, setActiveTab] = useState<"script" | "curve" | "segments" | "elements" | "transcript" | "storyboard" | "other">("script");
   const l2c = useMemo(() => (result.layers.find((l) => l.layer === 2)?.content ?? {}) as Record<string, unknown>, [result]);
   const videoUrl = video.media?.video_url ? `${BASE}${video.media.video_url}` : null;
 
@@ -1052,6 +1052,7 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
             ["script", "完整脚本"],
             ["curve", "情绪曲线"],
             ["segments", "段落分析"],
+            ["storyboard", "画面分镜"],
             ["elements", "元素提炼"],
             ["transcript", "转写"],
             ["other", "辅助参考"],
@@ -1096,6 +1097,9 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
             <NotesList notes={notes} onSeek={seekTo} />
             <AuditCard result={result} />
           </>
+        )}
+        {activeTab === "storyboard" && detail && (
+          <StoryboardPanel frames={detail.frames || []} onSeek={seekTo} />
         )}
       </div>
     </div>
@@ -1266,5 +1270,56 @@ function AuditCard({ result }: { result: AnalysisResult }) {
         )}
       </div>
     </details>
+  );
+}
+
+/** 画面分镜面板：按时间顺序展示关键帧 */
+function StoryboardPanel({ frames, onSeek }: { frames: any[]; onSeek?: (ms: number) => void }) {
+  if (!frames || frames.length === 0) {
+    return <div className="py-8 text-center text-sm text-zinc-500">暂无画面分镜数据</div>;
+  }
+  return (
+    <div className="space-y-3">
+      <div className="mb-2 text-xs text-zinc-500">
+        共 {frames.length} 个关键帧，点击时间跳转视频对应位置
+      </div>
+      <div className="space-y-2">
+        {frames.map((f: any, i: number) => {
+          const startS = (f.start_ms || 0) / 1000;
+          const endS = (f.end_ms || f.start_ms || 0) / 1000;
+          return (
+            <div key={i} className="flex gap-3 rounded-lg border border-white/5 bg-white/[0.02] p-3">
+              {/* 时间标签 */}
+              <button
+                onClick={() => onSeek?.(f.start_ms || 0)}
+                className="shrink-0 rounded bg-amber-400/10 px-2 py-1 font-mono text-[11px] text-amber-300 hover:bg-amber-400/20"
+              >
+                {startS.toFixed(1)}s
+              </button>
+              {/* 缩略图 */}
+              {f.url && (
+                <img
+                  src={f.url}
+                  alt={`帧${i+1}`}
+                  className="h-16 w-28 shrink-0 rounded object-cover"
+                />
+              )}
+              {/* 描述 */}
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] leading-relaxed text-zinc-200">{f.desc}</div>
+                {f.text_overlay && (
+                  <div className="mt-1 text-[11px] text-zinc-500">
+                    字幕：<span className="text-zinc-400">{f.text_overlay}</span>
+                  </div>
+                )}
+                <div className="mt-1 text-[10px] text-zinc-600">
+                  时长 {(endS - startS).toFixed(1)}s
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }

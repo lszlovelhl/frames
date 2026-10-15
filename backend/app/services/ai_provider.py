@@ -159,8 +159,7 @@ async def resolve_alias(
             continue
         if not p.api_key:
             continue
-        # 余额守卫：已知余额 ≤0 的服务商（如未充值的 DeepSeek）调用必然 400，
-        # 直接跳过改用后续可用的免费服务商，避免"创作台/拆解突然全线失败"
+        # 余额守卫：已知余额 ≤0 的服务商调用必然 400，直接跳过改用后续可用的免费服务商
         if (
             not prefer_provider
             and p.balance_cny is not None
