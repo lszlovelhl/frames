@@ -45,6 +45,13 @@ backend/data/cookies/
 backend/data/*
 !backend/data/.gitkeep
 
+# 视频与媒体文件（体积大，不入库）
+*.mp4
+videos/
+
+# 误拷贝嵌套目录防护（曾误将 backend 整体拷贝进自身）
+backend/backend/
+
 # 临时与备份文件
 *.bak
 backend/scripts/tmp_*
