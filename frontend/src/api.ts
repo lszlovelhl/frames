@@ -586,6 +586,26 @@ export const api = {
     const qs = sp.toString();
     return request<ElementListResp>(`/api/elements${qs ? `?${qs}` : ""}`);
   },
+  // ---- 语义检索（向量）----
+  semanticSearch: (params: { q: string; table?: string; top_k?: number }) => {
+    const sp = new URLSearchParams();
+    sp.set("q", params.q);
+    if (params.table && params.table !== "all") sp.set("table", params.table);
+    sp.set("top_k", String(params.top_k ?? 20));
+    return request<{
+      query: string;
+      count: number;
+      items: Array<{
+        table: string;
+        table_alias: string;
+        id: string;
+        score: number;
+        name: string;
+        snippet: string;
+        sub_type: string | null;
+      }>;
+    }>(`/api/elements/semantic-search?${sp.toString()}`);
+  },
   getElementVersions: (elementId: string) =>
     request<{ element_id: string; element_name: string; items: ElementVersionEntry[] }>(`/api/elements/${elementId}/versions`),
   // ---- 产品库 ----

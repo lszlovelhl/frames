@@ -15,11 +15,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai import chat
 from app.db import get_session
-from app.services import billing, element_library
+from app.services import billing, element_library, embedding as emb_service
 
 router = APIRouter()
 
@@ -218,3 +219,68 @@ async def element_versions(
         "items": [],
         "note": "三层分库不保留元素版本链（旧 element_versions 表已清除）；AI 组合产物见 lib_mix_draft",
     }
+
+
+# ==============================================================
+# 语义检索（向量化）
+# ==============================================================
+# 前端传短名，后端映射到真实表
+_LIB_ALIAS = {
+    "hook": "lib_hook",
+    "quote": "lib_quote",
+    "copywriting": "lib_copywriting",
+    "topic": "lib_topic",
+    "method": "lib_method",
+}
+
+# 每张表返回给前端的展示字段（不同表结构不一样，统一成 name/snippet）
+_DISPLAY_SQL = {
+    "lib_hook": "SELECT name, sentence_pattern, hook_type AS sub_type FROM lib_hook WHERE id=:i",
+    "lib_quote": "SELECT text AS name, rewrite_template AS sentence_pattern, applicable_scene AS sub_type FROM lib_quote WHERE id=:i",
+    "lib_copywriting": "SELECT name, example_text AS sentence_pattern, copy_type AS sub_type FROM lib_copywriting WHERE id=:i",
+    "lib_topic": "SELECT name, angle AS sentence_pattern, topic_type AS sub_type FROM lib_topic WHERE id=:i",
+    "lib_method": "SELECT name, usage_steps AS sentence_pattern, category AS sub_type FROM lib_method WHERE id=:i",
+}
+
+
+@router.get("/api/elements/semantic-search")
+async def semantic_search(
+    q: str,
+    table: str | None = None,
+    top_k: int = 10,
+    db: AsyncSession = Depends(get_session),
+):
+    """素材库语义检索：用自然语言找钩子/金句/文案/选题/手法。
+
+    - q: 自然语言查询，例如"开头制造焦虑"、"护肤品类口播文案"
+    - table: 可选，hook / quote / copywriting / topic / method；不传=全库搜
+    - top_k: 返回条数，默认 10
+    """
+    if not q or not q.strip():
+        raise HTTPException(status_code=400, detail="q 不能为空")
+
+    target_table = _LIB_ALIAS.get(table, table) if table else None
+    if target_table and target_table not in _DISPLAY_SQL:
+        raise HTTPException(
+            status_code=400,
+            detail=f"未知 table={table}，可选 hook/quote/copywriting/topic/method",
+        )
+
+    hits = await emb_service.search(db, q, target_table=target_table, top_k=top_k)
+
+    items = []
+    for h in hits:
+        tbl = h["target_table"]
+        row = (await db.execute(text(_DISPLAY_SQL[tbl]), {"i": h["target_id"]})).fetchone()
+        if not row:
+            continue
+        items.append({
+            "table": tbl,
+            "table_alias": next(k for k, v in _LIB_ALIAS.items() if v == tbl),
+            "id": h["target_id"],
+            "score": round(h["score"], 4),
+            "name": row[0],
+            "snippet": (row[1] or "")[:120],
+            "sub_type": row[2],
+        })
+    return {"query": q, "count": len(items), "items": items}

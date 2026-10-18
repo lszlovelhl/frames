@@ -43,7 +43,7 @@ _PEAK = 95
 # 抽帧策略版本：分档间隔 / 帧数上限 / 锚点规则任何变更都要递增。
 # services/media_prep.ensure_media 复用素材前会比对该版本，落后则强制重抽帧
 # （否则「复用已有素材」短路会让密集档对老链接永远不生效）。
-FRAMES_POLICY_VERSION = 6  # v6：滑动窗口去重 + 帧数预算从90降到35，借鉴claude-real-video思路
+FRAMES_POLICY_VERSION = 7  # v7：按实际帧率抽帧（每秒 3 帧）+ 组合缩略图（3×3）
 
 SHORT_MAX_S = 300.0          # 时长阈值：< 5 分钟按短视频处理
 SHORT_IV_HIGH = 0.8
@@ -81,6 +81,28 @@ def _ffprobe_duration(video_path: str) -> float:
         check=True, capture_output=True, text=True,
     )
     return float(out.stdout.strip())
+
+
+def _ffprobe_fps(video_path: str) -> float:
+    """获取视频实际帧率（fps）。"""
+    out = subprocess.run(
+        [ffbin.ffprobe_bin(), "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=r_frame_rate",
+         "-of", "csv=p=0", video_path],
+        check=True, capture_output=True, text=True,
+    )
+    raw = out.stdout.strip()
+    # r_frame_rate 通常是 "30/1" 或 "29.97/1" 格式
+    if "/" in raw:
+        num, den = raw.split("/", 1)
+        try:
+            return float(num) / float(den)
+        except (ValueError, ZeroDivisionError):
+            pass
+    try:
+        return float(raw)
+    except ValueError:
+        return 30.0  # 默认 30fps
 
 
 def _probe_diffs(video_path: str, duration: float) -> list[float]:
@@ -353,13 +375,27 @@ async def sample_frames(
     if duration <= 0:
         return []
 
-    prof = profile_for(duration)
-    budget = int(prof["budget"])
+    # v7：按实际帧率抽帧（每秒 3 帧），替代原来的按内容分档抽帧
+    # 24fps → 每 8 帧抽 1 帧 = 每秒 3 帧
+    # 30fps → 每 10 帧抽 1 帧 = 每秒 3 帧
+    # 60fps → 每 20 帧抽 1 帧 = 每秒 3 帧
+    fps = _ffprobe_fps(video_path)
+    target_fps = 3.0  # 每秒 3 帧
+    frame_interval = 1.0 / target_fps  # 每 0.333 秒抽 1 帧
+
+    # 计算总帧数
+    total_frames = int(duration * target_fps)
+    budget = total_frames
+
     if plan_info is not None:
         plan_info.update(
-            {"mode": prof["mode"], "duration_s": round(duration, 2), "budget": budget,
-             "iv": list(prof["iv"]), "policy_version": FRAMES_POLICY_VERSION}
+            {"mode": "fps_based", "duration_s": round(duration, 2),
+             "fps": fps, "target_fps": target_fps, "budget": budget,
+             "policy_version": FRAMES_POLICY_VERSION}
         )
+
+    # 按帧率均匀抽帧
+    times = [i * frame_interval for i in range(total_frames) if i * frame_interval < duration]
 
     loop = asyncio.get_running_loop()
     try:
@@ -444,5 +480,85 @@ async def sample_frames(
     # 重新编号
     for i, f in enumerate(frames):
         f["seq"] = i
+
+    # v7：组合缩略图（3×3，9 张一图）
+    # 把抽好的帧拼成 3×3 的组合图，减少模型需要看的图片数量
+    frames = _make_contact_sheets(frames, frames_dir, cols=3, rows=3)
     
     return frames
+
+
+def _make_contact_sheets(
+    frames: list[dict[str, Any]],
+    frames_dir: Path,
+    cols: int = 3,
+    rows: int = 3,
+) -> list[dict[str, Any]]:
+    """把帧拼成 3×3 组合缩略图（contact sheet）。
+
+    每 9 张图拼成一张，减少模型需要看的图片数量。
+    组合图的 path 指向 contact_sheet_XX.jpg。
+    """
+    if not frames:
+        return frames
+
+    from PIL import Image
+
+    sheets_dir = frames_dir / "sheets"
+    sheets_dir.mkdir(exist_ok=True)
+
+    batch_size = cols * rows
+    sheets = []
+
+    for batch_idx in range(0, len(frames), batch_size):
+        batch = frames[batch_idx:batch_idx + batch_size]
+        if len(batch) < 2:
+            # 只有 1 张图，不拼了
+            sheets.extend(batch)
+            continue
+
+        # 读取所有图，统一尺寸
+        images = []
+        for f in batch:
+            try:
+                img = Image.open(f["path"])
+                images.append(img)
+            except Exception:
+                continue
+
+        if not images:
+            continue
+
+        # 统一尺寸：取第一张图的尺寸
+        w, h = images[0].size
+        # 每张图缩放到原来的 1/3
+        thumb_w, thumb_h = w // cols, h // rows
+
+        # 创建组合图
+        sheet = Image.new("RGB", (thumb_w * cols, thumb_h * rows))
+
+        for i, img in enumerate(images):
+            row = i // cols
+            col = i % cols
+            img_thumb = img.resize((thumb_w, thumb_h), Image.Resampling.LANCZOS)
+            sheet.paste(img_thumb, (col * thumb_w, row * thumb_h))
+
+        # 保存组合图
+        sheet_path = sheets_dir / f"sheet_{batch_idx // batch_size:03d}.jpg"
+        sheet.save(sheet_path, quality=85)
+
+        # 组合图的元数据：取第一张帧的时间，end_ms 取最后一张帧的 end_ms
+        first = batch[0]
+        last = batch[-1]
+        sheets.append({
+            "seq": batch_idx // batch_size,
+            "start_ms": first["start_ms"],
+            "end_ms": last["end_ms"],
+            "time_ms": first["time_ms"],
+            "path": str(sheet_path),
+            "kind": "sheet",
+            "frame_count": len(batch),
+            "original_frames": [f["seq"] for f in batch],
+        })
+
+    return sheets

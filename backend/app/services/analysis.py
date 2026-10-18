@@ -165,7 +165,7 @@ async def run_three_layer_breakdown(
     job: M.BreakdownJob,
     *,
     manifest: dict | None = None,
-    model: str = "flash",
+    model: str = "pro",
 ) -> dict[str, Any]:
     """唯一拆解链路：调 services.three_layer 写三层分库（raw_*/script_*/lib_*/ref_*）。
 

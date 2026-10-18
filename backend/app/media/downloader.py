@@ -100,32 +100,29 @@ def _find_largest_mp4(work_dir: Path) -> Path | None:
 
 
 async def _download_bilibili(url: str, work_dir: Path) -> dict[str, Any]:
-    meta_title, stats = await _bilix_info(url)
-    loop = asyncio.get_running_loop()
-    try:
-        await loop.run_in_executor(
-            None,
-            lambda: subprocess.run(
-                [BILIX_EXE, "get_video", url, "-d", str(work_dir), "-q", "0"],
-                capture_output=True, text=True, timeout=600, cwd=str(work_dir),
-            ),
-        )
-        video_path = _find_largest_mp4(work_dir)
-        if video_path:
-            return {
-                "video_path": str(video_path),
-                "meta": {"title": meta_title or "", "stats_snapshot": stats},
-            }
-    except subprocess.TimeoutExpired:
-        logger.warning("bilix 下载超时，回退 yt-dlp")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("bilix 下载失败：%s，回退 yt-dlp", exc)
+    """用自研 API 爬虫下载 B 站视频。"""
+    from app.media.bili_scraper import get_scraper
 
-    # 回退：yt-dlp + 预取 buvid cookie
     try:
-        return await _download_ytdlp_bilibili(url, work_dir, meta_title)
+        scraper = await get_scraper()
+        video_info = await scraper.get_video_info(url)
+        video_path = await scraper.download_video(url, work_dir)
+
+        return {
+            "video_path": str(video_path),
+            "meta": {
+                "title": video_info.get("title", ""),
+                "stats_snapshot": {
+                    "view_count": video_info.get("view_count", 0),
+                    "like_count": video_info.get("like_count", 0),
+                    "coin_count": video_info.get("coin_count", 0),
+                    "favorite_count": video_info.get("favorite_count", 0),
+                    "share_count": video_info.get("share_count", 0),
+                },
+            },
+        }
     except Exception as exc:  # noqa: BLE001
-        raise DownloadBlocked(f"B站下载失败（风控或资源限制）：{exc}") from exc
+        raise DownloadBlocked(f"B站下载失败：{exc}") from exc
 
 
 async def _download_ytdlp_bilibili(

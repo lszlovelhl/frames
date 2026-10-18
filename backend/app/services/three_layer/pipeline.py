@@ -1256,24 +1256,46 @@ async def _run_three_layer_main(
                 q1.setdefault("warnings", []).append(f"核心思想定点重写失败：{str(_exc)[:80]}")
     q1["key_facts"] = kfs[:6]
     db.add(script)
+    import logging as _lg
+    _lg.getLogger(__name__).warning("DEBUG: before flush script.id=%s", script.id)
     await db.flush()
+    _lg.getLogger(__name__).warning("DEBUG: after flush script.id=%s", script.id)
     counts["script_script"] = 1
     verdicts.append(verdict.as_dict())
     await db.commit()
+    # 落库验证（软告警）：确认 script_script 真的持久化，不抛异常避免 502
+    from sqlalchemy import text as _text
+    try:
+        _chk = await db.execute(_text("SELECT 1 FROM script_script WHERE id=:sid"), {"sid": str(script.id)})
+        if not _chk.scalar():
+            import logging as _lg
+            _lg.getLogger(__name__).warning("落库验证告警：script.id=%s 不在数据库（commit 可能失败）", script.id)
+    except Exception as _e:
+        import logging as _lg
+        _lg.getLogger(__name__).warning("落库验证查询异常：%s", _e)
 
     # ---------- L2 连续情绪曲线 ----------
+    # 临时跳过 L2（glm-4-flash 模型卡住）
+    model_series = {}
+    l2_turn_points = []
+    l2_agg = {"chunks": 0, "ok_chunks": 0, "layer_errors": ["skipped"], "model_points": 0}
+    await report("L2", 58, "三层链路 · L2 情绪曲线采样（临时跳过）…")
     interval_ms = int(data1.get("sample_interval_ms") or 0) or emotion.pick_interval(duration_ms)
     interval_ms = min(max(interval_ms, 200), emotion.MAX_INTERVAL_MS)
     grid = emotion.build_grid(duration_ms, interval_ms)
-    await report("L2", 58, f"三层链路 · L2 情绪曲线采样（{len(grid)} 点，间隔 {interval_ms}ms）…")
     # 分窗推理：单次要求模型一次性输出全片百余个采样点，在免费档上会超时/被网关拒绝；
     # 改为按时间窗口分批请求，服务端按 t_ms 归并成同一条等间隔连续曲线。
-    chunk_ms = 20000
+    # chunk_ms=40s（减少窗口数），窗口间重叠 3s（帮助模型理解上下文）
+    chunk_ms = 40000
+    overlap_ms = 3000
     windows: list[tuple[int, int]] = []
     start = 0
     while start < duration_ms:
-        windows.append((start, min(duration_ms, start + chunk_ms)))
-        start += chunk_ms
+        w_end = min(duration_ms, start + chunk_ms)
+        windows.append((start, w_end))
+        if w_end >= duration_ms:
+            break
+        start = w_end - overlap_ms  # 重叠 3 秒
     if not windows:
         windows = [(0, duration_ms)]
     l2_agg: dict[str, Any] = {
@@ -1283,6 +1305,7 @@ async def _run_three_layer_main(
     model_series: dict[int, float] = {}
     l2_turn_points: list[Any] = []
     for idx, (w_start, w_end) in enumerate(windows, start=1):
+        continue  # 临时跳过 L2 模型调用
         part = [s for s in sentences if int(s["end_ms"]) > w_start and int(s["start_ms"]) < w_end] or sentences[:2]
         part_energy = [
             e for e in ctx["energy"] if w_start - 3000 <= int(e["t_ms"]) <= w_end + 3000
@@ -1462,9 +1485,10 @@ async def _run_three_layer_main(
     )
     quality["L3"] = q3
     segments_json = (data3.get("segments") or []) if ok3 else []
+    print(f"\n>>> L3 DEBUG: 首次分段 ok3={ok3} segments_json={len(segments_json)} 段\n", flush=True)
     # 段数契约强校验：目标段数按片长折算（编导颗粒度：50s 至少 5 个功能段），
     # 低于目标自动重试一次并附校验反馈（flash 免费档常见 1~4 段，需强反馈细分）
-    target_seg_n = max(L3_SEGMENT_MIN, min(8, round(duration_ms / 10000)))
+    target_seg_n = max(2, min(5, round(duration_ms / 20000)))
     if not bgm_ambience and len(segments_json) < target_seg_n:
         retry_hint = (
             f"\n\n【校验反馈】上次返回 {len(segments_json)} 段，本片 {duration_ms / 1000:.0f}s"
@@ -1627,7 +1651,7 @@ async def _run_three_layer_main(
                 {
                     "seq": i, "seg_type": "干货", "title": "",
                     "line_from": int(_g["first"]["seq"]), "line_to": int(_g["last"]["seq"]),
-                    "purpose": "harness 按口播停顿确定性重建（模型分段质量差时兜底）",
+                    "purpose": "",
                     "summary": f"口播句 {_g['first']['seq']}~{_g['last']['seq']}",
                     "emotion_level": stats["baseline_intensity"] or 0,
                 }
@@ -1654,24 +1678,26 @@ async def _run_three_layer_main(
                             _lines.append(f"#{_sent['seq']}: {_sent.get('quote', '')}")
                 _lines_txt = "\n".join(_lines) if _lines else "（无口播台词，纯画面段）"
                 
-                _expand_prompt = f"""你是短视频编导。下面是一段视频的段落切分结果，但 purpose 和 summary 写得太短了，请把它们写厚。
+                _expand_prompt = f"""你是短视频编导。下面是一段视频的段落切分结果。请严格根据这段台词，写出 purpose 和 summary。
 
 【这段的台词】
 {_lines_txt}
 
-【当前 purpose】{_p}
-【当前 summary】{_s}
+铁律（违反即重写）：
+1. purpose 里必须出现台词中的至少 2 个具体关键词（如"国庆作业""前世""代做"），禁止凭空生成台词里没有的内容
+2. 禁止写"改造出租屋""爆改老破小"这类与本段台词无关的场景——本段台词就是上面这些，只能基于这些写
+3. purpose ≥80字：写清这段在全片叙事里承担什么具体动作、为什么必须放在这个位置、去掉这段会损失什么
+4. summary ≥50字：陈述具体事实，要点名这段里的关键事件/台词
 
-请输出 JSON，格式：
-{{"purpose": "≥80字，写清：①这段在全片叙事里承担什么具体动作（不是'铺垫/过渡'功能名，而是'承接上文的X，把观众从A情绪推往B情绪'）；②为什么必须放在这个位置；③去掉这段会损失什么",
- "summary": "≥50字，陈述具体事实，要点名这段里的关键事件/台词/画面"}}
+请输出 JSON：
+{{"purpose": "...", "summary": "..."}}
 
 只输出 JSON，不要其他内容。"""
                 
                 _resp = await complete_json(
                     [{"role": "user", "content": _expand_prompt}],
                     array_keys=["purpose", "summary"],
-                    model="pro",  # 用 qwen3.5 写厚
+                    model="flash",  # 临时改 flash（kimi 被限流）
                     temperature=0.3,
                     max_tokens=1024,
                     timeout=120,
@@ -1693,6 +1719,14 @@ async def _run_three_layer_main(
     # 契约：段 1 从 0 起、首尾相接、严格单调（_TL3 第 1 条）。
     # 模型给非法 line 号时不再兜底首句（会造成 0 起重叠），而是退化锚定到"前一段末尾之后"；
     # from/to 倒置时交换；本段起点不得早于前段终点（句子级别单调强制）。
+    import logging as _lg
+    _lg.getLogger(__name__).warning("L3 DEBUG: segments_json 共 %d 段", len(segments_json))
+    for _i, _seg in enumerate(segments_json):
+        _lg.getLogger(__name__).warning(
+            "L3 DEBUG: 段%d line_from=%s line_to=%s start_ms=%s end_ms=%s purpose=%.40s",
+            _i, _seg.get("line_from"), _seg.get("line_to"),
+            _seg.get("start_ms"), _seg.get("end_ms"), str(_seg.get("purpose") or "")
+        )
     seg_rows: list[M.ScriptSegment] = []
     _prev_last: dict[str, Any] | None = None
     for item in segments_json:
@@ -1934,12 +1968,16 @@ async def _run_three_layer_main(
                 # 段序递增：第 i 段 = 均值 × (0.85 + 0.15*i/(n-1))（引入 0.85→高潮 1.0）
                 _mult = 0.85 + (0.15 * _i / max(_n - 1, 1))
                 _s.emotion_peak = round(min(_base * _mult, 10.0), 1)
-    await db.flush()
-    # 重新编号 seq，确保不重复
+    import logging as _lg2
+    _lg2.getLogger(__name__).warning("L3 DEBUG: segment flush 前 script.id=%s seg_rows=%d", script.id, len(seg_rows))
+    # 先重新编号 seq，确保不重复（否则 flush 时会违反 UNIQUE 约束）
     for i, s in enumerate(seg_rows, start=1):
         s.seq = i
+    await db.flush()
+    _lg2.getLogger(__name__).warning("L3 DEBUG: segment flush 成功，开始 commit")
     counts["script_segment"] = len(seg_rows)
     await db.commit()
+    _lg2.getLogger(__name__).warning("L3 DEBUG: segment commit 成功")
     if not seg_rows:
         raise _PipelineAbort("L3 段落全部未通过校验")
     if len(seg_rows) < L3_SEGMENT_MIN:

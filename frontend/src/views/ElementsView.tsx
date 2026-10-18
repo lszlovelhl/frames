@@ -49,6 +49,39 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [verOpen, setVerOpen] = useState<Set<string>>(new Set());
 
+  // ---- 语义搜索（向量）----
+  const [searchMode, setSearchMode] = useState<"keyword" | "semantic">("keyword");
+  const [semanticTable, setSemanticTable] = useState<string>("all");
+  const [semanticResults, setSemanticResults] = useState<Array<{
+    table: string; table_alias: string; id: string; score: number;
+    name: string; snippet: string; sub_type: string | null;
+  }>>([]);
+  const [semanticLoading, setSemanticLoading] = useState(false);
+  const [semanticError, setSemanticError] = useState("");
+
+  useEffect(() => {
+    if (searchMode !== "semantic") return;
+    if (!debouncedQ) {
+      setSemanticResults([]);
+      setSemanticError("");
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        setSemanticLoading(true);
+        setSemanticError("");
+        const data = await api.semanticSearch({ q: debouncedQ, table: semanticTable, top_k: 20 });
+        if (!cancelled) setSemanticResults(data.items);
+      } catch (e: any) {
+        if (!cancelled) setSemanticError(e?.message || "语义搜索失败");
+      } finally {
+        if (!cancelled) setSemanticLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [searchMode, debouncedQ, semanticTable]);
+
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q.trim()), 400);
     return () => clearTimeout(t);
@@ -205,22 +238,55 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
+        <div className="flex overflow-hidden rounded-lg border border-white/10">
+          <button
+            onClick={() => setSearchMode("keyword")}
+            className={`px-2.5 py-1.5 text-xs transition ${searchMode === "keyword" ? "bg-amber-300/20 text-amber-200" : "bg-[#1c1f26] text-zinc-500 hover:text-zinc-300"}`}
+            title="传统关键词搜索（LIKE 匹配）"
+          >
+            关键词
+          </button>
+          <button
+            onClick={() => setSearchMode("semantic")}
+            className={`px-2.5 py-1.5 text-xs transition ${searchMode === "semantic" ? "bg-amber-300/20 text-amber-200" : "bg-[#1c1f26] text-zinc-500 hover:text-zinc-300"}`}
+            title="语义搜索（向量召回，按意思找素材）"
+          >
+            ✦ 语义
+          </button>
+        </div>
         <select
           value={trackFilter}
           onChange={(e) => setTrackFilter(e.target.value)}
           title="按元素来源视频的内容赛道筛选"
           className="rounded-lg border border-white/10 bg-[#1c1f26] px-2.5 py-1.5 text-sm text-zinc-300 outline-none"
+          style={{ display: searchMode === "semantic" ? "none" : undefined }}
         >
           <option value="all">全部赛道</option>
           {trackOptions.map(([key, label]) => (
             <option key={key} value={key}>{label}</option>
           ))}
         </select>
+        {searchMode === "semantic" && (
+          <select
+            value={semanticTable}
+            onChange={(e) => setSemanticTable(e.target.value)}
+            title="素材类型"
+            className="rounded-lg border border-white/10 bg-[#1c1f26] px-2.5 py-1.5 text-sm text-zinc-300 outline-none"
+          >
+            <option value="all">全部素材</option>
+            <option value="hook">钩子</option>
+            <option value="quote">金句</option>
+            <option value="copywriting">文案</option>
+            <option value="topic">选题</option>
+            <option value="method">手法</option>
+          </select>
+        )}
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value as SortMode)}
           title="排序方式"
           className="rounded-lg border border-white/10 bg-[#1c1f26] px-2.5 py-1.5 text-sm text-zinc-300 outline-none"
+          style={{ display: searchMode === "semantic" ? "none" : undefined }}
         >
           <option value="quality">质控优先</option>
           <option value="usage">热度优先</option>
@@ -228,11 +294,53 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="搜名称 / 描述 / 配方…"
+          placeholder={searchMode === "semantic"
+            ? "用自然语言描述你要找的素材，例如：开头制造焦虑让用户停下"
+            : "搜名称 / 描述 / 配方…"}
           className="min-w-0 flex-1 rounded-lg border border-white/10 bg-[#1c1f26] px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-amber-300/30"
         />
       </div>
 
+      {/* ============ 语义搜索结果 ============ */}
+      {searchMode === "semantic" && (
+        <div className="flex flex-col gap-3">
+          {semanticLoading && <div className="text-sm text-zinc-500">向量检索中…</div>}
+          {!semanticLoading && semanticError && (
+            <div className="rounded-lg border border-rose-400/30 bg-rose-400/10 p-3 text-sm text-rose-300">{semanticError}</div>
+          )}
+          {!semanticLoading && !semanticError && !debouncedQ && (
+            <div className="rounded-xl border border-dashed border-white/10 p-8 text-center text-sm text-zinc-500">
+              在上方输入你要找的素材特征，例如"3秒内让用户产生好奇的美妆开头"、"鼓励观众马上行动的结尾"
+            </div>
+          )}
+          {!semanticLoading && !semanticError && debouncedQ && semanticResults.length === 0 && (
+            <div className="rounded-xl border border-dashed border-white/10 p-8 text-center text-sm text-zinc-500">
+              没有召回到相关素材，换个说法试试
+            </div>
+          )}
+          {semanticResults.map((r) => {
+            const scorePct = Math.round(r.score * 100);
+            const scoreColor = r.score >= 0.65 ? "text-emerald-300" : r.score >= 0.55 ? "text-amber-300" : "text-zinc-400";
+            return (
+              <article key={`${r.table}-${r.id}`} className="rounded-xl border border-white/5 bg-[#1c1f26] p-4 transition hover:border-white/10">
+                <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                  <span className="rounded bg-sky-400/10 px-1.5 py-0.5 text-sky-300">{r.table_alias}</span>
+                  {r.sub_type && <span className="rounded bg-white/5 px-1.5 py-0.5 text-zinc-400">{r.sub_type}</span>}
+                  <span className={`ml-auto font-mono ${scoreColor}`} title="语义相似度（余弦值）">
+                    相似度 {scorePct}%
+                  </span>
+                </div>
+                <h3 className="mt-2 text-[15px] font-semibold leading-snug text-zinc-100">{r.name}</h3>
+                {r.snippet && <p className="mt-1.5 line-clamp-3 text-sm leading-relaxed text-zinc-400">{r.snippet}</p>}
+              </article>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ============ 关键词模式原有列表 ============ */}
+      {searchMode === "keyword" && (
+      <>
       {loading && <div className="text-sm text-zinc-500">加载中…</div>}
       {!loading && shown.length === 0 && (
         <div className="rounded-xl border border-dashed border-white/10 p-8 text-center text-sm text-zinc-500">
@@ -385,6 +493,8 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
           );
         })}
       </div>
+      </>
+      )}
 
       {editing && <AdjustModal e={editing} onClose={() => setEditing(null)} onSave={(patch) => void review(editing.id, "adjust", patch)} />}
     </div>

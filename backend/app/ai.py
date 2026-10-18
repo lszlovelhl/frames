@@ -33,6 +33,13 @@ ENV_MODELS: dict[str, str] = {
 }
 
 
+class _Provider400(Exception):
+    """内部用：服务商返回 400，带响应正文便于判断是否可降级重试。"""
+    def __init__(self, msg: str, body: str = ""):
+        super().__init__(msg)
+        self.body = body
+
+
 def _short_body(resp: httpx.Response, limit: int = 300) -> str:
     """截断服务商返回的错误正文，便于排障（如余额不足/参数超限）。"""
     try:
@@ -211,19 +218,32 @@ async def chat(
 
     headers = {"Authorization": f"Bearer {api_key}"}
 
-    try:
+    # 某些模型（如 kimi-k2.7-code）只允许 temperature=1，传其他值会 400。
+    # 策略：先按调用方给的 temperature 请求；400 且错误提及 temperature 时，
+    # 删掉 temperature 重发一次，不影响其他 provider。
+    async def _do_request(p: dict) -> dict:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, headers=headers, json=payload)
+            resp = await client.post(url, headers=headers, json=p)
             if resp.status_code >= 400:
-                # 带上服务商返回的错误正文（如 "Insufficient Balance" / "max_tokens 超限"），
-                # 否则调用方只能看到干巴巴的 400，无法定位
-                raise httpx.HTTPStatusError(
-                    f"{resp.status_code} {resp.reason_phrase} "
-                    f"{_short_body(resp)} | model={model_id} provider={provider_key}",
-                    request=resp.request,
-                    response=resp,
+                body = _short_body(resp)
+                raise _Provider400(
+                    f"{resp.status_code} {resp.reason_phrase} {body} | "
+                    f"model={model_id} provider={provider_key}",
+                    body=body,
                 )
-            data = resp.json()
+            return resp.json()
+
+    try:
+        try:
+            data = await _do_request(payload)
+        except _Provider400 as e:
+            if temperature is not None and "temperature" in e.body.lower():
+                retry_payload = {k: v for k, v in payload.items() if k != "temperature"}
+                data = await _do_request(retry_payload)
+            else:
+                raise httpx.HTTPStatusError(
+                    str(e), request=None, response=None
+                ) from e
 
         choice = data["choices"][0]["message"]
         result = {
