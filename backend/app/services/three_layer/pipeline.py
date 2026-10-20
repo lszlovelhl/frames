@@ -259,6 +259,12 @@ async def _run_three_layer_main(
         f"片长：{duration_ms}ms（约 {round(duration_ms / 1000, 1)} 秒）"
     )
     transcript = _fmt_transcript(sentences)
+    if bgm_ambience:
+        transcript = "（本视频为纯画面/BGM/氛围型，无口播内容，请主要依据画面参考做定调）"
+
+    # 动态编排：根据视频画像调整 L1 输出预算
+    l1_max_tokens = 4096 if route["vtype"] == "bgm" else 8192
+    warnings.append(f"L1 输出预算：{l1_max_tokens} tokens（{'BGM精简路径' if route['vtype'] == 'bgm' else '标准'}）")
 
     visual_ref_lines = []
     for _sh in shots[:8]:
@@ -289,6 +295,7 @@ async def _run_three_layer_main(
         validator=validator,
         report=report,
         max_attempts=l1_max_attempts,
+        max_tokens=l1_max_tokens,
     )
     quality["L1"] = q1
     verdicts.append(v1)

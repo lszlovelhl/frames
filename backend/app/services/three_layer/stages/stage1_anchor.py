@@ -38,6 +38,7 @@ async def run_stage1_anchor(
     validator: validate.Validator,
     report: Progress,
     max_attempts: int = 2,
+    max_tokens: int = 8192,
 ) -> tuple[M.ScriptScript, dict[str, Any], dict[str, Any], dict[str, Any]]:
     """执行 L1 本片定调并持久化 ScriptScript 记录。
 
@@ -56,7 +57,7 @@ async def run_stage1_anchor(
         ),
         model=model,
         array_keys=LAYER_ARRAY_KEYS[1],
-        max_tokens=8192,
+        max_tokens=max_tokens,
         max_attempts=max_attempts,
     )
     if not ok:
