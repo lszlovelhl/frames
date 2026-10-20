@@ -21,6 +21,7 @@ from app.services import billing
 from app.services.media_prep import ensure_media, subtitle_for_breakdown
 from app.services.analysis import (
     build_media_brief,
+    mark_done,
     mark_failed,
     run_three_layer_breakdown,
     run_two_layer_breakdown,
@@ -188,6 +189,13 @@ async def process(job_id: str) -> None:
                 err = result.get("error") or "三层链路未产出有效结果"
                 logger.warning("拆解未成功：job=%s error=%s", job.id, err)
                 await mark_failed(db, job, message=f"拆解失败：{err}")
+            else:
+                # 三层链路成功：标记 job done（script 已由 pipeline 落库）
+                await mark_done(
+                    db, job,
+                    evidence={k: v for k, v in result.items() if k != "script_id"},
+                    script_id=result.get("script_id"),
+                )
             # 链路只失败在采集/模型侧时也照旧记用量流水
             await billing.consume(
                 db, account=acc, action=action, points=points,
