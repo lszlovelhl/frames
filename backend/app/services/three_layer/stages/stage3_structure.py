@@ -569,6 +569,11 @@ async def run_stage3_structure(
     if len(seg_rows) < L3_SEGMENT_MIN:
         warnings.append(f"L3 落库段数 {len(seg_rows)} 低于契约下限 {L3_SEGMENT_MIN}")
 
+    # 防御：按 start_ms 排序后重新编号 seq，彻底避免 LLM 返回重复 seq 导致 UNIQUE 冲突
+    seg_rows.sort(key=lambda r: r.start_ms)
+    for _i, _row in enumerate(seg_rows, start=1):
+        _row.seq = _i
+
     def segment_of_line(seq: int) -> M.ScriptSegment | None:
         for seg in seg_rows:
             if seg.start_sentence_seq <= seq <= seg.end_sentence_seq:
