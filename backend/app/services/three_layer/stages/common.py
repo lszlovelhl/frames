@@ -578,7 +578,7 @@ async def _run_layer(
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                timeout=90,
+                timeout=300,
                 scene="three_layer",
                 ref_type="analysis",
                 ref_id=str(analysis_id),
