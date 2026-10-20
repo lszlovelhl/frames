@@ -44,6 +44,56 @@ __all__ = [
 ]
 
 
+def _classify_route(
+    *,
+    asr_count: int,
+    units: list[dict[str, Any]],
+    duration_ms: int,
+    shots: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """视频类型路由画像 —— agent 动态编排的决策层。
+
+    开跑前先判断视频画像（口播密度 / 时长 / 画面素材量），据此产出
+    ``vtype``（bgm / talking_head / mixed）、``length``（short/medium/long）
+    与策略建议（``compact_mode``、``notes``）。当前版本先做观测与记录，
+    后续阶段再让该决策真正驱动 stage 资源分配（重试预算 / model 选择）。
+    """
+    duration_s = (duration_ms or 0) / 1000
+    ocr_n = sum(1 for u in units if str(u.get("source") or "") == "ocr")
+
+    if asr_count <= 1 and ocr_n <= 2:
+        vtype = "bgm"  # BGM/氛围型：口播几乎为零，OCR 多为水印/标题
+    elif asr_count >= 20:
+        vtype = "talking_head"  # 高密度口播
+    else:
+        vtype = "mixed"
+
+    if duration_s < 60:
+        length = "short"
+    elif duration_s < 300:
+        length = "medium"
+    else:
+        length = "long"
+
+    notes: list[str] = []
+    compact_mode = length == "long"
+    if vtype == "bgm":
+        notes.append("BGM/氛围型：L4 逐句精修跳过，走纯画面场景分支")
+    if compact_mode:
+        notes.append(f"长视频（{duration_s:.0f}s）：建议收紧 LLM 重试预算，防 token 失控")
+
+    return {
+        "vtype": vtype,
+        "length": length,
+        "duration_s": round(duration_s, 1),
+        "asr_count": asr_count,
+        "ocr_n": ocr_n,
+        "shots_n": len(shots),
+        "compact_mode": compact_mode,
+        "notes": notes,
+    }
+
+
 async def run_three_layer(
     db: AsyncSession,
     video: M.Video,
@@ -179,6 +229,10 @@ async def _run_three_layer_main(
             u["src"] = "歌词" if _looks_lyric(str(u["text"])) else "口播"
 
     sentences: list[dict[str, Any]] = units
+    route = _classify_route(
+        asr_count=asr_count, units=units, duration_ms=duration_ms, shots=shots
+    )
+    warnings.extend(route["notes"])
     line_map = {int(s["seq"]): s for s in sentences}
     tags = (await db.execute(select(M.LibTag.code, M.LibTag.dimension))).all()
     raw_by_id = {str(s["id"]): s for s in sentences}
@@ -400,6 +454,7 @@ async def _run_three_layer_main(
             "draft_rows": draft[:20],
         },
         "warnings": warnings,
+        "routing": route,
         "lib_counts": lib_counts,
         "turn_point_count": len(turn_rows),
         "element_baseline": validate.element_baseline(verdict_list),

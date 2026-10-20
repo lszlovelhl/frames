@@ -4,6 +4,7 @@ from app.services.three_layer.pipeline import (
     Progress,
     _PipelineAbort,
     _abort_cleanup,
+    _classify_route,
     purge_three_layer,
     run_three_layer,
 )
@@ -55,3 +56,40 @@ def test_fmt_transcript():
     txt = _fmt_transcript(sentences, with_ms=True)
     assert "#01 [1000-3500ms] 第一句话" in txt
     assert "#02 [4000-6200ms] 第二句话" in txt
+
+
+def _u(source: str) -> dict:
+    return {"source": source, "text": "x" * 10}
+
+
+def test_route_classify_bgm():
+    """BGM/氛围型：口播≤1 + OCR≤2。"""
+    r = _classify_route(
+        asr_count=0, units=[_u("ocr")], duration_ms=30_000, shots=[]
+    )
+    assert r["vtype"] == "bgm"
+    assert r["length"] == "short"
+    assert r["compact_mode"] is False
+    assert any("BGM" in n for n in r["notes"])
+
+
+def test_route_classify_talking_head():
+    """口播型：高密度口播。"""
+    r = _classify_route(
+        asr_count=30, units=[_u("asr")] * 30, duration_ms=120_000, shots=[]
+    )
+    assert r["vtype"] == "talking_head"
+    assert r["length"] == "medium"
+    assert r["compact_mode"] is False
+
+
+def test_route_classify_mixed_long():
+    """混合型长视频：触发 compact_mode。"""
+    r = _classify_route(
+        asr_count=8, units=[_u("asr")] * 8, duration_ms=420_000, shots=[{}] * 5
+    )
+    assert r["vtype"] == "mixed"
+    assert r["length"] == "long"
+    assert r["compact_mode"] is True
+    assert r["shots_n"] == 5
+    assert any("长视频" in n for n in r["notes"])
