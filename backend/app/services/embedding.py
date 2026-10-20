@@ -153,12 +153,12 @@ async def upsert_one(
     db: AsyncSession,
     table: str,
     target_id: str,
-    text: str,
+    content: str,
     vector: list[float],
 ) -> bool:
     """写入或更新一条向量。返回是否发生了写入。"""
     now = time.time()
-    h = _hash_text(text)
+    h = _hash_text(content)
     await db.execute(
         text("""
             INSERT INTO lib_embedding
