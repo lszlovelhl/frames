@@ -508,6 +508,19 @@ def _derive_turn_points(
 
 # ---------------- 单层 LLM 调用与重试 ----------------
 
+
+def _exc_chain(exc: BaseException) -> str:
+    """把异常链拼成一行可读字符串；str(exc) 为空时只留类名，避免 failed_reason 出现空白。"""
+    s = str(exc)
+    parts = [f"{type(exc).__name__}: {s}" if s else type(exc).__name__]
+    cause = exc.__cause__ or exc.__context__
+    while cause:
+        cs = str(cause)
+        parts.append(f"  ← {type(cause).__name__}" + (f": {cs}" if cs else ""))
+        cause = cause.__cause__ or cause.__context__
+    return "\n".join(parts)
+
+
 async def _run_layer(
     db: AsyncSession,
     *,
@@ -584,8 +597,8 @@ async def _run_layer(
                 return True, data, quality
             last_exc = f"第 {attempt + 1} 次返回空内容"
         except Exception as exc:  # noqa: BLE001
-            last_exc = str(exc)
-            logger.warning("三层链路 L%s 调用失败（第 %s 次）：%s", layer, attempt + 1, exc)
+            last_exc = _exc_chain(exc)
+            logger.warning("三层链路 L%s 调用失败（第 %s 次）：\n%s", layer, attempt + 1, last_exc)
     return False, {"layer_error": last_exc}, {"items": 0, "prompt_version": version}
 
 

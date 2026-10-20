@@ -241,9 +241,10 @@ async def chat(
                 retry_payload = {k: v for k, v in payload.items() if k != "temperature"}
                 data = await _do_request(retry_payload)
             else:
-                raise httpx.HTTPStatusError(
-                    str(e), request=None, response=None
-                ) from e
+                # 直接抛出 _Provider400：它的 message 已含 status/body/model。
+                # 之前包成 HTTPStatusError(request=None, response=None) 会让 str(exc) 变空，
+                # 导致 failed_reason 和日志看不到真实错误。
+                raise e from e.__cause__
 
         choice = data["choices"][0]["message"]
         result = {
