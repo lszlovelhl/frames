@@ -581,3 +581,73 @@ async def manual_cleanup(
     if summary.get("blocked"):
         raise HTTPException(status_code=409, detail=summary.get("skipped_reason"))
     return summary
+
+
+# ==============================================================
+# 相似视频推荐（向量图谱）
+# ==============================================================
+@router.get("/api/videos/{video_id}/similar")
+async def similar_videos(
+    video_id: str,
+    top_k: int = 5,
+    db: AsyncSession = Depends(get_session),
+):
+    """找和当前视频主题相似的其他已拆解视频。
+
+    基于 script 向量化后的余弦相似度，返回 top-K 相似视频。
+    """
+    from sqlalchemy import text
+    from app.services.embedding import search
+
+    video = await _video_or_404(db, video_id)
+
+    # 找当前视频最新的 script
+    row = (await db.execute(text(
+        "SELECT id FROM script_script WHERE video_id=:vid ORDER BY created_at DESC LIMIT 1"
+    ), {"vid": video_id})).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="该视频还没拆解，无法找相似")
+    script_id = row[0]
+
+    # 找当前 script 的 embedding
+    emb_row = (await db.execute(text(
+        "SELECT embedding FROM lib_embedding WHERE target_table='script_script' AND target_id=:sid"
+    ), {"sid": script_id})).fetchone()
+    if not emb_row:
+        raise HTTPException(status_code=404, detail="该视频还没向量化，无法找相似")
+
+    # 用当前 script 的向量做 query，找其他 script
+    # （直接复用 search 函数，但 search 是 embed query 再搜，这里我们直接用已有向量）
+    import numpy as np
+    qvec = np.frombuffer(emb_row[0], dtype=np.float32)
+    qvec = qvec / (np.linalg.norm(qvec) + 1e-10)
+
+    rows = (await db.execute(text(
+        "SELECT e.target_id, e.embedding, s.video_id, v.title "
+        "FROM lib_embedding e "
+        "JOIN script_script s ON e.target_id = s.id "
+        "JOIN videos v ON s.video_id = v.id "
+        "WHERE e.target_table='script_script' AND e.target_id != :sid"
+    ), {"sid": script_id})).fetchall()
+
+    if not rows:
+        return {"items": [], "note": "暂无其他已拆解视频"}
+
+    mat = np.stack([np.frombuffer(r[1], dtype=np.float32) for r in rows])
+    norms = np.linalg.norm(mat, axis=1, keepdims=True) + 1e-10
+    scores = (mat / norms) @ qvec
+
+    k = min(top_k, len(rows))
+    top_idx = np.argpartition(-scores, k - 1)[:k]
+    order = top_idx[np.argsort(-scores[top_idx])]
+
+    items = []
+    for i in order:
+        items.append({
+            "script_id": rows[i][0],
+            "video_id": rows[i][2],
+            "title": rows[i][3] or "",
+            "score": round(float(scores[i]), 4),
+        })
+
+    return {"items": items, "query_script_id": script_id}
