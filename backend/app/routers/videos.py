@@ -278,94 +278,68 @@ async def _ensure_media(video: M.Video, db: AsyncSession, with_bgm: bool, progre
 async def start_analysis(
     video_id: str, req: AnalyseReq, db: AsyncSession = Depends(get_session)
 ):
-    """对已建档视频自动补齐多模态素材并执行三层分库拆解（同步执行）。"""
+    """对已建档视频提交三层拆解：立即返回 job_id，采集/拆解在后台 worker 串行执行。
+
+    - 不阻塞 HTTP 请求，前端轮询 GET /api/analyses/active 或 GET 本接口查进度；
+    - 后台 worker（breakdown_jobs.process）负责 ensure_media → 三层拆解 → 扣点 → 清理；
+    - 同视频已有 running/queued 任务时直接返回进行中 job，避免重复提交。
+    """
     video = await _video_or_404(db, video_id)
 
-    try:
-        manifest = await _ensure_media(video, db, with_bgm=req.with_bgm)
-    except HTTPException:
-        raise
-    except Exception as exc:  # noqa: BLE001
-        await db.rollback()
-        logger.exception("素材采集失败")
-        raise HTTPException(status_code=502, detail=f"素材采集失败: {exc}") from exc
+    existing = await active_job(db, video.id)
+    if existing is not None:
+        return {
+            "video_id": str(video.id),
+            "analysis_id": str(existing.id),
+            "status": existing.status,
+            "stage": existing.stage,
+            "pct": existing.pct,
+            "message": existing.message,
+            "queued": True,
+            "already_running": True,
+        }
 
-    transcript = manifest.get("transcript") or {}
-    # 优先逐句带时间戳文本：L3 分段的时间锚点直接取此，避免模型臆造 start_ms/end_ms
-    subtitle_text = subtitle_for_breakdown(manifest)
-    if not subtitle_text and not manifest.get("frames"):
-        raise HTTPException(
-            status_code=400,
-            detail="素材不足：语音转写与画面理解均未产出，无法拆解",
-        )
+    job = await resumable_job(db, video.id)
+    if job is None:
+        job = await create_job(db, video.id, model=breakdown_alias())
+    job.status = "queued"
+    await set_progress(
+        db, job, stage="queued", message="已加入拆解队列，等待执行…", pct=0, commit=False
+    )
+    await db.commit()
+    await breakdown_jobs.enqueue(str(job.id))
 
-    # 续跑判定：存在上次未跑完的任务（partial/failed）→ 同一动作延续，免重复扣点
-    resume = await resumable_job(db, video.id)
-    action = billing.action_for_video(video.duration_ms)
-    charge_ctx = None
-    if resume is None:
-        acc, points = await billing.precheck(db, action)
-        charge_ctx = (acc, action, points)
-
-    job = resume or await create_job(db, video.id, model=breakdown_alias())
-    job.status = "running"
-    job.started_at = job.started_at or datetime.now(UTC)
-
-    # 选择 pipeline：两层（新）还是三层（旧）
-    import os
-    use_two_layer = os.getenv("FRAMES_PIPELINE", "three") == "two"
-
-    if use_two_layer:
-        await set_progress(db, job, stage="breakdown", message="两层简化 pipeline 开始…", pct=50)
-        from app.services.analysis import run_two_layer_breakdown
-        result = await run_two_layer_breakdown(
-            db, video, job, manifest=manifest, model=breakdown_alias()
-        )
-    else:
-        await set_progress(db, job, stage="breakdown", message="多模态融合 · 三层拆解开始…", pct=50)
-        result = await run_three_layer_breakdown(
-            db, video, job, manifest=manifest, model=breakdown_alias()
-        )
-
-    if not result.get("ok"):
-        await db.commit()
-        raise HTTPException(
-            status_code=502,
-            detail=f"拆解执行失败: {result.get('error') or '三层链路未产出有效结果'}",
-        )
-
-    # 拆解成功后才扣点
-    if charge_ctx is not None:
-        acc, action, points = charge_ctx
-        await billing.consume(
-            db, account=acc, action=action, points=points,
-            ref_type="video", ref_id=video.id,
-            note=f"视频拆解（{action}）",
-        )
-        await db.commit()
-
-    # A+B 素材策略：三层拆解完成后自动清理大原片（auto/keep_preview）；
-    # keep_full / 已清理 / 前置校验不满足会被幂等跳过；任何失败只记 warning，不阻塞响应
-    try:
-        summary = await cleanup_video(db, video, auto_trigger=True)
-        if summary.get("warnings"):
-            logger.warning(
-                "拆解完成自动清理告警 %s: %s", video.id, summary["warnings"]
-            )
-    except Exception:  # noqa: BLE001
-        logger.exception("拆解完成自动清理失败 %s", video.id)
-
-    result = await analysis_result(db, job)
-    result["video"] = _video_public(video)
-    result["media"] = {
-        "transcript_segments": len(transcript.get("segments", []) or []),
-        "transcript_chars": len(subtitle_text),
-        "frames": len(manifest.get("frames", []) or []),
-        "has_bgm": bool((manifest.get("bgm") or {}).get("ok")),
-        "bpm": (manifest.get("audio") or {}).get("bpm"),
-        "warnings": manifest.get("warnings", []),
+    return {
+        "video_id": str(video.id),
+        "analysis_id": str(job.id),
+        "status": "queued",
+        "stage": "queued",
+        "pct": 0,
+        "message": "已加入拆解队列，等待执行…",
+        "queued": True,
+        "already_running": False,
     }
-    return result
+
+
+@router.get("/api/videos/{video_id}/analyse")
+async def get_analysis_status(video_id: str, db: AsyncSession = Depends(get_session)):
+    """查询某视频最新一次拆解任务的进度与结果。"""
+    video = await _video_or_404(db, video_id)
+    job = await latest_job(db, video.id)
+    if job is None:
+        return {"video_id": str(video.id), "has_job": False}
+    return {
+        "video_id": str(video.id),
+        "has_job": True,
+        "analysis_id": str(job.id),
+        "status": job.status,
+        "stage": job.stage,
+        "pct": job.pct,
+        "message": job.message,
+        "failed_reason": job.failed_reason,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "finished_at": job.finished_at.isoformat() if job.finished_at else None,
+    }
 
 
 @router.post("/api/videos/batch-analyse")
