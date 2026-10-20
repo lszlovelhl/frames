@@ -240,7 +240,8 @@ async def run_three_layer_breakdown(
             status="done" if result.get("ok") else "failed",
         )
         if not result.get("ok"):
-            job.failed_reason = str(result.get("error") or "三层拆解失败")[:1000]
+            err_text = result.get("error") or result.get("message") or "三层拆解失败"
+            job.failed_reason = str(err_text)[:1000]
         await db.commit()
     except Exception:  # noqa: BLE001
         logger.warning("三层拆解证据写入 breakdown_jobs 失败", exc_info=True)

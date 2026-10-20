@@ -404,6 +404,7 @@ async def sample_frames(
         logger.warning("抽帧探测失败，回退均匀采样", exc_info=True)
         diffs = []
 
+    prof = profile_for(duration)
     times = _plan_times(duration, diffs, segments, budget, iv=prof["iv"])
     if not times:
         step = max(1.0, duration / max(prof["min_frames"], 1))
