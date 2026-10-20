@@ -319,29 +319,35 @@ async def _run_three_layer_main(
     )
 
     # ---------- Stage 3: L3 段落切分 ----------
-    seg_rows, segment_of_line = await run_stage3_structure(
-        db,
-        video,
-        script,
-        analysis_id=analysis_id,
-        duration_ms=duration_ms,
-        manifest=manifest,
-        data1=data1,
-        transcript=transcript,
-        sentences=sentences,
-        units=units,
-        asr_count=asr_count,
-        bgm_ambience=bgm_ambience,
-        stats=stats,
-        curve=curve,
-        model=model,
-        validator=validator,
-        quality=quality,
-        counts=counts,
-        warnings=warnings,
-        verdicts=verdicts,
-        report=report,
-    )
+    try:
+        seg_rows, segment_of_line = await run_stage3_structure(
+            db,
+            video,
+            script,
+            analysis_id=analysis_id,
+            duration_ms=duration_ms,
+            manifest=manifest,
+            data1=data1,
+            transcript=transcript,
+            sentences=sentences,
+            units=units,
+            asr_count=asr_count,
+            bgm_ambience=bgm_ambience,
+            stats=stats,
+            curve=curve,
+            model=model,
+            validator=validator,
+            quality=quality,
+            counts=counts,
+            warnings=warnings,
+            verdicts=verdicts,
+            report=report,
+        )
+    except _PipelineAbort:
+        # 动态编排：L3 失败降级——整片作为单段继续跑，不中断全链路
+        warnings.append("L3 段落切分失败，降级为整片单段")
+        seg_rows = []
+        segment_of_line = lambda _seq: None  # type: ignore[misc]
 
     # ---------- Stage 4: L4 逐句精修 & L4.5 完整成文 ----------
     sentence_rows, evidence_rows, turn_rows, full_script = await run_stage4_refine(
