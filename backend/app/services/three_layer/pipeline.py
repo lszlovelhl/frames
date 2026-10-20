@@ -258,23 +258,23 @@ async def _run_three_layer_main(
         f"标题：{title or '（无）'}\n平台：{ctx['platform']}\n"
         f"片长：{duration_ms}ms（约 {round(duration_ms / 1000, 1)} 秒）"
     )
-    transcript = _fmt_transcript(sentences)
+    transcript = _fmt_transcript(sentences, with_ms=False)
     if bgm_ambience:
         transcript = "（本视频为纯画面/BGM/氛围型，无口播内容，请主要依据画面参考做定调）"
 
-    # 动态编排：根据视频画像调整 L1 输出预算
-    l1_max_tokens = 4096 if route["vtype"] == "bgm" else 8192
-    warnings.append(f"L1 输出预算：{l1_max_tokens} tokens（{'BGM精简路径' if route['vtype'] == 'bgm' else '标准'}）")
+    # 动态编排：根据视频画像调整 L1 输出预算（省 token：非 BGM 也用 4096）
+    l1_max_tokens = 4096
+    warnings.append(f"L1 输出预算：{l1_max_tokens} tokens")
 
     visual_ref_lines = []
-    for _sh in shots[:8]:
+    for _sh in shots[:4]:  # 省 token：8 帧→4 帧
         _d = str(_sh.get("desc") or "").strip()
         _ov = str(_sh.get("text_overlay") or "").strip()
         if not _d and not _ov:
             continue
         _line = f"场景{_sh.get('seq')}（{int(_sh.get('start_ms') or 0) / 1000:.0f}s）：{_d}"
         if _ov:
-            _line += f"｜画面文字：{_ov[:150]}"
+            _line += f"｜{_ov[:80]}"
         visual_ref_lines.append(_line)
     visual_ref = "\n".join(visual_ref_lines) or "（无）"
 
