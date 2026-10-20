@@ -165,6 +165,10 @@ async def process(job_id: str) -> None:
 
             media_brief = build_media_brief(manifest)
 
+            # 无论两层还是三层，统一提前计算计费动作与预检
+            action = billing.action_for_video(video.duration_ms)
+            acc, points = await billing.precheck(db, action)
+
             # 选择 pipeline：两层（新）还是三层（旧）
             # 环境变量 FRAMES_PIPELINE=two 用新的两层，默认用旧的三层
             import os
@@ -177,16 +181,14 @@ async def process(job_id: str) -> None:
                 )
             else:
                 await set_progress(db, job, stage="breakdown", message="多模态融合 · 三层拆解开始…", pct=50)
-                action = billing.action_for_video(video.duration_ms)
-                acc, points = await billing.precheck(db, action)
                 result = await run_three_layer_breakdown(
                     db, video, job, manifest=manifest, model=model
                 )
             if not result.get("ok"):
                 logger.warning(
-                    "三层拆解未成功：job=%s error=%s", job.id, result.get("error")
+                    "拆解未成功：job=%s error=%s", job.id, result.get("error")
                 )
-            # 三层链路只失败在采集/模型侧时也照旧计费（与旧行为一致：模型已真实消耗）
+            # 链路只失败在采集/模型侧时也照旧记用量流水
             await billing.consume(
                 db, account=acc, action=action, points=points,
                 ref_type="video", ref_id=video.id,
@@ -203,13 +205,22 @@ async def process(job_id: str) -> None:
                     logger.warning("批量拆解后素材清理失败：video=%s", video.id, exc_info=True)
         except Exception as exc:  # noqa: BLE001
             logger.exception("后台拆解失败：job=%s", job_id)
-            await db.rollback()
-            job = (
-                await db.execute(select(M.BreakdownJob).where(M.BreakdownJob.id == job_id))
-            ).scalar_one_or_none()
-            if job is not None:
-                await mark_failed(db, job, message=f"拆解失败：{exc}")
-                await db.commit()
+            try:
+                await db.rollback()
+                db.expunge_all()
+            except Exception:  # noqa: BLE001
+                pass
+            # 隔离故障会话：使用全新独立的 session 标记 failed，绝不复用受损会话（彻底杜绝 PendingRollbackError）
+            try:
+                async with SessionLocal() as fresh_db:
+                    fresh_job = (
+                        await fresh_db.execute(select(M.BreakdownJob).where(M.BreakdownJob.id == job_id))
+                    ).scalar_one_or_none()
+                    if fresh_job is not None:
+                        await mark_failed(fresh_db, fresh_job, message=f"拆解失败：{exc}")
+                        await fresh_db.commit()
+            except Exception:  # noqa: BLE001
+                logger.exception("独立会话更新 job failed 状态失败：job=%s", job_id)
 
 
 async def batch_state(db, *, finished_limit: int = 8) -> list[dict]:

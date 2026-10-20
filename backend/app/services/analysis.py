@@ -207,7 +207,11 @@ async def run_three_layer_breakdown(
             "三层分库拆解失败：video=%s job=%s", _vid, str(_job_id)[:8],
             exc_info=True,
         )
-        await db.rollback()
+        try:
+            await db.rollback()
+            db.expunge_all()
+        except Exception:  # noqa: BLE001
+            pass
         result = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
     evidence = {k: result[k] for k in THREE_LAYER_EVIDENCE_KEYS if k in result}
@@ -324,14 +328,11 @@ async def run_two_layer_breakdown(
 
         logger.info(f"两层拆解：{len(subtitle_lines)} 句转写，{len(frame_lines)} 个画面帧，{duration_sec:.0f}s")
 
-        # 2. 只把跑 pipeline 的部分放到线程池里（不查数据库，不会锁冲突）
-        import asyncio
-        loop = asyncio.get_event_loop()
+        # 2. 直接异步调用两层 pipeline（非阻塞，统一走网关）
         from app.services.two_layer.pipeline import run_pipeline
 
-        pipeline_result = await loop.run_in_executor(
-            None,
-            lambda: run_pipeline(subtitle_text, scenes_text, duration_sec),
+        pipeline_result = await run_pipeline(
+            subtitle_text, scenes_text, int(duration_sec), model=model
         )
 
         await set_progress(db, job, stage="two_l2", message="L2：出完整成稿...", pct=70)
