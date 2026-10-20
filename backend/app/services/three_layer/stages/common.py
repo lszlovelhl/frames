@@ -531,7 +531,7 @@ async def _run_layer(
     model: str,
     array_keys: Sequence[str],
     max_tokens: int = 16384,
-    max_attempts: int = 4,
+    max_attempts: int = 2,
 ) -> tuple[bool, dict[str, Any], dict[str, Any]]:
     code = LAYER_CODES[layer]
     template = await load_active_prompt(db, code)
@@ -578,7 +578,7 @@ async def _run_layer(
                 model=model,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                timeout=300,
+                timeout=90,
                 scene="three_layer",
                 ref_type="analysis",
                 ref_id=str(analysis_id),

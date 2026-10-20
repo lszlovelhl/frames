@@ -37,7 +37,7 @@ async def run_stage1_anchor(
     model: str,
     validator: validate.Validator,
     report: Progress,
-    max_attempts: int = 4,
+    max_attempts: int = 2,
 ) -> tuple[M.ScriptScript, dict[str, Any], dict[str, Any], dict[str, Any]]:
     """执行 L1 本片定调并持久化 ScriptScript 记录。
 
