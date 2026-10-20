@@ -533,7 +533,11 @@ async def run_stage3_structure(
                 _prev.end_ms = max(_prev.end_ms, _cur.end_ms)
                 _prev.end_sentence_seq = max(_prev.end_sentence_seq, _cur.end_sentence_seq)
                 seg_rows.pop(_i)
-                await db.delete(_cur)  # 不吞异常：删除失败就抛出来，避免 session 里残留导致 UNIQUE 冲突
+                try:
+                    await db.delete(_cur)
+                except Exception:
+                    # 兜底：delete 失败就 expunge，避免 session 残留导致 commit 时 UNIQUE 冲突
+                    db.expunge(_cur)
             else:
                 _i += 1
         for _n, _s in enumerate(seg_rows, start=1):
