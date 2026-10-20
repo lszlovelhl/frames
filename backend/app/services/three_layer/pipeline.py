@@ -302,21 +302,26 @@ async def _run_three_layer_main(
     counts["script_script"] = 1
 
     # ---------- Stage 2: L2 情绪曲线 ----------
-    curve, curve_grid, curve_values, l2_turn_points, stats = await run_stage2_rhythm(
-        db,
-        video,
-        script,
-        analysis_id=analysis_id,
-        duration_ms=duration_ms,
-        data1=data1,
-        ctx=ctx,
-        sentences=sentences,
-        model=model,
-        quality=quality,
-        counts=counts,
-        warnings=warnings,
-        report=report,
-    )
+    try:
+        curve, curve_grid, curve_values, l2_turn_points, stats = await run_stage2_rhythm(
+            db,
+            video,
+            script,
+            analysis_id=analysis_id,
+            duration_ms=duration_ms,
+            data1=data1,
+            ctx=ctx,
+            sentences=sentences,
+            model=model,
+            quality=quality,
+            counts=counts,
+            warnings=warnings,
+            report=report,
+        )
+    except _PipelineAbort:
+        # 动态编排：L2 失败降级——跳过情绪曲线，后续 stage 继续跑
+        warnings.append("L2 情绪曲线失败，降级跳过")
+        curve, curve_grid, curve_values, l2_turn_points, stats = None, [], [], [], {}
 
     # ---------- Stage 3: L3 段落切分 ----------
     try:
