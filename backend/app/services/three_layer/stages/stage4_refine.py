@@ -83,7 +83,7 @@ async def run_stage4_refine(
     )
     n_lo = max(len(sentences), math.ceil(duration_ms / 4000))
     n_hi = max(len(sentences), math.floor(duration_ms / 2400))
-    chunk_size = 7
+    chunk_size = 15  # 性能优化：7→15，减少 LLM 调用次数（132句从19次→9次）
     l4_chunks = [sentences[i : i + chunk_size] for i in range(0, len(sentences), chunk_size)]
     sentences_json: list[dict[str, Any]] = []
     q4_agg: dict[str, Any] = {"chunks": len(l4_chunks), "ok_chunks": 0, "items": 0, "layer_errors": []}
