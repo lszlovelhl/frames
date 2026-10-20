@@ -185,9 +185,9 @@ async def process(job_id: str) -> None:
                     db, video, job, manifest=manifest, model=model
                 )
             if not result.get("ok"):
-                logger.warning(
-                    "拆解未成功：job=%s error=%s", job.id, result.get("error")
-                )
+                err = result.get("error") or "三层链路未产出有效结果"
+                logger.warning("拆解未成功：job=%s error=%s", job.id, err)
+                await mark_failed(db, job, message=f"拆解失败：{err}")
             # 链路只失败在采集/模型侧时也照旧记用量流水
             await billing.consume(
                 db, account=acc, action=action, points=points,
