@@ -273,6 +273,8 @@ async def _run_three_layer_main(
     visual_ref = "\n".join(visual_ref_lines) or "（无）"
 
     # ---------- Stage 1: L1 本片定调 ----------
+    l1_max_attempts = 2 if route["compact_mode"] else 4
+    warnings.append(f"L1 重试预算：{l1_max_attempts} 次（{'长视频紧凑模式' if route['compact_mode'] else '标准'}）")
     script, data1, q1, v1 = await run_stage1_anchor(
         db,
         video,
@@ -286,6 +288,7 @@ async def _run_three_layer_main(
         model=model,
         validator=validator,
         report=report,
+        max_attempts=l1_max_attempts,
     )
     quality["L1"] = q1
     verdicts.append(v1)

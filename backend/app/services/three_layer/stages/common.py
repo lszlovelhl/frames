@@ -518,6 +518,7 @@ async def _run_layer(
     model: str,
     array_keys: Sequence[str],
     max_tokens: int = 16384,
+    max_attempts: int = 4,
 ) -> tuple[bool, dict[str, Any], dict[str, Any]]:
     code = LAYER_CODES[layer]
     template = await load_active_prompt(db, code)
@@ -553,7 +554,7 @@ async def _run_layer(
     logger.info("三层链路 L%s 开始：system=%d字符, user=%d字符, max_tokens=%d", layer, len(system), len(user_text), max_tokens)
 
     last_exc = ""
-    attempts = (0.2, 0.6, 0.2, 0.6)
+    attempts = (0.2, 0.6, 0.2, 0.6)[: max(1, max_attempts)]
     for attempt, temperature in enumerate(attempts):
         if attempt:
             await asyncio.sleep(min(3 * attempt * attempt, 20))
