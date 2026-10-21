@@ -161,12 +161,11 @@ async def _handle_get_result(db, video_id) -> str:
                 seg_count = segments_row[0] if segments_row else 0
                 return (
                     f"✅ 拆解完成！\n"
-                    f"📊 关键数据：\n"
-                    f"• 质量分：{q}\n"
-                    f"• 段落数：{seg_count}\n"
+                    f"📊 质量分：{q} · 段落数：{seg_count}\n"
                     f"🎯 核心想法：{ci[:50]}...\n"
                     f"\n"
-                    f"要不要我帮你找类似的视频？"
+                    f"你觉得这个视频最厉害的地方是哪里？\n"
+                    f"是开头钩子？节奏？还是情绪曲线？"
                 )
             except Exception:
                 return "✅ 拆解完成！进度：100%"
@@ -239,11 +238,30 @@ async def _handle_recall(db, user_id) -> str:
             "SELECT content, importance FROM user_memory "
             "WHERE user_id=:uid ORDER BY importance DESC"
         ), {"uid": user_id})).fetchall()
-        if not rows:
+
+        # 查用户最近拆的视频，做用户画像
+        stats_row = (await db.execute(sa_text(
+            "SELECT count(*) FROM breakdown_jobs bj "
+            "JOIN chat_sessions cs ON bj.id = cs.last_job_id "
+            "WHERE cs.user_id=:uid AND bj.status='done'"
+        ), {"uid": user_id})).fetchone()
+        done_count = stats_row[0] if stats_row else 0
+
+        if not rows and done_count == 0:
             return "我还没记住什么，你可以说「记住我喜欢口播类」告诉我。"
-        lines = ["🧠 我记住的你的偏好："]
-        for i, r in enumerate(rows, 1):
-            lines.append(f"{i}. {r[0]}")
+
+        lines = ["🧠 我对你的了解："]
+        if done_count > 0:
+            lines.append(f"• 你已经拆了 {done_count} 个视频")
+        for r in rows:
+            lines.append(f"• {r[0]}")
+
+        # 简单画像
+        if done_count >= 5:
+            lines.append("\n💡 我猜你是做短视频的，对吧？")
+        elif done_count >= 1:
+            lines.append("\n💡 看来你对短视频拆解感兴趣？")
+
         return "\n".join(lines)
     except Exception as e:
         return f"查询记忆失败：{str(e)[:100]}"
