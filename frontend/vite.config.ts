@@ -7,5 +7,9 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     host: "127.0.0.1",
+    proxy: {
+      "/api": "http://127.0.0.1:8000",
+      "/webhook": "http://127.0.0.1:8000",
+    },
   },
 })
