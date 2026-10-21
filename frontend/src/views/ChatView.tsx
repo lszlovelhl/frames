@@ -91,6 +91,17 @@ export default function ChatView() {
       </div>
 
       <div className="border-t border-white/5 px-5 py-3">
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {["帮我拆解这个视频 https://v.douyin.com/xxx", "拆完了吗", "还有类似的吗", "记住我喜欢口播类"].map((q) => (
+            <button
+              key={q}
+              onClick={() => setInput(q)}
+              className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-400 transition-colors hover:border-amber-400/30 hover:text-amber-200"
+            >
+              {q.length > 12 ? q.slice(0, 12) + "..." : q}
+            </button>
+          ))}
+        </div>
         <div className="flex gap-2">
           <input
             value={input}
