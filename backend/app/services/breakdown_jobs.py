@@ -204,7 +204,7 @@ async def process(job_id: str) -> None:
                     if sid:
                         row = (await db.execute(sa_text(
                             "SELECT core_idea, summary FROM script_script WHERE id=:sid"
-                        ), {"sid": sid})).fetchone()
+                        ), {"sid": str(sid)})).fetchone()
                         if row:
                             embed_text = f"视频主题：{row[0] or ''}\n摘要：{row[1] or ''}"
                             vecs = await embed_texts([embed_text])
