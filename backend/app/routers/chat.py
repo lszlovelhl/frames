@@ -164,7 +164,25 @@ async def _handle_get_result(db, video_id) -> str:
             except Exception:
                 return "✅ 拆解完成！进度：100%"
         elif status == "failed":
-            return f"❌ 拆解失败：{msg or '未知原因'}\n💡 试试换个链接，或者检查视频是否公开。"
+            # 错误自愈：根据错误原因给建议
+            err_msg = msg or "未知原因"
+            tips = []
+            if "下载失败" in err_msg or "Unsupported URL" in err_msg:
+                tips.append("链接可能不对，试试复制抖音 App 里的分享链接")
+                tips.append("视频可能是私密的，检查一下权限")
+            elif "素材不足" in err_msg:
+                tips.append("这个视频可能没有语音，或者画面太模糊")
+                tips.append("试试换个有口播的视频")
+            elif "超时" in err_msg or "timeout" in err_msg.lower():
+                tips.append("LLM 调用超时了，稍后再试一次")
+            elif "应用重启" in err_msg:
+                tips.append("刚才服务重启了，重新发一次链接吧")
+            else:
+                tips.append("试试换个链接")
+                tips.append("或者等几分钟再试")
+
+            tips_text = "\n".join(f"• {t}" for t in tips)
+            return f"❌ 拆解失败：{err_msg}\n\n💡 建议：\n{tips_text}"
         else:
             return f"⏳ 拆解进行中...\n进度：{pct}%\n阶段：{msg or '处理中'}"
     except Exception as e:
