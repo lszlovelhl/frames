@@ -53,12 +53,11 @@ SYSTEM_PROMPT = """你是帧间（Frames）AI 短视频拆解平台的助手。�
 
 async def _llm_intent(message: str) -> dict:
     """用 LLM 识别用户意图。"""
-    from app.services.provider import chat_completion
+    from app.services.two_layer.pipeline import call_flash_llm
     try:
-        resp = await chat_completion(
+        resp = await call_flash_llm(
+            prompt=message,
             system=SYSTEM_PROMPT,
-            user=message,
-            temperature=0.1,
             max_tokens=200,
         )
         # 提取 JSON
