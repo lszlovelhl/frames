@@ -269,6 +269,27 @@ async def chat(
         "INSERT INTO chat_messages (id, session_id, role, content, intent) VALUES (:mid, :sid, 'assistant', :content, :intent)"
     ), {"mid": ai_msg_id, "sid": session_id, "content": reply_text, "intent": intent})
 
+    # 3.5 自动记忆：从用户消息中提取视频类型偏好
+    try:
+        import re as _re
+        types = ["口播", "剧情", "vlog", "测评", "教程", "带货", "美食", "旅行", "知识", "情感"]
+        found = [t for t in types if t in message]
+        if found and intent != "remember":
+            # 检查是否已经记住过
+            already = (await db.execute(sa_text(
+                "SELECT id FROM user_memory WHERE user_id=:uid AND content LIKE :c"
+            ), {"uid": user_id, "c": f"%{found[0]}%"})).fetchone()
+            if not already:
+                import uuid
+                mem_id = uuid.uuid4().hex
+                await db.execute(sa_text(
+                    "INSERT INTO user_memory (id, user_id, memory_type, content, importance) "
+                    "VALUES (:mid, :uid, 'preference', :content, 5)"
+                ), {"mid": mem_id, "uid": user_id, "content": f"关注{found[0]}类视频"})
+                logger.info("自动记忆：用户关注 %s 类视频", found[0])
+    except Exception as e:
+        logger.warning("自动记忆失败（不影响主流程）：%s", e)
+
     # 4. 更新 session 时间
     await db.execute(sa_text(
         "UPDATE chat_sessions SET updated_at=CURRENT_TIMESTAMP WHERE id=:sid"
