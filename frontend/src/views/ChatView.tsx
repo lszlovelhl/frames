@@ -7,16 +7,43 @@ interface Message {
 }
 
 export default function ChatView() {
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      role: "ai",
-      text: "我是帧间 AI 助手 🤖\n\n发个视频链接，我帮你拆解分析。也可以问我拆解进度、找相似视频。",
-      time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-    },
-  ]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 打开页面时自动打个招呼，AI 根据状态主动说话
+  useEffect(() => {
+    async function greet() {
+      setLoading(true);
+      try {
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: "你好", user_id: "default", platform: "web" }),
+        });
+        const data = await res.json();
+        setMessages([
+          {
+            role: "ai",
+            text: data.reply,
+            time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
+          },
+        ]);
+      } catch {
+        setMessages([
+          {
+            role: "ai",
+            text: "我是帧间 AI 助手 🤖\n\n发个视频链接，我帮你拆解分析。",
+            time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
+          },
+        ]);
+      } finally {
+        setLoading(false);
+      }
+    }
+    greet();
+  }, []);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
