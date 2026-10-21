@@ -79,6 +79,13 @@ SYSTEM_PROMPT = """你是帧间（Frames）AI 短视频拆解平台的助手。�
    - 示例输入："这个分析不准"
    - 示例输出：{"intent": "feedback", "url": "", "video_id": "", "content": "这个分析不准"}
 
+7. **闲聊**：用户随便聊聊，不涉及具体功能
+   - 意图码：chat
+   - 参数：content（用户说的话）
+   - 触发词：你今天怎么样、累不累、在干嘛、谢谢、哈哈
+   - 示例输入："你今天怎么样"
+   - 示例输出：{"intent": "chat", "url": "", "video_id": "", "content": "你今天怎么样"}
+
 只返回 JSON，不要其他内容。"""
 
 
@@ -299,6 +306,20 @@ async def _handle_feedback(db, user_id, content) -> str:
         return f"记录失败：{str(e)[:100]}"
 
 
+async def _handle_chat(content: str) -> str:
+    """闲聊，随便聊聊。"""
+    # 简单回复，不用调 LLM，省 token
+    if any(w in content for w in ["你好", "hi", "hello", "在吗"]):
+        return "你好呀！我是帧间 AI 助手 🤖\n有什么我能帮你的？发个视频链接，或者问我问题。"
+    if any(w in content for w in ["谢谢", "感谢", "辛苦"]):
+        return "不客气！有问题随时找我 😊"
+    if any(w in content for w in ["累", "忙", "加班"]):
+        return "辛苦了！工作再忙也要注意休息。\n需要我帮你拆解个视频放松一下吗？"
+    if any(w in content for w in ["哈哈", "呵呵", "好笑"]):
+        return "哈哈，看来你心情不错！\n要不要拆个视频看看别人怎么玩的？"
+    return "嗯，我在听。你想聊点什么？\n或者直接发个视频链接，我帮你拆解分析。"
+
+
 async def _handle_help() -> str:
     """处理帮助意图。"""
     return (
@@ -377,6 +398,7 @@ async def chat(
         "remember": lambda: _handle_remember(db, user_id, intent_data.get("content", "")),
         "recall": lambda: _handle_recall(db, user_id),
         "feedback": lambda: _handle_feedback(db, user_id, intent_data.get("content", "")),
+        "chat": lambda: _handle_chat(intent_data.get("content", "")),
         "help": _handle_help,
     }
     handler = handlers.get(intent, _handle_help)
