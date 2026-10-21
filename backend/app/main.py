@@ -22,6 +22,7 @@ from app.db import engine
 from app.media import cookies
 from app.routers import ai as ai_router
 from app.routers import billing as billing_router
+from app.routers import chat as chat_router
 from app.routers import collection as collection_router
 from app.routers import creations as creations_router
 from app.routers import elements as elements_router
@@ -91,6 +92,7 @@ app.add_middleware(
 )
 
 app.include_router(ai_router.router)
+app.include_router(chat_router.router)
 app.include_router(videos_router.router)
 app.include_router(platforms_router.router)
 app.include_router(elements_router.router)
