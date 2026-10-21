@@ -58,6 +58,20 @@ SYSTEM_PROMPT = """你是帧间（Frames）AI 短视频拆解平台的助手。�
    - 示例输入："你好"
    - 示例输出：{"intent": "help", "url": "", "video_id": ""}
 
+5. **记住偏好**：用户想让 AI 记住某个偏好或习惯
+   - 意图码：remember
+   - 参数：content（要记住的内容）
+   - 触发词：记住、我喜欢、我偏好、以后都、别忘了、记一下
+   - 示例输入："记住我喜欢口播类视频"
+   - 示例输出：{"intent": "remember", "url": "", "video_id": "", "content": "我喜欢口播类视频"}
+
+6. **查记忆**：用户想知道 AI 记住了什么
+   - 意图码：recall
+   - 参数：无
+   - 触发词：你记住了我什么、我的偏好、你记得我什么
+   - 示例输入："你都记住我什么了"
+   - 示例输出：{"intent": "recall", "url": "", "video_id": ""}
+
 只返回 JSON，不要其他内容。"""
 
 
@@ -195,6 +209,38 @@ async def chat(
                     reply_text = "\n".join(lines)
             except Exception as e:
                 reply_text = f"查询相似失败：{str(e)[:100]}"
+
+    elif intent == "remember":
+        content = intent_data.get("content", "")
+        if not content:
+            reply_text = "记住什么？比如：「记住我喜欢口播类视频」"
+        else:
+            try:
+                import uuid
+                mem_id = uuid.uuid4().hex
+                await db.execute(sa_text(
+                    "INSERT INTO user_memory (id, user_id, memory_type, content, importance) "
+                    "VALUES (:mid, :uid, 'preference', :content, 7)"
+                ), {"mid": mem_id, "uid": user_id, "content": content})
+                reply_text = f"好的，我记住了：{content}"
+            except Exception as e:
+                reply_text = f"记忆失败：{str(e)[:100]}"
+
+    elif intent == "recall":
+        try:
+            rows = (await db.execute(sa_text(
+                "SELECT content, importance FROM user_memory "
+                "WHERE user_id=:uid ORDER BY importance DESC"
+            ), {"uid": user_id})).fetchall()
+            if not rows:
+                reply_text = "我还没记住什么，你可以说「记住我喜欢口播类」告诉我。"
+            else:
+                lines = ["🧠 我记住的你的偏好："]
+                for i, r in enumerate(rows, 1):
+                    lines.append(f"{i}. {r[0]}")
+                reply_text = "\n".join(lines)
+        except Exception as e:
+            reply_text = f"查询记忆失败：{str(e)[:100]}"
 
     else:
         reply_text = (
