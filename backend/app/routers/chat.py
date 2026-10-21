@@ -72,6 +72,13 @@ SYSTEM_PROMPT = """你是帧间（Frames）AI 短视频拆解平台的助手。�
    - 示例输入："你都记住我什么了"
    - 示例输出：{"intent": "recall", "url": "", "video_id": ""}
 
+7. **反馈**：用户对拆解结果不满意，提反馈
+   - 意图码：feedback
+   - 参数：content（反馈内容）
+   - 触发词：不准、不对、不好、不满意、太差了、有问题
+   - 示例输入："这个分析不准"
+   - 示例输出：{"intent": "feedback", "url": "", "video_id": "", "content": "这个分析不准"}
+
 只返回 JSON，不要其他内容。"""
 
 
@@ -242,6 +249,23 @@ async def _handle_recall(db, user_id) -> str:
         return f"查询记忆失败：{str(e)[:100]}"
 
 
+async def _handle_feedback(db, user_id, content) -> str:
+    """处理用户反馈意图。"""
+    if not content:
+        return "哪里不满意？告诉我具体哪里不对，我下次改进。"
+    try:
+        import uuid
+        from sqlalchemy import text as sa_text
+        mem_id = uuid.uuid4().hex
+        await db.execute(sa_text(
+            "INSERT INTO user_memory (id, user_id, memory_type, content, importance) "
+            "VALUES (:mid, :uid, 'feedback', :content, 8)"
+        ), {"mid": mem_id, "uid": user_id, "content": f"用户反馈：{content}"})
+        return f"收到！我记住了：{content}\n下次我会注意的。"
+    except Exception as e:
+        return f"记录失败：{str(e)[:100]}"
+
+
 async def _handle_help() -> str:
     """处理帮助意图。"""
     return (
@@ -319,6 +343,7 @@ async def chat(
         "similar": lambda: _handle_similar(db, video_id),
         "remember": lambda: _handle_remember(db, user_id, intent_data.get("content", "")),
         "recall": lambda: _handle_recall(db, user_id),
+        "feedback": lambda: _handle_feedback(db, user_id, intent_data.get("content", "")),
         "help": _handle_help,
     }
     handler = handlers.get(intent, _handle_help)
