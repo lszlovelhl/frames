@@ -86,6 +86,13 @@ SYSTEM_PROMPT = """你是帧间（Frames）AI 短视频拆解平台的助手。�
    - 示例输入："你今天怎么样"
    - 示例输出：{"intent": "chat", "url": "", "video_id": "", "content": "你今天怎么样"}
 
+8. **回答追问**：用户回答 AI 刚才问的问题（比如想重点分析什么）
+   - 意图码：followup
+   - 参数：content（用户回答的内容）
+   - 触发词：开头钩子、情绪曲线、段落结构、重点、关注、分析什么
+   - 示例输入："开头钩子"
+   - 示例输出：{"intent": "followup", "url": "", "video_id": "", "content": "开头钩子"}
+
 只返回 JSON，不要其他内容。"""
 
 
@@ -320,6 +327,26 @@ async def _handle_chat(content: str) -> str:
     return "嗯，我在听。你想聊点什么？\n或者直接发个视频链接，我帮你拆解分析。"
 
 
+async def _handle_followup(db, session_id, user_id, content) -> str:
+    """处理用户对 AI 追问的回答。"""
+    from sqlalchemy import text as sa_text
+
+    # 把用户的回答存到 session 的 preferences 里
+    try:
+        await db.execute(sa_text(
+            "UPDATE chat_sessions SET preferences=:p, updated_at=CURRENT_TIMESTAMP WHERE id=:sid"
+        ), {"p": content, "sid": session_id})
+    except Exception:
+        pass
+
+    return (
+        f"好的，我记住了：你想重点分析「{content}」\n"
+        f"拆解完成后我会在报告里特别标注这部分。\n"
+        f"\n"
+        f"现在拆解应该快好了，稍后问我「拆完了吗」就能看结果。"
+    )
+
+
 async def _handle_help() -> str:
     """处理帮助意图。"""
     return (
@@ -399,6 +426,7 @@ async def chat(
         "recall": lambda: _handle_recall(db, user_id),
         "feedback": lambda: _handle_feedback(db, user_id, intent_data.get("content", "")),
         "chat": lambda: _handle_chat(intent_data.get("content", "")),
+        "followup": lambda: _handle_followup(db, session_id, user_id, intent_data.get("content", "")),
         "help": _handle_help,
     }
     handler = handlers.get(intent, _handle_help)
