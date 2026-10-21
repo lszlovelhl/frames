@@ -196,22 +196,27 @@ async def _handle_get_result(db, video_id) -> str:
                 highlight = ""
                 if prefs:
                     highlight = f"\n⭐ 你之前说想重点分析「{prefs}」"
-                    if "钩子" in prefs:
-                        highlight += "\n👉 看第 1 个段落，就是开头钩子部分"
-                    elif "情绪" in prefs:
-                        highlight += "\n👉 看情绪曲线，开头高还是结尾高？"
-                    elif "结构" in prefs or "段落" in prefs:
-                        highlight += "\n👉 看看段落之间怎么转折的"
+
+                # 让 LLM 解读一下结果，更有温度
+                from app.services.two_layer.pipeline import call_flash_llm
+                try:
+                    insight = await call_flash_llm(
+                        prompt=f"质量分：{q}，段落数：{seg_count}，核心想法：{ci[:100]}。用一两句话点评一下这个视频，像朋友聊天一样。",
+                        system="你是短视频拆解专家，用轻松的语气点评拆解结果，短一点。",
+                        max_tokens=150,
+                    )
+                    insight_text = f"\n💡 AI 点评：{insight.strip()}"
+                except Exception:
+                    insight_text = ""
 
                 return (
                     f"✅ 拆解完成！\n"
                     f"📊 质量分：{q} · 段落数：{seg_count}\n"
                     f"🎯 核心想法：{ci[:40]}...\n"
+                    f"{highlight}"
+                    f"{insight_text}\n"
                     f"\n"
-                    f"📝 段落概览：\n{seg_text}\n"
-                    f"{highlight}\n"
-                    f"\n"
-                    f"你觉得这个视频最厉害的地方是哪里？"
+                    f"要不要我帮你找类似的视频？"
                 )
             except Exception:
                 return "✅ 拆解完成！进度：100%"
@@ -331,17 +336,20 @@ async def _handle_feedback(db, user_id, content) -> str:
 
 
 async def _handle_chat(content: str) -> str:
-    """闲聊，随便聊聊。"""
-    # 简单回复，不用调 LLM，省 token
-    if any(w in content for w in ["你好", "hi", "hello", "在吗"]):
-        return "你好呀！我是帧间 AI 助手 🤖\n有什么我能帮你的？发个视频链接，或者问我问题。"
-    if any(w in content for w in ["谢谢", "感谢", "辛苦"]):
-        return "不客气！有问题随时找我 😊"
-    if any(w in content for w in ["累", "忙", "加班"]):
-        return "辛苦了！工作再忙也要注意休息。\n需要我帮你拆解个视频放松一下吗？"
-    if any(w in content for w in ["哈哈", "呵呵", "好笑"]):
-        return "哈哈，看来你心情不错！\n要不要拆个视频看看别人怎么玩的？"
-    return "嗯，我在听。你想聊点什么？\n或者直接发个视频链接，我帮你拆解分析。"
+    """闲聊，用 LLM 生成回复，像朋友一样。"""
+    from app.services.two_layer.pipeline import call_flash_llm
+    try:
+        reply = await call_flash_llm(
+            prompt=content,
+            system="你是帧间 AI 助手，一个亲切的短视频拆解伙伴。用户在跟你闲聊，用轻松友好的语气回复，短一点（一两句话），顺便提一句你能帮他拆解视频。",
+            max_tokens=100,
+        )
+        return reply.strip()
+    except Exception:
+        # 兜底：LLM 挂了就用写死的回复
+        if any(w in content for w in ["你好", "hi", "hello"]):
+            return "你好呀！我是帧间 AI 助手 🤖\n有什么我能帮你的？发个视频链接试试。"
+        return "嗯，我在听。或者直接发个视频链接，我帮你拆解分析。"
 
 
 async def _handle_followup(db, session_id, user_id, content) -> str:
