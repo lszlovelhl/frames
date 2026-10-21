@@ -97,6 +97,149 @@ async def _llm_intent(message: str) -> dict:
     return await _llm_intent_with_context(message, SYSTEM_PROMPT)
 
 
+async def _handle_breakdown(db, url, session_id) -> tuple[str, dict]:
+    """处理拆解意图。返回 (回复文本, 额外数据)。"""
+    from app.routers.videos import create_video
+    from sqlalchemy import text as sa_text
+
+    if not url:
+        return "发个视频链接给我，我帮你拆解。支持抖音/B站/YouTube。", {}
+
+    try:
+        result = await create_video(VideoCreate(url=url), db=db)
+        reply = (
+            "收到！开始拆解这个视频了 🎬\n"
+            "预计 3-5 分钟出结果。\n"
+            "\n"
+            "对了，你想重点分析什么？比如：\n"
+            "• 开头钩子\n"
+            "• 情绪曲线\n"
+            "• 段落结构\n"
+            "直接告诉我，我会在报告里特别标注。"
+        )
+        await db.execute(sa_text(
+            "UPDATE chat_sessions SET last_job_id=:jid, updated_at=CURRENT_TIMESTAMP WHERE id=:sid"
+        ), {"jid": result.get("analysis_id"), "sid": session_id})
+        return reply, {"job_id": result.get("analysis_id")}
+    except Exception as e:
+        return f"拆解失败了：{str(e)[:100]}", {}
+
+
+async def _handle_get_result(db, video_id) -> str:
+    """处理查结果意图。"""
+    from sqlalchemy import text as sa_text
+
+    if not video_id:
+        return "告诉我你想查哪个视频，发链接或者视频ID。"
+
+    try:
+        row = (await db.execute(text(
+            "SELECT status, pct, message, script_id FROM breakdown_jobs WHERE id=:jid"
+        ), {"jid": video_id})).fetchone()
+        if not row:
+            return "没找到这个拆解任务，确认一下 ID 对不对？"
+
+        status, pct, msg, sid = row
+        if status == "done":
+            try:
+                sid_str = sid.hex if hasattr(sid, 'hex') else str(sid)
+                script_row = (await db.execute(sa_text(
+                    "SELECT quality_score, core_idea FROM script_script WHERE id=:sid"
+                ), {"sid": sid_str})).fetchone()
+                segments_row = (await db.execute(sa_text(
+                    "SELECT count(*) FROM script_segments WHERE script_id=:sid"
+                ), {"sid": sid_str})).fetchone()
+                q = script_row[0] if script_row else 0
+                ci = script_row[1] if script_row else ""
+                seg_count = segments_row[0] if segments_row else 0
+                return (
+                    f"✅ 拆解完成！\n"
+                    f"📊 关键数据：\n"
+                    f"• 质量分：{q}\n"
+                    f"• 段落数：{seg_count}\n"
+                    f"🎯 核心想法：{ci[:50]}...\n"
+                    f"\n"
+                    f"要不要我帮你找类似的视频？"
+                )
+            except Exception:
+                return "✅ 拆解完成！进度：100%"
+        elif status == "failed":
+            return f"❌ 拆解失败：{msg or '未知原因'}\n💡 试试换个链接，或者检查视频是否公开。"
+        else:
+            return f"⏳ 拆解进行中...\n进度：{pct}%\n阶段：{msg or '处理中'}"
+    except Exception as e:
+        return f"查询失败：{str(e)[:100]}"
+
+
+async def _handle_similar(db, video_id) -> str:
+    """处理找相似意图。"""
+    if not video_id:
+        return "告诉我你想找哪个视频的相似推荐？"
+    try:
+        from app.routers.videos import similar_videos
+        result = await similar_videos(video_id=video_id, top_k=5, db=db)
+        items = result.get("items", [])
+        if not items:
+            return "暂无相似视频推荐（可能只有这一个已拆解视频）"
+        lines = ["🎬 相似视频推荐："]
+        for i, it in enumerate(items, 1):
+            lines.append(f"{i}. {it.get('title', '无标题')}（相似度 {it.get('score', 0)}）")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"查询相似失败：{str(e)[:100]}"
+
+
+async def _handle_remember(db, user_id, content) -> str:
+    """处理记住偏好意图。"""
+    if not content:
+        return "记住什么？比如：「记住我喜欢口播类视频」"
+    try:
+        import uuid
+        from sqlalchemy import text as sa_text
+        mem_id = uuid.uuid4().hex
+        await db.execute(sa_text(
+            "INSERT INTO user_memory (id, user_id, memory_type, content, importance) "
+            "VALUES (:mid, :uid, 'preference', :content, 7)"
+        ), {"mid": mem_id, "uid": user_id, "content": content})
+        return f"好的，我记住了：{content}"
+    except Exception as e:
+        return f"记忆失败：{str(e)[:100]}"
+
+
+async def _handle_recall(db, user_id) -> str:
+    """处理查记忆意图。"""
+    try:
+        from sqlalchemy import text as sa_text
+        rows = (await db.execute(sa_text(
+            "SELECT content, importance FROM user_memory "
+            "WHERE user_id=:uid ORDER BY importance DESC"
+        ), {"uid": user_id})).fetchall()
+        if not rows:
+            return "我还没记住什么，你可以说「记住我喜欢口播类」告诉我。"
+        lines = ["🧠 我记住的你的偏好："]
+        for i, r in enumerate(rows, 1):
+            lines.append(f"{i}. {r[0]}")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"查询记忆失败：{str(e)[:100]}"
+
+
+async def _handle_help() -> str:
+    """处理帮助意图。"""
+    return (
+        "我是帧间 AI 短视频拆解助手 🤖\n"
+        "\n"
+        "你可以：\n"
+        "1. 发视频链接，我帮你拆解分析\n"
+        "2. 问我「拆完了吗」，查进度\n"
+        "3. 问我「还有类似的吗」，找相似视频\n"
+        "4. 说「记住我喜欢口播类」，我记住你的偏好\n"
+        "\n"
+        "试试发个抖音/B站链接？"
+    )
+
+
+
 @router.post("/api/chat")
 async def chat(
     req: ChatRequest,
@@ -151,117 +294,22 @@ async def chat(
         "INSERT INTO chat_messages (id, session_id, role, content) VALUES (:mid, :sid, 'user', :content)"
     ), {"mid": msg_id, "sid": session_id, "content": message})
 
-    # 2. 根据意图调用对应功能
-    reply_text = ""
-    extra = {}
+    # 2. 根据意图调用对应 handler
+    handlers = {
+        "breakdown": lambda: _handle_breakdown(db, url, session_id),
+        "get_result": lambda: _handle_get_result(db, video_id),
+        "similar": lambda: _handle_similar(db, video_id),
+        "remember": lambda: _handle_remember(db, user_id, intent_data.get("content", "")),
+        "recall": lambda: _handle_recall(db, user_id),
+        "help": _handle_help,
+    }
+    handler = handlers.get(intent, _handle_help)
+    result = await handler()
 
-    if intent == "breakdown":
-        if not url:
-            reply_text = "发个视频链接给我，我帮你拆解。支持抖音/B站/YouTube。"
-        else:
-            from app.routers.videos import create_video
-            try:
-                result = await create_video(VideoCreate(url=url), db=db)
-                reply_text = (
-                    "收到！开始拆解这个视频了 🎬\n"
-                    "预计 3-5 分钟出结果。\n"
-                    "\n"
-                    "对了，你想重点分析什么？比如：\n"
-                    "• 开头钩子\n"
-                    "• 情绪曲线\n"
-                    "• 段落结构\n"
-                    "直接告诉我，我会在报告里特别标注。"
-                )
-                extra["job_id"] = result.get("analysis_id")
-                # 更新上下文
-                await db.execute(sa_text(
-                    "UPDATE chat_sessions SET last_job_id=:jid, updated_at=CURRENT_TIMESTAMP WHERE id=:sid"
-                ), {"jid": result.get("analysis_id"), "sid": session_id})
-            except Exception as e:
-                reply_text = f"拆解失败了：{str(e)[:100]}"
-
-    elif intent == "get_result":
-        if not video_id:
-            reply_text = "告诉我你想查哪个视频，发链接或者视频ID。"
-        else:
-            try:
-                row = (await db.execute(text(
-                    "SELECT status, pct, message, script_id FROM breakdown_jobs WHERE id=:jid"
-                ), {"jid": video_id})).fetchone()
-                if not row:
-                    reply_text = "没找到这个拆解任务，确认一下 ID 对不对？"
-                else:
-                    status, pct, msg, sid = row
-                    if status == "done":
-                        reply_text = f"✅ 拆解完成！\n进度：100%\n质量分：待查"
-                    elif status == "failed":
-                        reply_text = f"❌ 拆解失败：{msg or '未知原因'}"
-                    else:
-                        reply_text = f"⏳ 拆解进行中...\n进度：{pct}%\n阶段：{msg or '处理中'}"
-            except Exception as e:
-                reply_text = f"查询失败：{str(e)[:100]}"
-
-    elif intent == "similar":
-        if not video_id:
-            reply_text = "告诉我你想找哪个视频的相似推荐？"
-        else:
-            try:
-                from app.routers.videos import similar_videos
-                result = await similar_videos(video_id=video_id, top_k=5, db=db)
-                items = result.get("items", [])
-                if not items:
-                    reply_text = "暂无相似视频推荐（可能只有这一个已拆解视频）"
-                else:
-                    lines = ["🎬 相似视频推荐："]
-                    for i, it in enumerate(items, 1):
-                        lines.append(f"{i}. {it.get('title', '无标题')}（相似度 {it.get('score', 0)}）")
-                    reply_text = "\n".join(lines)
-            except Exception as e:
-                reply_text = f"查询相似失败：{str(e)[:100]}"
-
-    elif intent == "remember":
-        content = intent_data.get("content", "")
-        if not content:
-            reply_text = "记住什么？比如：「记住我喜欢口播类视频」"
-        else:
-            try:
-                import uuid
-                mem_id = uuid.uuid4().hex
-                await db.execute(sa_text(
-                    "INSERT INTO user_memory (id, user_id, memory_type, content, importance) "
-                    "VALUES (:mid, :uid, 'preference', :content, 7)"
-                ), {"mid": mem_id, "uid": user_id, "content": content})
-                reply_text = f"好的，我记住了：{content}"
-            except Exception as e:
-                reply_text = f"记忆失败：{str(e)[:100]}"
-
-    elif intent == "recall":
-        try:
-            rows = (await db.execute(sa_text(
-                "SELECT content, importance FROM user_memory "
-                "WHERE user_id=:uid ORDER BY importance DESC"
-            ), {"uid": user_id})).fetchall()
-            if not rows:
-                reply_text = "我还没记住什么，你可以说「记住我喜欢口播类」告诉我。"
-            else:
-                lines = ["🧠 我记住的你的偏好："]
-                for i, r in enumerate(rows, 1):
-                    lines.append(f"{i}. {r[0]}")
-                reply_text = "\n".join(lines)
-        except Exception as e:
-            reply_text = f"查询记忆失败：{str(e)[:100]}"
-
+    if isinstance(result, tuple):
+        reply_text, extra = result
     else:
-        reply_text = (
-            "我是帧间 AI 短视频拆解助手 🤖\n"
-            "\n"
-            "你可以：\n"
-            "1. 发视频链接，我帮你拆解分析\n"
-            "2. 问我「拆完了吗」，查进度\n"
-            "3. 问我「还有类似的吗」，找相似视频\n"
-            "\n"
-            "试试发个抖音/B站链接？"
-        )
+        reply_text, extra = result, {}
 
     # 3. 存 AI 回复到历史
     ai_msg_id = __import__("uuid").uuid4().hex
