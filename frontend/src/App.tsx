@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import JobMonitor from "./components/JobMonitor";
 import BreakdownView from "./views/BreakdownView";
+import ChatView from "./views/ChatView";
 import LibraryView from "./views/LibraryView";
 import ElementsView from "./views/ElementsView";
 import CreateView from "./views/CreateView";
@@ -12,12 +13,13 @@ import PromptsView from "./views/PromptsView";
 import ProductsView from "./views/ProductsView";
 import CollectionView from "./views/CollectionView";
 
-type ViewKey = "breakdown" | "library" | "elements" | "create" | "products" | "prompts" | "usage" | "models" | "accounts" | "settings" | "collection";
+type ViewKey = "chat" | "breakdown" | "library" | "elements" | "create" | "products" | "prompts" | "usage" | "models" | "accounts" | "settings" | "collection";
 
 const NAV_GROUPS: Array<{ group: string; items: Array<{ key: ViewKey; label: string; icon: string; hint: string }> }> = [
   {
     group: "创作流程",
     items: [
+      { key: "chat", label: "AI 助手", icon: "💬", hint: "说人话就能用，发链接自动拆解" },
       { key: "breakdown", label: "新建拆解", icon: "▸", hint: "新建素材并跑五层拆解" },
       { key: "library", label: "拆解库", icon: "▤", hint: "历史素材与拆解结果" },
       { key: "create", label: "创作台", icon: "✎", hint: "对话式创作 · @元素/产品生成脚本" },
@@ -77,6 +79,7 @@ export default function App() {
 
   const main = (
     <main className="min-h-0 flex-1 overflow-y-auto">
+      {view === "chat" && <ChatView />}
       {view === "breakdown" && <BreakdownView onOpenVideo={openVideoInLibrary} />}
       {view === "library" && (
         <LibraryView
