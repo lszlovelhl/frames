@@ -26,6 +26,7 @@ from app.routers import chat as chat_router
 from app.routers import collection as collection_router
 from app.routers import creations as creations_router
 from app.routers import elements as elements_router
+from app.routers import feishu_webhook as feishu_webhook_router
 from app.routers import platforms as platforms_router
 from app.routers import prompts as prompts_router
 from app.routers import products as products_router
@@ -93,6 +94,7 @@ app.add_middleware(
 
 app.include_router(ai_router.router)
 app.include_router(chat_router.router)
+app.include_router(feishu_webhook_router.router)
 app.include_router(videos_router.router)
 app.include_router(platforms_router.router)
 app.include_router(elements_router.router)
