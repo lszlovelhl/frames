@@ -336,17 +336,25 @@ async def _handle_feedback(db, user_id, content) -> str:
 
 
 async def _handle_chat(content: str) -> str:
-    """闲聊，用 LLM 生成回复，像朋友一样。"""
-    from app.services.two_layer.pipeline import call_flash_llm
+    """闲聊，用本地 qwen3.5 生成，免费又快。"""
+    import httpx
     try:
-        reply = await call_flash_llm(
-            prompt=content,
-            system="你是帧间 AI 助手，一个亲切的短视频拆解伙伴。用户在跟你闲聊，用轻松友好的语气回复，短一点（一两句话），顺便提一句你能帮他拆解视频。",
-            max_tokens=100,
-        )
-        return reply.strip()
+        # 调本地 Ollama
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "http://127.0.0.1:11434/api/generate",
+                json={
+                    "model": "qwen3.5:latest",
+                    "prompt": f"你是帧间 AI 助手，一个亲切的短视频拆解伙伴。用户说：「{content}」。用轻松友好的语气回复，一两句话，顺便提一句你能帮他拆解视频。",
+                    "stream": False,
+                    "options": {"temperature": 0.7, "max_tokens": 100},
+                },
+                timeout=30,
+            )
+            data = resp.json()
+            return data.get("response", "").strip()
     except Exception:
-        # 兜底：LLM 挂了就用写死的回复
+        # 兜底：本地模型没跑就用写死的
         if any(w in content for w in ["你好", "hi", "hello"]):
             return "你好呀！我是帧间 AI 助手 🤖\n有什么我能帮你的？发个视频链接试试。"
         return "嗯，我在听。或者直接发个视频链接，我帮你拆解分析。"
