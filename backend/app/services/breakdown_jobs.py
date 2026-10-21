@@ -242,6 +242,27 @@ async def process(job_id: str) -> None:
                         script_id=str(script_id),
                         quality_score=quality,
                     )
+
+                    # 主动推荐：往聊天记录里插一条 AI 消息
+                    try:
+                        import uuid
+                        from sqlalchemy import text as sa_text
+                        # 找最新的 web session
+                        sess_row = await db.execute(sa_text(
+                            "SELECT id FROM chat_sessions WHERE platform='web' ORDER BY updated_at DESC LIMIT 1"
+                        ))
+                        sess = sess_row.fetchone()
+                        if sess:
+                            sid = sess[0]
+                            msg_id = uuid.uuid4().hex
+                            reply = f"✅ 拆解完成！质量分 {quality}。\n要不要我帮你找类似的视频？"
+                            await db.execute(sa_text(
+                                "INSERT INTO chat_messages (id, session_id, role, content, intent) "
+                                "VALUES (:mid, :sid, 'assistant', :content, 'proactive')"
+                            ), {"mid": msg_id, "sid": sid, "content": reply})
+                            logger.info("主动推荐消息已插入 chat 记录")
+                    except Exception as e:
+                        logger.warning("主动推荐失败（不影响主流程）：%s", e)
                 except Exception as e:
                     logger.warning("飞书通知失败（不影响主流程）：%s", e)
 
