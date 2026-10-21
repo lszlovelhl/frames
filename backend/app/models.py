@@ -83,6 +83,48 @@ class User(TimestampMixin, Base):
     platforms: Mapped[list] = mapped_column(JSON, default=list)  # 关注平台
 
 
+class ChatSession(TimestampMixin, Base):
+    """对话 session：每个用户一个 session，存上下文"""
+
+    __tablename__ = "chat_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[str] = mapped_column(String(64), index=True)  # anonymous / feishu_xxx
+    platform: Mapped[str] = mapped_column(String(32), default="web")
+    last_video_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 上下文：最近操作的视频
+    last_job_id: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 上下文：最近触发的拆解任务
+
+
+class ChatMessage(TimestampMixin, Base):
+    """对话消息：存短期上下文"""
+
+    __tablename__ = "chat_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4
+    )
+    session_id: Mapped[uuid.UUID] = mapped_column(Uuid, index=True)
+    role: Mapped[str] = mapped_column(String(16))  # user / assistant
+    content: Mapped[str] = mapped_column(Text)
+    intent: Mapped[str | None] = mapped_column(String(32), nullable=True)  # 识别出的意图
+
+
+class UserMemory(TimestampMixin, Base):
+    """用户长期记忆：偏好、习惯、经验凝练"""
+
+    __tablename__ = "user_memory"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    memory_type: Mapped[str] = mapped_column(String(32))  # preference / habit / insight
+    content: Mapped[str] = mapped_column(Text)
+    importance: Mapped[int] = mapped_column(default=5)  # 1-10，越高越重要
+
+
 class CreditAccount(TimestampMixin, Base):
     """点数账户（1 用户 1 行；当前单机取首个 user 为默认账户）"""
 
