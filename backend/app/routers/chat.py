@@ -103,13 +103,40 @@ async def chat(
             return {"reply": f"拆解失败了：{str(e)[:100]}"}
 
     elif intent == "get_result":
-        if not video_id and not url:
+        # 查 job 状态
+        if not video_id:
             return {"reply": "告诉我你想查哪个视频，发链接或者视频ID。"}
-        # TODO: 查结果
-        return {"reply": "查询结果功能开发中，稍等～"}
+        try:
+            row = (await db.execute(text(
+                "SELECT status, pct, message, script_id FROM breakdown_jobs WHERE id=:jid"
+            ), {"jid": video_id})).fetchone()
+            if not row:
+                return {"reply": "没找到这个拆解任务，确认一下 ID 对不对？"}
+            status, pct, msg, sid = row
+            if status == "done":
+                return {"reply": f"✅ 拆解完成！\n进度：100%\n质量分：待查"}
+            elif status == "failed":
+                return {"reply": f"❌ 拆解失败：{msg or '未知原因'}"}
+            else:
+                return {"reply": f"⏳ 拆解进行中...\n进度：{pct}%\n阶段：{msg or '处理中'}"}
+        except Exception as e:
+            return {"reply": f"查询失败：{str(e)[:100]}"}
 
     elif intent == "similar":
-        return {"reply": "相似推荐功能开发中，稍等～"}
+        if not video_id:
+            return {"reply": "告诉我你想找哪个视频的相似推荐？"}
+        try:
+            from app.routers.videos import similar_videos
+            result = await similar_videos(video_id=video_id, top_k=5, db=db)
+            items = result.get("items", [])
+            if not items:
+                return {"reply": "暂无相似视频推荐（可能只有这一个已拆解视频）"}
+            lines = ["🎬 相似视频推荐："]
+            for i, it in enumerate(items, 1):
+                lines.append(f"{i}. {it.get('title', '无标题')}（相似度 {it.get('score', 0)}）")
+            return {"reply": "\n".join(lines)}
+        except Exception as e:
+            return {"reply": f"查询相似失败：{str(e)[:100]}"}
 
     else:
         return {
