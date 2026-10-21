@@ -220,6 +220,29 @@ async def process(job_id: str) -> None:
             )
             await db.commit()
 
+            # 第四阶段：飞书通知（拆解完成后推送，失败不影响主流程）
+            if job.status == "done":
+                try:
+                    from app.services.feishu_notify import notify_breakdown_done
+                    script_id = result.get("script_id") or ""
+                    quality = 0.0
+                    try:
+                        from sqlalchemy import text as sa_text
+                        row = (await db.execute(sa_text(
+                            "SELECT quality_score FROM script_script WHERE id=:sid"
+                        ), {"sid": str(script_id)})).fetchone()
+                        if row:
+                            quality = float(row[0] or 0)
+                    except Exception:
+                        pass
+                    await notify_breakdown_done(
+                        video_title=video.title or video.id[:8],
+                        script_id=str(script_id),
+                        quality_score=quality,
+                    )
+                except Exception as e:
+                    logger.warning("飞书通知失败（不影响主流程）：%s", e)
+
             if job.status == "done":
                 try:
                     from app.media.cleanup import cleanup_video
