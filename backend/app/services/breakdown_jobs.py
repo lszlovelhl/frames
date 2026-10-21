@@ -196,6 +196,22 @@ async def process(job_id: str) -> None:
                     evidence={k: v for k, v in result.items() if k != "script_id"},
                     script_id=result.get("script_id"),
                 )
+                # 第三阶段：script 向量化（后处理，失败不影响主流程）
+                try:
+                    from sqlalchemy import text as sa_text
+                    from app.services.embedding import embed_texts, upsert_one
+                    sid = result.get("script_id")
+                    if sid:
+                        row = (await db.execute(sa_text(
+                            "SELECT core_idea, summary FROM script_script WHERE id=:sid"
+                        ), {"sid": sid})).fetchone()
+                        if row:
+                            embed_text = f"视频主题：{row[0] or ''}\n摘要：{row[1] or ''}"
+                            vecs = await embed_texts([embed_text])
+                            await upsert_one(db, "script_script", sid, embed_text, vecs[0])
+                            logger.info("script 向量化成功：script_id=%s", sid)
+                except Exception as e:
+                    logger.warning("script 向量化失败（不影响主流程）：%s", e)
             # 链路只失败在采集/模型侧时也照旧记用量流水
             await billing.consume(
                 db, account=acc, action=action, points=points,

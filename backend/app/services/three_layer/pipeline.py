@@ -489,14 +489,4 @@ async def _run_three_layer_main(
     script.status = "active" if not rejected else "draft"
     await db.flush()
 
-    # 第三阶段：script 向量化，支持语义搜索（相似视频推荐）
-    try:
-        from app.services.embedding import embed_texts, upsert_one
-        embed_text = f"视频主题：{script.core_idea}\n摘要：{script.summary}"
-        vecs = await embed_texts([embed_text])
-        await upsert_one(db, "script_script", script.id, embed_text, vecs[0])
-        warnings.append("script 已向量化，支持语义搜索")
-    except Exception as e:
-        warnings.append(f"script 向量化失败（不影响主流程）：{type(e).__name__}")
-
     return {"ok": True, "script_id": script.id, **evidence}
