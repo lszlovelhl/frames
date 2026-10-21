@@ -159,10 +159,25 @@ async def _handle_get_result(db, video_id) -> str:
                 q = script_row[0] if script_row else 0
                 ci = script_row[1] if script_row else ""
                 seg_count = segments_row[0] if segments_row else 0
+
+                # 查前 3 个段落的概要
+                seg_rows = (await db.execute(sa_text(
+                    "SELECT start_ms, summary FROM script_segments "
+                    "WHERE script_id=:sid ORDER BY start_ms LIMIT 3"
+                ), {"sid": sid_str})).fetchall()
+
+                seg_lines = []
+                for i, r in enumerate(seg_rows, 1):
+                    seg_lines.append(f"  {i}. {r[1][:30]}..." if r[1] else f"  {i}. 第{r[0]}ms")
+
+                seg_text = "\n".join(seg_lines) if seg_lines else "  （暂无）"
+
                 return (
                     f"✅ 拆解完成！\n"
                     f"📊 质量分：{q} · 段落数：{seg_count}\n"
-                    f"🎯 核心想法：{ci[:50]}...\n"
+                    f"🎯 核心想法：{ci[:40]}...\n"
+                    f"\n"
+                    f"📝 段落概览：\n{seg_text}\n"
                     f"\n"
                     f"你觉得这个视频最厉害的地方是哪里？\n"
                     f"是开头钩子？节奏？还是情绪曲线？"
