@@ -32,23 +32,33 @@ SYSTEM_PROMPT = """你是帧间（Frames）AI 短视频拆解平台的助手。�
 1. **拆解视频**：用户想上传/拆解一个视频
    - 意图码：breakdown
    - 参数：url（视频链接）
-   - 触发词：拆解、分析、拆一下、帮我看看这个视频、这个视频讲什么
+   - 触发词：拆解、分析、拆一下、帮我看看这个视频、这个视频讲什么、帮我拆
+   - 示例输入："帮我拆解 https://v.douyin.com/abc123"
+   - 示例输出：{"intent": "breakdown", "url": "https://v.douyin.com/abc123", "video_id": ""}
+
 2. **查拆解结果**：用户想查某个视频的拆解进度或结果
    - 意图码：get_result
-   - 参数：video_id 或 url
-   - 触发词：结果、进度、拆完了吗、查一下
+   - 参数：video_id（拆解任务 ID）
+   - 触发词：结果、进度、拆完了吗、查一下、怎么样了、好了吗、拆好没
+   - 示例输入："拆完了吗"
+   - 示例输出：{"intent": "get_result", "url": "", "video_id": ""}
+   - 注意：如果上下文里有最近的 job_id，video_id 留空，系统会自动用上下文的
+
 3. **找相似视频**：用户想找类似的视频
    - 意图码：similar
    - 参数：video_id
-   - 触发词：相似、类似、推荐、还有类似的吗
-4. **帮助**：用户不知道能做什么
+   - 触发词：相似、类似、推荐、还有类似的吗、有没有差不多的
+   - 示例输入："还有类似的视频吗"
+   - 示例输出：{"intent": "similar", "url": "", "video_id": ""}
+
+4. **帮助**：用户不知道能做什么，或者打招呼
    - 意图码：help
    - 参数：无
-   - 触发词：你能做什么、帮助、怎么用
+   - 触发词：你能做什么、帮助、怎么用、你好、hi、在吗
+   - 示例输入："你好"
+   - 示例输出：{"intent": "help", "url": "", "video_id": ""}
 
-只返回 JSON，格式：
-{"intent": "意图码", "url": "提取到的视频链接（没有就空字符串）", "video_id": "提取到的视频ID（没有就空字符串）"}
-"""
+只返回 JSON，不要其他内容。"""
 
 
 async def _llm_intent_with_context(message: str, system_prompt: str) -> dict:
@@ -83,10 +93,25 @@ async def chat(
     if not message:
         return {"reply": "你想说什么？发个视频链接，或者问我拆解结果。"}
 
-    # 0. 上下文：查/建 session，取最近消息
-    from sqlalchemy import text as sa_text
     user_id = req.user_id
     platform = req.platform
+
+    # 1. 先做意图识别（纯 LLM，不占 db）
+    intent_data = await _llm_intent(message)
+    intent = intent_data.get("intent", "help")
+    url = intent_data.get("url", "")
+    video_id = intent_data.get("video_id", "")
+
+    logger.info("chat: intent=%s, url=%s, video_id=%s", intent, url, video_id)
+
+    # 2. 再开 db 处理上下文和操作
+    from sqlalchemy import text as sa_text
+
+    # 兜底：如果 session 状态坏了，先 rollback
+    try:
+        await db.rollback()
+    except Exception:
+        pass
 
     # 找最新 session
     sess_row = (await db.execute(sa_text(
@@ -96,6 +121,9 @@ async def chat(
 
     if sess_row:
         session_id, last_video, last_job = sess_row
+        # 如果意图是 get_result/similar，但没提取到 video_id，用上下文的
+        if not video_id:
+            video_id = last_job or last_video
     else:
         session_id = __import__("uuid").uuid4().hex
         await db.execute(sa_text(
@@ -103,45 +131,11 @@ async def chat(
         ), {"sid": session_id, "uid": user_id, "p": platform})
         last_video, last_job = None, None
 
-    # 取最近 10 条消息作为短期上下文
-    history_rows = (await db.execute(sa_text(
-        "SELECT role, content FROM chat_messages "
-        "WHERE session_id=:sid ORDER BY created_at DESC LIMIT 10"
-    ), {"sid": session_id})).fetchall()
-    history = list(reversed(history_rows))  # 按时间正序
-
-    # 取用户长期记忆（top 5 最重要的）
-    memory_rows = (await db.execute(sa_text(
-        "SELECT content, importance FROM user_memory "
-        "WHERE user_id=:uid ORDER BY importance DESC LIMIT 5"
-    ), {"uid": user_id})).fetchall()
-    memories = [r[0] for r in memory_rows]
-
     # 存用户消息
     msg_id = __import__("uuid").uuid4().hex
     await db.execute(sa_text(
         "INSERT INTO chat_messages (id, session_id, role, content) VALUES (:mid, :sid, 'user', :content)"
     ), {"mid": msg_id, "sid": session_id, "content": message})
-
-    # 1. 意图识别（带上下文：最近操作的视频/任务）
-    ctx_prompt = SYSTEM_PROMPT
-    if last_video:
-        ctx_prompt += f"\n\n[上下文] 用户最近操作的视频：{last_video}"
-    if last_job:
-        ctx_prompt += f"\n[上下文] 用户最近触发的拆解任务：{last_job}"
-    if memories:
-        ctx_prompt += f"\n\n[用户记忆]\n" + "\n".join(f"- {m}" for m in memories)
-    if history:
-        ctx_prompt += "\n\n[最近对话历史]\n"
-        for h in history[-5:]:  # 最近 5 条
-            ctx_prompt += f"{h[0]}: {h[1][:100]}\n"
-
-    intent_data = await _llm_intent_with_context(message, ctx_prompt)
-    intent = intent_data.get("intent", "help")
-    url = intent_data.get("url", "")
-    video_id = intent_data.get("video_id", "") or last_job  # 没提取到就用上下文里的
-
-    logger.info("chat: intent=%s, url=%s, video_id=%s", intent, url, video_id)
 
     # 2. 根据意图调用对应功能
     reply_text = ""
