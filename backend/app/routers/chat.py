@@ -186,15 +186,32 @@ async def _handle_get_result(db, video_id) -> str:
 
                 seg_text = "\n".join(seg_lines) if seg_lines else "  （暂无）"
 
+                # 查用户偏好
+                prefs_row = (await db.execute(sa_text(
+                    "SELECT preferences FROM chat_sessions WHERE id=:sid"
+                ), {"sid": session_id})).fetchone()
+                prefs = prefs_row[0] if prefs_row else ""
+
+                # 根据偏好调整结果展示
+                highlight = ""
+                if prefs:
+                    highlight = f"\n⭐ 你之前说想重点分析「{prefs}」"
+                    if "钩子" in prefs:
+                        highlight += "\n👉 看第 1 个段落，就是开头钩子部分"
+                    elif "情绪" in prefs:
+                        highlight += "\n👉 看情绪曲线，开头高还是结尾高？"
+                    elif "结构" in prefs or "段落" in prefs:
+                        highlight += "\n👉 看看段落之间怎么转折的"
+
                 return (
                     f"✅ 拆解完成！\n"
                     f"📊 质量分：{q} · 段落数：{seg_count}\n"
                     f"🎯 核心想法：{ci[:40]}...\n"
                     f"\n"
                     f"📝 段落概览：\n{seg_text}\n"
+                    f"{highlight}\n"
                     f"\n"
-                    f"你觉得这个视频最厉害的地方是哪里？\n"
-                    f"是开头钩子？节奏？还是情绪曲线？"
+                    f"你觉得这个视频最厉害的地方是哪里？"
                 )
             except Exception:
                 return "✅ 拆解完成！进度：100%"
