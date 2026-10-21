@@ -162,7 +162,16 @@ async def chat(
             from app.routers.videos import create_video
             try:
                 result = await create_video(VideoCreate(url=url), db=db)
-                reply_text = "收到！开始拆解这个视频了 🎬\n预计 3-5 分钟出结果，稍后问我「拆完了吗」就能看。"
+                reply_text = (
+                    "收到！开始拆解这个视频了 🎬\n"
+                    "预计 3-5 分钟出结果。\n"
+                    "\n"
+                    "对了，你想重点分析什么？比如：\n"
+                    "• 开头钩子\n"
+                    "• 情绪曲线\n"
+                    "• 段落结构\n"
+                    "直接告诉我，我会在报告里特别标注。"
+                )
                 extra["job_id"] = result.get("analysis_id")
                 # 更新上下文
                 await db.execute(sa_text(
