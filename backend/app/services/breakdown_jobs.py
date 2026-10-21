@@ -201,19 +201,17 @@ async def process(job_id: str) -> None:
                     from sqlalchemy import text as sa_text
                     from app.services.embedding import embed_texts, upsert_one
                     sid = result.get("script_id")
-                    logger.warning("向量化调试：sid=%s, type=%s", sid, type(sid).__name__)
                     if sid:
                         # script_script.id 存的是不带横杠的 hex，UUID 要转成 .hex
                         sid_str = sid.hex if hasattr(sid, "hex") else str(sid)
                         row = (await db.execute(sa_text(
                             "SELECT core_idea, summary FROM script_script WHERE id=:sid"
                         ), {"sid": sid_str})).fetchone()
-                        logger.warning("向量化调试：row=%s", "有" if row else "无")
                         if row:
                             embed_text = f"视频主题：{row[0] or ''}\n摘要：{row[1] or ''}"
                             vecs = await embed_texts([embed_text])
                             await upsert_one(db, "script_script", sid_str, embed_text, vecs[0])
-                            logger.info("script 向量化成功：script_id=%s", sid)
+                            logger.info("script 向量化成功：script_id=%s", sid_str)
                 except Exception as e:
                     logger.warning("script 向量化失败（不影响主流程）：%s", e, exc_info=True)
             # 链路只失败在采集/模型侧时也照旧记用量流水
