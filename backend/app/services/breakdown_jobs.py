@@ -117,6 +117,74 @@ async def _worker(idx: int) -> None:
             q.task_done()
 
 
+async def _postprocess(db, job, video, result) -> None:
+    """拆解完成后的后处理：向量化 + 飞书通知 + 主动推荐。失败不影响主流程。"""
+    if job.status != "done":
+        return
+
+    sid = result.get("script_id")
+    if not sid:
+        return
+    sid_str = sid.hex if hasattr(sid, "hex") else str(sid)
+
+    # 1. script 向量化
+    try:
+        from sqlalchemy import text as sa_text
+        from app.services.embedding import embed_texts, upsert_one
+        row = (await db.execute(sa_text(
+            "SELECT core_idea, summary FROM script_script WHERE id=:sid"
+        ), {"sid": sid_str})).fetchone()
+        if row:
+            embed_text = f"视频主题：{row[0] or ''}\n摘要：{row[1] or ''}"
+            vecs = await embed_texts([embed_text])
+            await upsert_one(db, "script_script", sid_str, embed_text, vecs[0])
+            logger.info("script 向量化成功：script_id=%s", sid_str)
+    except Exception as e:
+        logger.warning("script 向量化失败（不影响主流程）：%s", e, exc_info=True)
+
+    # 2. 查质量分
+    quality = 0.0
+    try:
+        from sqlalchemy import text as sa_text
+        row = (await db.execute(sa_text(
+            "SELECT quality_score FROM script_script WHERE id=:sid"
+        ), {"sid": sid_str})).fetchone()
+        if row:
+            quality = float(row[0] or 0)
+    except Exception:
+        pass
+
+    # 3. 飞书通知
+    try:
+        from app.services.feishu_notify import notify_breakdown_done
+        await notify_breakdown_done(
+            video_title=video.title or video.id[:8],
+            script_id=sid_str,
+            quality_score=quality,
+        )
+    except Exception as e:
+        logger.warning("飞书通知失败（不影响主流程）：%s", e)
+
+    # 4. 主动推荐：往聊天记录里插一条 AI 消息
+    try:
+        import uuid
+        from sqlalchemy import text as sa_text
+        sess_row = await db.execute(sa_text(
+            "SELECT id FROM chat_sessions WHERE platform='web' ORDER BY updated_at DESC LIMIT 1"
+        ))
+        sess = sess_row.fetchone()
+        if sess:
+            msg_id = uuid.uuid4().hex
+            reply = f"✅ 拆解完成！质量分 {quality}。\n要不要我帮你找类似的视频？"
+            await db.execute(sa_text(
+                "INSERT INTO chat_messages (id, session_id, role, content, intent) "
+                "VALUES (:mid, :sid, 'assistant', :content, 'proactive')"
+            ), {"mid": msg_id, "sid": sess[0], "content": reply})
+            logger.info("主动推荐消息已插入 chat 记录")
+    except Exception as e:
+        logger.warning("主动推荐失败（不影响主流程）：%s", e)
+
+
 async def process(job_id: str) -> None:
     """执行一条后台拆解：采素材（含进度）→ 三层分库拆解 → 扣点 → 素材清理。"""
     async with SessionLocal() as db:
@@ -196,24 +264,6 @@ async def process(job_id: str) -> None:
                     evidence={k: v for k, v in result.items() if k != "script_id"},
                     script_id=result.get("script_id"),
                 )
-                # 第三阶段：script 向量化（后处理，失败不影响主流程）
-                try:
-                    from sqlalchemy import text as sa_text
-                    from app.services.embedding import embed_texts, upsert_one
-                    sid = result.get("script_id")
-                    if sid:
-                        # script_script.id 存的是不带横杠的 hex，UUID 要转成 .hex
-                        sid_str = sid.hex if hasattr(sid, "hex") else str(sid)
-                        row = (await db.execute(sa_text(
-                            "SELECT core_idea, summary FROM script_script WHERE id=:sid"
-                        ), {"sid": sid_str})).fetchone()
-                        if row:
-                            embed_text = f"视频主题：{row[0] or ''}\n摘要：{row[1] or ''}"
-                            vecs = await embed_texts([embed_text])
-                            await upsert_one(db, "script_script", sid_str, embed_text, vecs[0])
-                            logger.info("script 向量化成功：script_id=%s", sid_str)
-                except Exception as e:
-                    logger.warning("script 向量化失败（不影响主流程）：%s", e, exc_info=True)
             # 链路只失败在采集/模型侧时也照旧记用量流水
             await billing.consume(
                 db, account=acc, action=action, points=points,
@@ -222,49 +272,8 @@ async def process(job_id: str) -> None:
             )
             await db.commit()
 
-            # 第四阶段：飞书通知（拆解完成后推送，失败不影响主流程）
-            if job.status == "done":
-                try:
-                    from app.services.feishu_notify import notify_breakdown_done
-                    script_id = result.get("script_id") or ""
-                    quality = 0.0
-                    try:
-                        from sqlalchemy import text as sa_text
-                        row = (await db.execute(sa_text(
-                            "SELECT quality_score FROM script_script WHERE id=:sid"
-                        ), {"sid": str(script_id)})).fetchone()
-                        if row:
-                            quality = float(row[0] or 0)
-                    except Exception:
-                        pass
-                    await notify_breakdown_done(
-                        video_title=video.title or video.id[:8],
-                        script_id=str(script_id),
-                        quality_score=quality,
-                    )
-
-                    # 主动推荐：往聊天记录里插一条 AI 消息
-                    try:
-                        import uuid
-                        from sqlalchemy import text as sa_text
-                        # 找最新的 web session
-                        sess_row = await db.execute(sa_text(
-                            "SELECT id FROM chat_sessions WHERE platform='web' ORDER BY updated_at DESC LIMIT 1"
-                        ))
-                        sess = sess_row.fetchone()
-                        if sess:
-                            sid = sess[0]
-                            msg_id = uuid.uuid4().hex
-                            reply = f"✅ 拆解完成！质量分 {quality}。\n要不要我帮你找类似的视频？"
-                            await db.execute(sa_text(
-                                "INSERT INTO chat_messages (id, session_id, role, content, intent) "
-                                "VALUES (:mid, :sid, 'assistant', :content, 'proactive')"
-                            ), {"mid": msg_id, "sid": sid, "content": reply})
-                            logger.info("主动推荐消息已插入 chat 记录")
-                    except Exception as e:
-                        logger.warning("主动推荐失败（不影响主流程）：%s", e)
-                except Exception as e:
-                    logger.warning("飞书通知失败（不影响主流程）：%s", e)
+            # 后处理：向量化 + 飞书通知 + 主动推荐（失败不影响主流程）
+            await _postprocess(db, job, video, result)
 
             if job.status == "done":
                 try:
