@@ -44,6 +44,7 @@ export default function ChatView() {
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [currentSession, setCurrentSession] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false); // 移动端抽屉
   const scrollRef = useRef<HTMLDivElement>(null);
   const uid = user_id || "anonymous";
 
@@ -104,10 +105,11 @@ export default function ChatView() {
 
   // 打开某个历史会话：加载历史消息继续聊
   async function openSession(sid: string) {
+    setSidebarOpen(false); // 小屏选完后自动收起抽屉
     setCurrentSession(sid);
     setLoading(true);
     try {
-      const res = await fetch(`/api/chat/history?session_id=${sid}`);
+      const res = await fetch(`/api/chat/history?session_id=${sid}`, { headers: authHeaders() });
       const data = await res.json();
       const msgs = (data.messages || []).map((m: Message) => ({
         role: m.role,
@@ -124,6 +126,7 @@ export default function ChatView() {
 
   // 新对话
   function newChat() {
+    setSidebarOpen(false);
     setCurrentSession(null);
     setMessages([]);
   }
@@ -201,8 +204,21 @@ export default function ChatView() {
 
   return (
     <div className="flex h-full">
-      {/* 会话历史侧栏（OpenWebUI 式：自动保存、可继续、按时间分组） */}
-      <aside className="flex w-56 shrink-0 flex-col border-r border-white/5 bg-[#1c2027]">
+      {/* 小屏抽屉遮罩 */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* 会话历史侧栏（OpenWebUI 式：自动保存、可继续、按时间分组）
+          移动端：fixed 抽屉（默认隐藏，点 ☰ 打开）；≥768px：常驻左侧 */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col border-r border-white/5 bg-[#1c2027] transition-transform duration-200 md:static md:w-56 md:translate-x-0 md:transition-none ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
         <div className="border-b border-white/5 px-3 py-2.5">
           <button
             onClick={newChat}
@@ -256,14 +272,24 @@ export default function ChatView() {
 
       {/* 主对话区 */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="border-b border-white/5 px-5 py-4">
-          <h1 className="text-base font-semibold text-zinc-100">AI 助手</h1>
-          <p className="mt-0.5 text-xs text-zinc-500">说人话就能用，发链接自动拆解</p>
+        <div className="flex items-center gap-2 border-b border-white/5 px-4 py-3 md:px-5">
+          {/* 移动端：打开会话抽屉 */}
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="rounded-lg bg-white/5 px-2.5 py-1.5 text-sm text-zinc-300 hover:bg-white/10 md:hidden"
+            title="历史会话"
+          >
+            ☰
+          </button>
+          <div className="min-w-0">
+            <h1 className="text-base font-semibold text-zinc-100">AI 助手</h1>
+            <p className="mt-0.5 text-xs text-zinc-500">说人话就能用，发链接自动拆解</p>
+          </div>
         </div>
 
         {/* AI 记得你：记忆透明展示，可删除 */}
         {memories.length > 0 && (
-          <div className="border-b border-white/5 px-5 py-3">
+          <div className="border-b border-white/5 px-4 py-3 md:px-5">
             <div className="mb-1.5 flex items-center justify-between">
               <span className="text-xs text-zinc-500">🧠 AI 记得你</span>
               <span className="text-[10px] text-zinc-600">点 × 可让我忘记</span>
@@ -289,11 +315,11 @@ export default function ChatView() {
           </div>
         )}
 
-        <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+        <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-4 md:px-5">
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                className={`max-w-[88%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed md:max-w-[80%] ${
                   m.role === "user"
                     ? "bg-amber-400 text-zinc-900"
                     : "bg-[#2a2e38] text-zinc-200"
@@ -315,7 +341,7 @@ export default function ChatView() {
           )}
         </div>
 
-        <div className="border-t border-white/5 px-5 py-3">
+        <div className="border-t border-white/5 px-4 py-3 md:px-5">
           <div className="mb-2 flex flex-wrap gap-1.5">
             {["帮我拆解这个视频 https://v.douyin.com/xxx", "拆完了吗", "还有类似的吗", "记住我喜欢口播类"].map((q) => (
               <button
