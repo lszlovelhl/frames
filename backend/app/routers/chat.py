@@ -9,6 +9,7 @@ import logging
 import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,11 +59,11 @@ SYSTEM_PROMPT = """你是帧间（Frames）AI 短视频拆解平台的助手。�
    - 示例输入："还有类似的视频吗"
    - 示例输出：{"intent": "similar", "url": "", "video_id": ""}
 
-4. **帮助**：用户不知道能做什么，或者打招呼
+4. **帮助**：用户不知道能做什么
    - 意图码：help
    - 参数：无
-   - 触发词：你能做什么、帮助、怎么用、你好、hi、在吗
-   - 示例输入："你好"
+   - 触发词：你能做什么、帮助、怎么用、有什么功能、介绍下、你能干嘛
+   - 示例输入："你能做什么"
    - 示例输出：{"intent": "help", "url": "", "video_id": ""}
 
 5. **记住偏好**：用户想让 AI 记住某个偏好或习惯
@@ -86,12 +87,12 @@ SYSTEM_PROMPT = """你是帧间（Frames）AI 短视频拆解平台的助手。�
    - 示例输入："这个分析不准"
    - 示例输出：{"intent": "feedback", "url": "", "video_id": "", "content": "这个分析不准"}
 
-7. **闲聊**：用户随便聊聊，不涉及具体功能
+7. **闲聊**：用户随便聊聊，问候、寒暄，不涉及具体功能
    - 意图码：chat
    - 参数：content（用户说的话）
-   - 触发词：你今天怎么样、累不累、在干嘛、谢谢、哈哈
-   - 示例输入："你今天怎么样"
-   - 示例输出：{"intent": "chat", "url": "", "video_id": "", "content": "你今天怎么样"}
+   - 触发词：你今天怎么样、累不累、在干嘛、谢谢、哈哈、你好、hi、嗨、在吗、早安、晚安、早上好、最近
+   - 示例输入："你好"
+   - 示例输出：{"intent": "chat", "url": "", "video_id": "", "content": "你好"}
 
 8. **回答追问**：用户回答 AI 刚才问的问题（比如想重点分析什么）
    - 意图码：followup
@@ -660,6 +661,54 @@ async def chat(
 # 记忆管理（用户可见、可手动删除——OpenWebUI 式透明控制）
 # ==============================================================
 
+
+
+async def _handle_chat_stream(content: str, memories: str = ""):
+    """闲聊流式生成：本地 qwen3.5 逐 token 产出（免费，不出机）。"""
+    import httpx
+    import json as _json
+    try:
+        async with httpx.AsyncClient() as client:
+            ctx = f"\n我对用户的了解：{memories}" if memories else ""
+            prompt = (
+                f"你是帧间 AI 助手，一个亲切的短视频拆解伙伴。"
+                f"用户说：「{content}」。{ctx}"
+                f"\n用轻松友好的语气回复，一两句话，自然贴合用户习惯，顺便提一句你能帮他拆解视频。"
+            )
+            async with client.stream(
+                "POST",
+                "http://127.0.0.1:11434/api/generate",
+                json={
+                    "model": "qwen3.5:latest",
+                    "prompt": prompt,
+                    "stream": True,
+                    "options": {"temperature": 0.7, "max_tokens": 100},
+                },
+                timeout=60,
+            ) as resp:
+                async for line in resp.aiter_lines():
+                    if not line.strip():
+                        continue
+                    try:
+                        d = _json.loads(line)
+                    except Exception:
+                        continue
+                    token = d.get("response", "")
+                    if token:
+                        yield token
+    except Exception:
+        # 兜底：本地模型没跑就用写死的
+        if any(w in content for w in ["你好", "hi", "hello"]):
+            yield "你好呀！我是帧间 AI 助手 🤖\n有什么我能帮你的？发个视频链接试试。"
+        else:
+            yield "嗯，我在听。或者直接发个视频链接，我帮你拆解分析。"
+
+
+def _sse(payload: dict) -> str:
+    """SSE 事件格式化。"""
+    import json as _json
+    return f"data: {_json.dumps(payload, ensure_ascii=False)}\n\n"
+
 # ==============================================================
 # 鉴权辅助：记忆/会话接口一律要求 Bearer token（隐私安全）
 # ==============================================================
@@ -920,6 +969,152 @@ async def fork_session(
         ],
         "message": f"已从第 {idx + 1} 条消息后分叉出新的对话",
     }
+
+
+
+@router.post("/api/chat/stream")
+async def chat_stream(
+    req: ChatRequest,
+    db: AsyncSession = Depends(get_session),
+    authorization: str = Header(default=""),
+):
+    """流式对话入口（SSE 打字机）。事件：status → delta* → done。
+
+    意图识别阶段发 status；闲聊类意图（chat）逐 token 流式生成；
+    其他意图（拆解/查结果/记忆等）整段返回。前端逐字渲染。
+    """
+    import uuid as _uuid
+    from sqlalchemy import text as sa_text
+
+    async def gen():
+        message = req.message.strip()
+        if not message:
+            yield _sse({"type": "done", "text": "你想说什么？发个视频链接，或者问我拆解结果。"})
+            return
+
+        # 鉴权：带有效 token 以 token 身份为准
+        me = await _require_user(db, authorization)
+        user_id = me["id"] if me else req.user_id
+        platform = req.platform
+
+        # 0. 记忆待确认分支
+        from app.services.memory_search import confirm_pending, find_pending_memory, reject_pending
+        pending = await find_pending_memory(db, user_id)
+        if pending:
+            confirm_words = ("改", "确认", "为准", "就按", "更新", "作废", "覆盖", "对的", "是的", "对，")
+            reject_words = ("两个都要", "都记", "保留", "没改", "没有改", "不用改", "只是补充", "别删", "不用")
+            reply = ""
+            if any(w in message for w in confirm_words):
+                done = await confirm_pending(db, user_id)
+                if done:
+                    extra = f"原来的「{done['superseded_content'][:30]}」作废。" if done.get("superseded_content") else ""
+                    reply = f"明白了，按新的来：{done['content']}。{extra}"
+            elif any(w in message for w in reject_words):
+                done = await reject_pending(db, user_id)
+                if done:
+                    reply = f"好，两条都保留：{done['content']} 也记下了。"
+            if reply:
+                yield _sse({"type": "delta", "text": reply})
+                yield _sse({"type": "done", "text": reply})
+                return
+
+        # 1. 意图识别
+        yield _sse({"type": "status", "text": "正在理解你的意思…"})
+        intent_data = await _llm_intent(message)
+        intent = intent_data.get("intent", "help")
+        url = intent_data.get("url", "")
+        video_id = intent_data.get("video_id", "")
+
+        # 2. session 上下文
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        sess_row = None
+        if req.session_id:
+            sess_row = (await db.execute(sa_text(
+                "SELECT id, last_video_id, last_job_id FROM chat_sessions "
+                "WHERE id=:sid AND user_id=:uid"
+            ), {"sid": req.session_id, "uid": user_id})).fetchone()
+        if not sess_row:
+            sess_row = (await db.execute(sa_text(
+                "SELECT id, last_video_id, last_job_id FROM chat_sessions "
+                "WHERE user_id=:uid ORDER BY updated_at DESC LIMIT 1"
+            ), {"uid": user_id})).fetchone()
+        if sess_row:
+            session_id, last_video, last_job = sess_row
+            if not video_id:
+                video_id = last_job or last_video
+        else:
+            session_id = _uuid.uuid4().hex
+            await db.execute(sa_text(
+                "INSERT INTO chat_sessions (id, user_id, platform) VALUES (:sid, :uid, :p)"
+            ), {"sid": session_id, "uid": user_id, "p": platform})
+            last_video, last_job = None, None
+
+        # 存用户消息
+        await db.execute(sa_text(
+            "INSERT INTO chat_messages (id, session_id, role, content) VALUES (:mid, :sid, 'user', :content)"
+        ), {"mid": _uuid.uuid4().hex, "sid": session_id, "content": message})
+
+        # 记忆注入 + 素材问答意图判定
+        memories = ""
+        if intent in ("chat", "followup"):
+            try:
+                from app.services.memory_search import hybrid_search
+                mem_rows = await hybrid_search(db, message, user_id=user_id, top_k=3)
+                if mem_rows:
+                    memories = "；".join(r["content"] for r in mem_rows)
+            except Exception:
+                pass
+            if any(w in message for w in ["有没有", "帮我找", "推荐", "找找", "类似"]) or \
+               (("讲" in message or "话题" in message) and "视频" in message):
+                intent = "find_content"
+
+        handlers = {
+            "breakdown": lambda: _handle_breakdown(db, url, session_id),
+            "get_result": lambda: _handle_get_result(db, video_id),
+            "similar": lambda: _handle_similar(db, video_id),
+            "remember": lambda: _handle_remember(db, user_id, intent_data.get("content", ""), message),
+            "recall": lambda: _handle_recall(db, user_id),
+            "feedback": lambda: _handle_feedback(db, user_id, intent_data.get("content", "")),
+            "chat": lambda: _handle_chat(intent_data.get("content", ""), memories),
+            "followup": lambda: _handle_followup(db, session_id, user_id, intent_data.get("content", ""), memories),
+            "find_content": lambda: _handle_find_content(db, message, memories),
+            "help": _handle_help,
+        }
+
+        # 3. 生成回复（闲聊流式，其余整段）
+        reply_text = ""
+        if intent == "chat":
+            parts: list[str] = []
+            async for tok in _handle_chat_stream(intent_data.get("content", ""), memories):
+                parts.append(tok)
+                yield _sse({"type": "delta", "text": tok})
+            reply_text = "".join(parts) or _handle_help()
+        else:
+            result = await handlers.get(intent, _handle_help)()
+            if isinstance(result, tuple):
+                reply_text, _extra = result
+            else:
+                reply_text = result
+            if reply_text:
+                yield _sse({"type": "delta", "text": reply_text})
+
+        # 4. 存 AI 回复
+        if reply_text:
+            await db.execute(sa_text(
+                "INSERT INTO chat_messages (id, session_id, role, content, intent) "
+                "VALUES (:mid, :sid, 'assistant', :content, :intent)"
+            ), {"mid": _uuid.uuid4().hex, "sid": session_id, "content": reply_text, "intent": intent})
+            # 会话更新时间
+            await db.execute(sa_text(
+                "UPDATE chat_sessions SET updated_at=CURRENT_TIMESTAMP WHERE id=:sid"
+            ), {"sid": session_id})
+        await db.commit()
+        yield _sse({"type": "done", "text": reply_text})
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
 
 # 延迟导入避免循环依赖
 from app.routers.videos import VideoCreate

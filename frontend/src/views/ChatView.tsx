@@ -6,6 +6,7 @@ interface Message {
   role: "user" | "ai";
   text: string;
   time: string;
+  streaming?: boolean;
 }
 
 interface MemoryItem {
@@ -194,9 +195,15 @@ export default function ChatView() {
       ...m,
       { role: "user", text, time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) },
     ]);
+    // 流式占位：先放一个"思考中"气泡，token 进来后逐字填充
+    const aiIdx = messages.length + 1;
+    setMessages((m) => [
+      ...m,
+      { role: "ai", text: "", time: "", streaming: true },
+    ]);
 
     try {
-      const resp = await fetch("/api/chat", {
+      const resp = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
@@ -206,23 +213,43 @@ export default function ChatView() {
           session_id: currentSession || undefined,
         }),
       });
-      const data = await resp.json();
-      setMessages((m) => [
-        ...m,
-        {
-          role: "ai",
-          text: data.reply || "处理失败了，再试试？",
-          time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-        },
-      ]);
+      if (!resp.ok || !resp.body) throw new Error("bad status");
+
+      // 解析 SSE：data: {type, text}
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      let full = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const events = buf.split("\n\n");
+        buf = events.pop() || "";
+        for (const ev of events) {
+          if (!ev.startsWith("data: ")) continue;
+          try {
+            const d = JSON.parse(ev.slice(6));
+            if (d.type === "delta") {
+              full += d.text;
+              setMessages((m) => m.map((x, i) => (i === aiIdx ? { ...x, text: full, time: "" } : x)));
+            } else if (d.type === "done") {
+              full = d.text || full;
+            }
+          } catch {
+            // 跳过坏事件
+          }
+        }
+      }
+      if (!full) full = "处理失败了，再试试？";
+      setMessages((m) => m.map((x, i) => (i === aiIdx ? { ...x, text: full, time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) } : x)));
       // 对话后刷新记忆和会话列表（可能自动记了新东西 / 更新了会话）
       loadMemories();
       loadSessions();
     } catch (e) {
-      setMessages((m) => [
-        ...m,
-        { role: "ai", text: "网络错误，稍后再试。", time: "" },
-      ]);
+      setMessages((m) =>
+        m.map((x, i) => (i === aiIdx ? { ...x, text: "网络错误，稍后再试。", time: "" } : x))
+      );
     } finally {
       setLoading(false);
     }
@@ -358,7 +385,10 @@ export default function ChatView() {
                     : "bg-[#2a2e38] text-zinc-200"
                 }`}
               >
-                <div className="whitespace-pre-wrap">{m.text}</div>
+                <div className="whitespace-pre-wrap">
+                  {m.text || (m.streaming ? <span className="text-zinc-400">正在思考<span className="animate-pulse">…</span></span> : "")}
+                  {m.streaming && m.text && <span className="ml-0.5 inline-block h-3.5 w-[2px] animate-pulse bg-amber-300 align-middle" />}
+                </div>
                 <div className="mt-1 flex items-center justify-end gap-2">
                   <span className={`text-[10px] ${m.role === "user" ? "text-amber-900/60" : "text-zinc-500"}`}>
                     {m.time}
@@ -376,7 +406,7 @@ export default function ChatView() {
               </div>
             </div>
           ))}
-          {loading && (
+          {loading && !messages.some((x) => x.streaming) && (
             <div className="flex justify-start">
               <div className="rounded-2xl bg-[#2a2e38] px-4 py-2.5 text-sm text-zinc-400">
                 思考中...
