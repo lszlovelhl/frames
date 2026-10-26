@@ -9,7 +9,8 @@ class FakeResponse:
         pass
 
     def json(self):
-        return {"data": [{"embedding": [0.1, 0.2, 0.3], "index": 0}]}
+        # Ollama /api/embed 批量端点格式：{"embeddings": [[...], ...]}
+        return {"embeddings": [[0.1, 0.2, 0.3]]}
 
 
 @pytest.mark.asyncio

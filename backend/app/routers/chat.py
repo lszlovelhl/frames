@@ -23,6 +23,7 @@ class ChatRequest(BaseModel):
     message: str
     user_id: str = "anonymous"
     platform: str = "web"  # web / feishu / wechat / douyin
+    session_id: str | None = None  # 指定继续某个历史会话（不传则用最新/新建）
 
 
 # 意图识别 prompt
@@ -482,12 +483,18 @@ async def chat(
     except Exception:
         pass
 
-    # 找最新 session
-    sess_row = (await db.execute(sa_text(
-        "SELECT id, last_video_id, last_job_id FROM chat_sessions "
-        "WHERE user_id=:uid ORDER BY updated_at DESC LIMIT 1"
-    ), {"uid": user_id})).fetchone()
-
+    # 找 session：优先用请求指定的历史会话（继续对话），否则最新会话
+    sess_row = None
+    if req.session_id:
+        sess_row = (await db.execute(sa_text(
+            "SELECT id, last_video_id, last_job_id FROM chat_sessions "
+            "WHERE id=:sid AND user_id=:uid"
+        ), {"sid": req.session_id, "uid": user_id})).fetchone()
+    if not sess_row:
+        sess_row = (await db.execute(sa_text(
+            "SELECT id, last_video_id, last_job_id FROM chat_sessions "
+            "WHERE user_id=:uid ORDER BY updated_at DESC LIMIT 1"
+        ), {"uid": user_id})).fetchone()
     if sess_row:
         session_id, last_video, last_job = sess_row
         # 如果意图是 get_result/similar，但没提取到 video_id，用上下文的
@@ -642,6 +649,82 @@ async def delete_memory(
     except Exception as e:
         await db.rollback()
         return {"ok": False, "message": f"删除失败：{str(e)[:100]}"}
+
+# ==============================================================
+# 会话历史管理（OpenWebUI 式：自动保存、可继续、按用户隔离）
+# ==============================================================
+@router.get("/api/chat/sessions")
+async def list_sessions(
+    user_id: str = "anonymous",
+    db: AsyncSession = Depends(get_session),
+):
+    """列出某用户的会话（按更新时间倒序），含最后一条消息预览。"""
+    from sqlalchemy import text as sa_text
+    try:
+        await db.rollback()
+        rows = (await db.execute(sa_text(
+            "SELECT s.id, s.updated_at, "
+            "(SELECT content FROM chat_messages m WHERE m.session_id=s.id "
+            "  ORDER BY m.created_at DESC LIMIT 1) AS last_msg "
+            "FROM chat_sessions s WHERE s.user_id=:uid "
+            "ORDER BY s.updated_at DESC LIMIT 30"
+        ), {"uid": user_id})).fetchall()
+        return {"sessions": [
+            {
+                "id": r[0],
+                "updated_at": str(r[1]) if r[1] else "",
+                "last_message": (r[2] or "")[:60],
+            }
+            for r in rows
+        ]}
+    except Exception as e:
+        return {"sessions": [], "error": str(e)[:100]}
+
+
+@router.get("/api/chat/history")
+async def session_history(
+    session_id: str,
+    db: AsyncSession = Depends(get_session),
+):
+    """返回某个会话的全部消息（按时间正序）。"""
+    from sqlalchemy import text as sa_text
+    try:
+        await db.rollback()
+        rows = (await db.execute(sa_text(
+            "SELECT role, content, created_at FROM chat_messages "
+            "WHERE session_id=:sid ORDER BY created_at ASC LIMIT 200"
+        ), {"sid": session_id})).fetchall()
+        return {"messages": [
+            {
+                "role": "user" if r[0] == "user" else "ai",
+                "text": r[1],
+                "time": str(r[2]) if r[2] else "",
+            }
+            for r in rows
+        ]}
+    except Exception as e:
+        return {"messages": [], "error": str(e)[:100]}
+
+
+@router.delete("/api/chat/sessions/{session_id}")
+async def delete_session(
+    session_id: str,
+    user_id: str = "anonymous",
+    db: AsyncSession = Depends(get_session),
+):
+    """删除一个会话（连同其消息）。"""
+    from sqlalchemy import text as sa_text
+    try:
+        await db.rollback()
+        await db.execute(sa_text("DELETE FROM chat_messages WHERE session_id=:sid"), {"sid": session_id})
+        res = await db.execute(sa_text(
+            "DELETE FROM chat_sessions WHERE id=:sid AND user_id=:uid"
+        ), {"sid": session_id, "uid": user_id})
+        await db.commit()
+        return {"ok": res.rowcount > 0}
+    except Exception as e:
+        await db.rollback()
+        return {"ok": False, "message": str(e)[:100]}
 
 
 # 延迟导入避免循环依赖
