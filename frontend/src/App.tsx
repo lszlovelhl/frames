@@ -143,6 +143,10 @@ function AppInner() {
     const dx = e.clientX - d.startX;
     el.style.transition = "none";
     el.style.transform = `translateX(${d.startIdx * cell + dx}px)`;
+    // 玻璃高光跟随手指
+    const r = el.getBoundingClientRect();
+    el.style.setProperty("--gx", `${((e.clientX - r.left) / r.width) * 100}%`);
+    el.style.setProperty("--gy", `${((e.clientY - r.top) / r.height) * 100}%`);
   }
 
   function onSliderUp(e: React.PointerEvent) {
@@ -255,6 +259,11 @@ function AppInner() {
           className={`liquid-glass fixed bottom-3 left-3 right-3 z-50 rounded-[28px] px-2 pb-1.5 pt-1.5 ${dragging ? "pressed" : ""}`}
           onTouchStart={(e) => {
             touchX.current = e.touches[0].clientX;
+          }}
+          onPointerMove={(e) => {
+            const r = e.currentTarget.getBoundingClientRect();
+            e.currentTarget.style.setProperty("--gx", `${((e.clientX - r.left) / r.width) * 100}%`);
+            e.currentTarget.style.setProperty("--gy", `${((e.clientY - r.top) / r.height) * 100}%`);
           }}
           onTouchEnd={(e) => {
             if (touchX.current === null) return;

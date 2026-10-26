@@ -157,10 +157,10 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6 lg:px-8">
+    <div className="mx-auto max-w-3xl px-4 py-6 md:px-8 md:py-10">
       <header className="mb-5 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-[var(--text-1)]">元素库</h1>
+          <h1 className="text-[22px] font-semibold tracking-tight text-[var(--text-1)]">元素库</h1>
           <p className="mt-1 text-sm text-[var(--text-3)]">跨片聚合提炼元素 · 质控后沉淀为创作素材</p>
         </div>
         <div className="flex items-center gap-2">

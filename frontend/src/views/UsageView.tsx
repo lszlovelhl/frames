@@ -376,10 +376,10 @@ export default function UsageView() {
   const lowCards = cards.filter((c) => c.balance_status === "low");
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 lg:px-8">
+    <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-10">
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-[var(--text-1)]">AI 用量与计费</h1>
+          <h1 className="text-[22px] font-semibold tracking-tight text-[var(--text-1)]">AI 用量与计费</h1>
           <p className="mt-1 text-sm text-[var(--text-3)]">
             按「已填 api-key 的服务商」动态展示 · 余额每 30 分钟自动核对 · 成本按 token 单价估算
           </p>
@@ -434,12 +434,12 @@ export default function UsageView() {
         <div className="mb-4 grid gap-4 md:grid-cols-4">
           <div className="rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)] p-4">
             <div className="text-[11px] uppercase tracking-wider text-[var(--text-3)]">今日调用</div>
-            <div className="mt-1 text-xl font-semibold text-[var(--text-1)]">{todayCalls.toLocaleString()}</div>
+            <div className="mt-1 text-[22px] font-semibold tracking-tight text-[var(--text-1)]">{todayCalls.toLocaleString()}</div>
             <div className="text-[10px] text-[var(--text-3)]">成本 ¥{todayCost.toFixed(4)}</div>
           </div>
           <div className="rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)] p-4">
             <div className="text-[11px] uppercase tracking-wider text-[var(--text-3)]">累计调用</div>
-            <div className="mt-1 text-xl font-semibold text-[var(--text-1)]">{totalCalls.toLocaleString()}</div>
+            <div className="mt-1 text-[22px] font-semibold tracking-tight text-[var(--text-1)]">{totalCalls.toLocaleString()}</div>
             <div className="text-[10px] text-[var(--text-3)]">成本 ¥{totalCost.toFixed(4)}</div>
           </div>
           <div className="rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)] p-4">

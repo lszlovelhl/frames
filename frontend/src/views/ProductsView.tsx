@@ -208,10 +208,10 @@ export default function ProductsView({ onCreateWithProducts }: Props) {
     "w-full rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-card)] px-2.5 py-1.5 text-sm text-[var(--text-1)] placeholder-[var(--text-3)] outline-none focus:border-text-[var(--accent-hover)]/40";
 
   return (
-    <div className="mx-auto max-w-4xl px-4 py-6 lg:px-8">
+    <div className="mx-auto max-w-4xl px-4 py-6 md:px-8 md:py-10">
       <header className="mb-5 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-[var(--text-1)]">产品库</h1>
+          <h1 className="text-[22px] font-semibold tracking-tight text-[var(--text-1)]">产品库</h1>
           <p className="mt-1 text-sm text-[var(--text-3)]">主流产品参数与卖点 · 按行业 / 内容赛道检索 · 创作台可直接带入种草</p>
         </div>
         <div className="flex items-center gap-2">

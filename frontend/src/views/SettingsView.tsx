@@ -54,9 +54,9 @@ export default function SettingsView() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl px-8 py-8">
+    <div className="mx-auto max-w-3xl px-4 py-6 md:px-8 md:py-10">
       <header className="mb-6">
-        <h1 className="text-xl font-semibold text-[var(--text-1)]">系统设置</h1>
+        <h1 className="text-[22px] font-semibold tracking-tight text-[var(--text-1)]">系统设置</h1>
         <p className="mt-1 text-sm text-[var(--text-3)]">后端服务状态与已接入模型网关概览（配置在「模型管理」页维护）</p>
       </header>
 

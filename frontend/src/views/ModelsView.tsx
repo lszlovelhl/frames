@@ -305,10 +305,10 @@ export default function ModelsView() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 lg:px-8">
+    <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-10">
       <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold text-[var(--text-1)]">模型管理</h1>
+          <h1 className="text-[22px] font-semibold tracking-tight text-[var(--text-1)]">模型管理</h1>
           <p className="mt-1 text-sm text-[var(--text-3)]">
             预置各家 OpenAI 兼容接口模板，填 api-key 即用；AI 用量页按「已配置服务商」动态展示卡片
           </p>

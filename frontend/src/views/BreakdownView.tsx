@@ -64,9 +64,9 @@ export default function BreakdownView({ onOpenVideo }: { onOpenVideo?: (videoId:
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-8 py-8">
+    <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-10">
       <header className="mb-6">
-        <h1 className="text-xl font-semibold text-[var(--text-1)]">拆解工作台</h1>
+        <h1 className="text-[22px] font-semibold tracking-tight text-[var(--text-1)]">拆解工作台</h1>
         <p className="mt-1 text-sm text-[var(--text-3)]">
           粘贴视频链接即可批量提交，系统自动抓取并两层拆解（L1云端定框架 + L2本地展开成稿）；提交后进度在右下角常驻显示，切到别的页面或应用再回来依然可见
         </p>

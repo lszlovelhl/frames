@@ -128,9 +128,9 @@ export default function AccountsView() {
   }
 
   return (
-    <div className="mx-auto max-w-4xl px-8 py-8">
+    <div className="mx-auto max-w-4xl px-4 py-6 md:px-8 md:py-10">
       <header className="mb-6">
-        <h1 className="text-xl font-semibold text-[var(--text-1)]">采集账号</h1>
+        <h1 className="text-[22px] font-semibold tracking-tight text-[var(--text-1)]">采集账号</h1>
         <p className="mt-1 text-sm text-[var(--text-3)]">平台登录态集中管理 · 抓取时自动注入 cookie 规避反爬，失效自动提醒</p>
       </header>
 

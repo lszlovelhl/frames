@@ -128,9 +128,9 @@ export default function CollectionView() {
   if (!config) return <div className="text-[var(--text-2)]">加载中...</div>;
 
   return (
-    <div className="mx-auto max-w-6xl px-8 py-8">
+    <div className="mx-auto max-w-6xl px-4 py-6 md:px-8 md:py-10">
       <header className="mb-6">
-        <h1 className="text-xl font-semibold text-[var(--text-1)]">自动采集</h1>
+        <h1 className="text-[22px] font-semibold tracking-tight text-[var(--text-1)]">自动采集</h1>
         <p className="mt-1 text-sm text-[var(--text-3)]">
           自动从热榜/关键词获取高赞视频，下载后自动加入拆解队列
         </p>

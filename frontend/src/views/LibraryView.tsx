@@ -247,10 +247,10 @@ export default function LibraryView({ focusVideoId, onFocusConsumed, onCreateWit
   }
 
   return (
-    <div className="mx-auto max-w-[1600px] px-8 py-8">
+    <div className="mx-auto max-w-[1600px] px-4 py-6 md:px-8 md:py-10">
       <header className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-[var(--text-1)]">拆解库</h1>
+          <h1 className="text-[22px] font-semibold tracking-tight text-[var(--text-1)]">拆解库</h1>
           <p className="mt-1 text-sm text-[var(--text-3)]">已建档素材与最近一次拆解状态</p>
         </div>
         <button onClick={() => void load()} className="rounded-lg border border-[var(--separator-soft)] px-3 py-1.5 text-xs text-[var(--text-2)] hover:bg-[var(--bg-hover)]">
