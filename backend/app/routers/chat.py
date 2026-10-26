@@ -359,17 +359,49 @@ async def _handle_feedback(db, user_id, content) -> str:
         return f"记录失败：{str(e)[:100]}"
 
 
-async def _handle_chat(content: str) -> str:
-    """闲聊，用本地 qwen3.5 生成，免费又快。"""
+async def _handle_find_content(db, query: str, memories: str = "") -> str:
+    """素材库语义问答：'有没有讲XX的视频' → 检索已拆解脚本，返回相关推荐。
+
+    复用 lib_embedding（script_script 向量），跟素材检索同一套基础设施。
+    """
+    from sqlalchemy import text as sa_text
+
+    try:
+        from app.services.embedding import search as vec_search
+        hits = await vec_search(db, query, target_table="script_script", top_k=3)
+        if not hits:
+            return "我这边素材库里还没拆过相关的内容。你可以发个视频链接，我拆完就进库了。"
+
+        lines = [f"我帮你找了找和「{query}」相关的内容："]
+        for i, h in enumerate(hits, 1):
+            row = (await db.execute(sa_text(
+                "SELECT core_idea, summary FROM script_script WHERE id=:sid"
+            ), {"sid": h["target_id"]})).fetchone()
+            if row:
+                idea = (row[0] or "")[:40]
+                lines.append(f"{i}. {idea}")
+        lines.append("\n要我拆个类似的新视频吗？发链接给我就行。")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"检索素材失败：{str(e)[:100]}"
+
+
+async def _handle_chat(content: str, memories: str = "") -> str:
+    """闲聊，用本地 qwen3.5 生成，免费又快。带相关记忆更懂用户。"""
     import httpx
     try:
         # 调本地 Ollama
         async with httpx.AsyncClient() as client:
+            ctx = ""
+            if memories:
+                ctx = f"\n我对用户的了解：{memories}"
             resp = await client.post(
                 "http://127.0.0.1:11434/api/generate",
                 json={
                     "model": "qwen3.5:latest",
-                    "prompt": f"你是帧间 AI 助手，一个亲切的短视频拆解伙伴。用户说：「{content}」。用轻松友好的语气回复，一两句话，顺便提一句你能帮他拆解视频。",
+                    "prompt": f"你是帧间 AI 助手，一个亲切的短视频拆解伙伴。"
+                              f"用户说：「{content}」。{ctx}"
+                              f"\n用轻松友好的语气回复，一两句话，自然贴合用户习惯，顺便提一句你能帮他拆解视频。",
                     "stream": False,
                     "options": {"temperature": 0.7, "max_tokens": 100},
                 },
@@ -384,8 +416,8 @@ async def _handle_chat(content: str) -> str:
         return "嗯，我在听。或者直接发个视频链接，我帮你拆解分析。"
 
 
-async def _handle_followup(db, session_id, user_id, content) -> str:
-    """处理用户对 AI 追问的回答。"""
+async def _handle_followup(db, session_id, user_id, content, memories: str = "") -> str:
+    """处理用户对 AI 追问的回答。带记忆上下文（备用）。"""
     from sqlalchemy import text as sa_text
 
     # 把用户的回答存到 session 的 preferences 里
@@ -475,6 +507,23 @@ async def chat(
     ), {"mid": msg_id, "sid": session_id, "content": message})
 
     # 2. 根据意图调用对应 handler
+    # 对话类意图（chat/followup）：先按用户消息语义召回相关记忆，注入回复；
+    # 若消息含素材查询词（有没有/帮我找/推荐/类似/讲...的），走素材库语义问答
+    memories = ""
+    if intent in ("chat", "followup"):
+        try:
+            from app.services.memory_search import hybrid_search
+            mem_rows = await hybrid_search(db, message, user_id=user_id, top_k=3)
+            if mem_rows:
+                memories = "；".join(r["content"] for r in mem_rows)
+        except Exception:
+            pass
+
+        _find_words = ["有没有", "帮我找", "推荐", "找找", "类似", "讲", "讲不", "话题", "主题"]
+        if any(w in message for w in ["有没有", "帮我找", "推荐", "找找", "类似"]) or \
+           (("讲" in message or "话题" in message) and "视频" in message):
+            intent = "find_content"
+
     handlers = {
         "breakdown": lambda: _handle_breakdown(db, url, session_id),
         "get_result": lambda: _handle_get_result(db, video_id),
@@ -482,8 +531,9 @@ async def chat(
         "remember": lambda: _handle_remember(db, user_id, intent_data.get("content", "")),
         "recall": lambda: _handle_recall(db, user_id),
         "feedback": lambda: _handle_feedback(db, user_id, intent_data.get("content", "")),
-        "chat": lambda: _handle_chat(intent_data.get("content", "")),
-        "followup": lambda: _handle_followup(db, session_id, user_id, intent_data.get("content", "")),
+        "chat": lambda: _handle_chat(intent_data.get("content", ""), memories),
+        "followup": lambda: _handle_followup(db, session_id, user_id, intent_data.get("content", ""), memories),
+        "find_content": lambda: _handle_find_content(db, message, memories),
         "help": _handle_help,
     }
     handler = handlers.get(intent, _handle_help)
