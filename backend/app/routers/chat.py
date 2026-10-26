@@ -448,6 +448,7 @@ async def _handle_chat(content: str, memories: str = "") -> str:
                               f"用户说：「{content}」。{ctx}"
                               f"\n用轻松友好的语气回复，一两句话，自然贴合用户习惯，顺便提一句你能帮他拆解视频。",
                     "stream": False,
+                    "think": False,
                     "options": {"temperature": 0.7, "max_tokens": 100},
                 },
                 timeout=30,
@@ -682,6 +683,7 @@ async def _handle_chat_stream(content: str, memories: str = ""):
                     "model": "qwen3.5:latest",
                     "prompt": prompt,
                     "stream": True,
+                    "think": False,
                     "options": {"temperature": 0.7, "max_tokens": 100},
                 },
                 timeout=60,

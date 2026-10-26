@@ -72,40 +72,71 @@ export default function ChatView() {
     }
   };
 
-  // 打开页面：加载会话列表 + AI 主动打招呼
+  // 打开页面：先加载会话列表；AI 主动打招呼（仅当用户一条会话都没有时，且不阻塞输入）
+  const greetedRef = useRef(false);
   useEffect(() => {
     loadSessions();
-    async function greet() {
-      setLoading(true);
-      try {
-        const res = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...authHeaders() },
-          body: JSON.stringify({ message: "你好", user_id: uid, platform: "web" }),
-        });
-        const data = await res.json();
-        setMessages([
-          {
-            role: "ai",
-            text: data.reply,
-            time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-          },
-        ]);
-      } catch {
-        setMessages([
-          {
-            role: "ai",
-            text: "我是帧间 AI 助手 🤖\n\n发个视频链接，我帮你拆解分析。",
-            time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-          },
-        ]);
-      } finally {
-        setLoading(false);
-      }
-    }
-    greet();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 会话列表加载完成后，若完全是新用户，AI 主动打招呼（走流式，不 setLoading）
+  useEffect(() => {
+    if (sessions.length === 0 && !greetedRef.current) {
+      greetedRef.current = true;
+      const greeting = "你好";
+      setMessages([
+        {
+          role: "ai",
+          text: "你好呀！我是帧间 AI 助手 🤖\n发个视频链接，我帮你拆解；也可以问我问题、让我记住你的偏好。",
+          time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
+        },
+      ]);
+      // 让打招呼也成为一个真实会话（走流式端点，逐字出，体验一致）
+      (async () => {
+        try {
+          const resp = await fetch("/api/chat/stream", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", ...authHeaders() },
+            body: JSON.stringify({ message: greeting, user_id: uid, platform: "web" }),
+          });
+          if (!resp.ok || !resp.body) return;
+          const reader = resp.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = "";
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            const events = buf.split("\n\n");
+            buf = events.pop() || "";
+            for (const ev of events) {
+              if (!ev.startsWith("data: ")) continue;
+              try {
+                const d = JSON.parse(ev.slice(6));
+                if (d.type === "delta") {
+                  setMessages([{ role: "ai", text: d.text, time: "" }]);
+                } else if (d.type === "done" && d.text) {
+                  setMessages([
+                    {
+                      role: "ai",
+                      text: d.text,
+                      time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
+                    },
+                  ]);
+                }
+              } catch {
+                // 跳过坏事件
+              }
+            }
+          }
+        } catch {
+          // 打招呼失败静默，用户可以直接开聊
+        }
+        loadSessions();
+      })();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions]);
 
   // 打开某个历史会话：加载历史消息继续聊
   async function openSession(sid: string) {
