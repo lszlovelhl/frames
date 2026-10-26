@@ -26,6 +26,12 @@ class ChatRequest(BaseModel):
     session_id: str | None = None  # 指定继续某个历史会话（不传则用最新/新建）
 
 
+class ForkRequest(BaseModel):
+    """会话分叉（OpenWebUI fork）：从某条消息后开一条新分支。"""
+    session_id: str
+    up_to_index: int = -1  # 复制到第几条消息（含，0 起算）；-1 复制全部
+
+
 # 意图识别 prompt
 SYSTEM_PROMPT = """你是帧间（Frames）AI 短视频拆解平台的助手。用户会用自然语言和你对话，你需要识别用户意图并提取参数。
 
@@ -842,6 +848,78 @@ async def delete_session(
         await db.rollback()
         return {"ok": False, "message": str(e)[:100]}
 
+
+
+
+@router.post("/api/chat/fork")
+async def fork_session(
+    req: ForkRequest,
+    db: AsyncSession = Depends(get_session),
+    authorization: str = Header(default=""),
+):
+    """会话分叉（OpenWebUI fork）：复制某会话前 N 条消息到新会话，开新分支。
+
+    用于：对某条 AI 回复不满意，从它之后换个方向继续，原会话保留。
+    返回 {session_id, messages}。
+    """
+    from sqlalchemy import text as sa_text
+    import uuid, datetime as _dt
+
+    me = await _require_user(db, authorization)
+    if not me:
+        raise HTTPException(status_code=401, detail="需要登录")
+    try:
+        await db.rollback()
+    except Exception:
+        pass
+    # 源会话必须属于当前用户
+    own = (await db.execute(sa_text(
+        "SELECT id FROM chat_sessions WHERE id=:sid AND user_id=:uid"
+    ), {"sid": req.session_id, "uid": me["id"]})).fetchone()
+    if not own:
+        raise HTTPException(status_code=403, detail="会话不存在或无权分叉")
+
+    rows = (await db.execute(sa_text(
+        "SELECT role, content, created_at FROM chat_messages "
+        "WHERE session_id=:sid ORDER BY created_at ASC"
+    ), {"sid": req.session_id})).fetchall()
+    if not rows:
+        return {"session_id": None, "messages": [], "message": "源会话没有消息"}
+
+    # 截取到 up_to_index（含）；-1 复制全部
+    idx = req.up_to_index
+    if idx < 0 or idx >= len(rows):
+        idx = len(rows) - 1
+    subset = rows[: idx + 1]
+
+    new_sid = uuid.uuid4().hex
+    await db.execute(sa_text(
+        "INSERT INTO chat_sessions (id, user_id, platform) "
+        "VALUES (:sid, :uid, 'web')"
+    ), {"sid": new_sid, "uid": me["id"]})
+    # 复制消息，时间戳递增保证顺序
+    base = _dt.datetime.now() - _dt.timedelta(seconds=len(subset))
+    for i, r in enumerate(subset):
+        ts = base + _dt.timedelta(seconds=i + 1)
+        await db.execute(sa_text(
+            "INSERT INTO chat_messages (id, session_id, role, content, created_at) "
+            "VALUES (:mid, :sid, :role, :content, :ts)"
+        ), {
+            "mid": uuid.uuid4().hex,
+            "sid": new_sid,
+            "role": r[0],
+            "content": r[1],
+            "ts": ts.strftime("%Y-%m-%d %H:%M:%S"),
+        })
+    await db.commit()
+    return {
+        "session_id": new_sid,
+        "messages": [
+            {"role": "user" if r[0] == "user" else "ai", "text": r[1]}
+            for r in subset
+        ],
+        "message": f"已从第 {idx + 1} 条消息后分叉出新的对话",
+    }
 
 # 延迟导入避免循环依赖
 from app.routers.videos import VideoCreate

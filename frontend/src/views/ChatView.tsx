@@ -156,6 +156,31 @@ export default function ChatView() {
     }
   }
 
+  // 会话分叉（OpenWebUI fork）：从第 idx 条消息后开新分支，原会话保留
+  async function forkAt(idx: number) {
+    if (!currentSession) return;
+    try {
+      const resp = await fetch("/api/chat/fork", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ session_id: currentSession, up_to_index: idx }),
+      });
+      const data = await resp.json();
+      if (data.session_id) {
+        setCurrentSession(data.session_id);
+        const msgs = (data.messages || []).map((m: Message) => ({
+          role: m.role,
+          text: m.text,
+          time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
+        }));
+        setMessages(msgs);
+        loadSessions();
+      }
+    } catch {
+      // 分叉失败静默
+    }
+  }
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
@@ -327,15 +352,26 @@ export default function ChatView() {
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
-                className={`max-w-[88%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed md:max-w-[80%] ${
+                className={`group max-w-[88%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed md:max-w-[80%] ${
                   m.role === "user"
                     ? "bg-amber-400 text-zinc-900"
                     : "bg-[#2a2e38] text-zinc-200"
                 }`}
               >
                 <div className="whitespace-pre-wrap">{m.text}</div>
-                <div className={`mt-1 text-[10px] ${m.role === "user" ? "text-amber-900/60" : "text-zinc-500"}`}>
-                  {m.time}
+                <div className="mt-1 flex items-center justify-end gap-2">
+                  <span className={`text-[10px] ${m.role === "user" ? "text-amber-900/60" : "text-zinc-500"}`}>
+                    {m.time}
+                  </span>
+                  {m.role === "ai" && currentSession && (
+                    <button
+                      onClick={() => forkAt(i)}
+                      className="hidden rounded px-1 text-[10px] text-zinc-500 transition-colors hover:text-amber-300 group-hover:block md:block"
+                      title="从这里分叉出新对话，尝试不同方向"
+                    >
+                      ⑂ 分叉
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
