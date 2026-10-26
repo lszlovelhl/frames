@@ -305,10 +305,17 @@ async def process(job_id: str) -> None:
                 await mark_failed(db, job, message=f"拆解失败：{err}")
             else:
                 # 三层链路成功：标记 job done（script 已由 pipeline 落库）
+                script_id = result.get("script_id")
+                # 多步工作流：若该视频挂了文案待办（"拆解+写文案"），自动生成
+                try:
+                    from app.services.copywriting import run_copywriting_if_pending
+                    await run_copywriting_if_pending(db, str(video.id), str(script_id))
+                except Exception:
+                    pass
                 await mark_done(
                     db, job,
                     evidence={k: v for k, v in result.items() if k != "script_id"},
-                    script_id=result.get("script_id"),
+                    script_id=script_id,
                 )
             # 链路只失败在采集/模型侧时也照旧记用量流水
             # 续跑的任务（app_meta 有 job_recover 标记）不重复扣费——首次已扣

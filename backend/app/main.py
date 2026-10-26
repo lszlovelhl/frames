@@ -100,6 +100,14 @@ async def lifespan(_: FastAPI):
         logger.info("实体关系表就绪")
     except Exception:  # noqa: BLE001
         logger.warning("实体关系表迁移失败（不影响启动）", exc_info=True)
+    # 多步工作流：文案结果表幂等建表
+    try:
+        from app.services.copywriting import ensure_copywriting_schema
+
+        await ensure_copywriting_schema()
+        logger.info("文案结果表就绪")
+    except Exception:  # noqa: BLE001
+        logger.warning("文案结果表迁移失败（不影响启动）", exc_info=True)
     # 三层分库提示词（tl1~tl6，第 8 章）幂等落库：仅当 code 内容变更才新增版本，不删历史
     try:
         from app.db import SessionLocal

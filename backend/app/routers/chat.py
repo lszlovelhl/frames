@@ -126,20 +126,47 @@ async def _llm_intent(message: str) -> dict:
     return await _llm_intent_with_context(message, SYSTEM_PROMPT)
 
 
-async def _handle_breakdown(db, url, session_id) -> tuple[str, dict]:
-    """处理拆解意图。返回 (回复文本, 额外数据)。"""
+async def _handle_breakdown(db, url, session_id, message: str = "") -> tuple[str, dict]:
+    """处理拆解意图。返回 (回复文本, 额外数据)。
+
+    多步工作流（plan→act）：用户同时要求"拆解+写文案"时，
+    挂文案待办，拆解完成后自动生成，不用再单独说一遍。
+    """
     from app.routers.videos import create_video
     from sqlalchemy import text as sa_text
 
     if not url:
         return "发个视频链接给我，我帮你拆解。支持抖音/B站/YouTube。", {}
 
+    # 复合意图检测：拆解 + 自动出文案（小红书/总结/写成/报告）
+    want_copywriting = any(w in message for w in ["文案", "小红书", "总结", "写成", "报告", "推广文", "写成文"])
+
     try:
         result = await create_video(VideoCreate(url=url), db=db)
+        # 已存在视频走 _video_public 分支（无 video_id 字段），兼容取 id
+        video_id = result.get("video_id") or result.get("id", "")
+        if want_copywriting and video_id:
+            try:
+                from app.services.copywriting import set_pending
+                style = "小红书" if "小红书" in message else "短视频发布文案"
+                await set_pending(db, video_id, style)
+            except Exception as e:
+                logger.warning("文案待办挂载失败：%s", e)
+                want_copywriting = False
+
         reply = (
             "收到！开始拆解这个视频了 🎬\n"
             "预计 3-5 分钟出结果。\n"
             "\n"
+        )
+        if want_copywriting:
+            reply += (
+                "按你的要求，这次是两步走：\n"
+                "① 先拆解分析 ② 拆完自动写一条「小红书风格」发布文案\n"
+                "完成问我「拆完了吗」就能一起拿到。\n"
+                "\n"
+            )
+        reply += (
             "对了，你想重点分析什么？比如：\n"
             "• 开头钩子\n"
             "• 情绪曲线\n"
@@ -217,12 +244,23 @@ async def _handle_get_result(db, video_id) -> str:
                 except Exception:
                     insight_text = ""
 
+                # 多步工作流：若该视频有自动生成的文案，附带展示
+                cw_text = ""
+                try:
+                    from app.services.copywriting import get_copywriting
+                    cw = await get_copywriting(db, video_id)
+                    if cw:
+                        cw_text = f"\n\n✍️ 自动生成的发布文案：\n{cw[:300]}"
+                except Exception:
+                    pass
+
                 return (
                     f"✅ 拆解完成！\n"
                     f"📊 质量分：{q} · 段落数：{seg_count}\n"
                     f"🎯 核心想法：{ci[:40]}...\n"
                     f"{highlight}"
-                    f"{insight_text}\n"
+                    f"{insight_text}"
+                    f"{cw_text}\n"
                     f"\n"
                     f"要不要我帮你找类似的视频？"
                 )
@@ -628,7 +666,7 @@ async def chat(
         intent = "find_content"
 
     handlers = {
-        "breakdown": lambda: _handle_breakdown(db, url, session_id),
+        "breakdown": lambda: _handle_breakdown(db, url, session_id, message),
         "get_result": lambda: _handle_get_result(db, video_id),
         "similar": lambda: _handle_similar(db, video_id),
         "remember": lambda: _handle_remember(db, user_id, intent_data.get("content", ""), message),
@@ -1126,7 +1164,7 @@ async def chat_stream(
             intent = "find_content"
 
         handlers = {
-            "breakdown": lambda: _handle_breakdown(db, url, session_id),
+            "breakdown": lambda: _handle_breakdown(db, url, session_id, message),
             "get_result": lambda: _handle_get_result(db, video_id),
             "similar": lambda: _handle_similar(db, video_id),
             "remember": lambda: _handle_remember(db, user_id, intent_data.get("content", ""), message),
