@@ -312,6 +312,12 @@ async def process(job_id: str) -> None:
                     await run_copywriting_if_pending(db, str(video.id), str(script_id))
                 except Exception:
                     pass
+                # 自我反思：拆解完成后模型自检质量（ASR乱码/颗粒度/三一致/可执行性）
+                try:
+                    from app.services.self_review import run_self_review_if_new
+                    await run_self_review_if_new(db, str(script_id))
+                except Exception:
+                    pass
                 await mark_done(
                     db, job,
                     evidence={k: v for k, v in result.items() if k != "script_id"},

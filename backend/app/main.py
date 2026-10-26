@@ -108,6 +108,14 @@ async def lifespan(_: FastAPI):
         logger.info("文案结果表就绪")
     except Exception:  # noqa: BLE001
         logger.warning("文案结果表迁移失败（不影响启动）", exc_info=True)
+    # 自我反思：script_script 补 self_review / quality_flag 列
+    try:
+        from app.services.self_review import ensure_self_review_schema
+
+        await ensure_self_review_schema()
+        logger.info("自检列就绪")
+    except Exception:  # noqa: BLE001
+        logger.warning("自检列迁移失败（不影响启动）", exc_info=True)
     # 三层分库提示词（tl1~tl6，第 8 章）幂等落库：仅当 code 内容变更才新增版本，不删历史
     try:
         from app.db import SessionLocal

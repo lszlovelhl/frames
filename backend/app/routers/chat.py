@@ -254,12 +254,34 @@ async def _handle_get_result(db, video_id) -> str:
                 except Exception:
                     pass
 
+                # 自我反思：展示自检结论（不假装完美，有硬伤就明说）
+                sr_text = ""
+                try:
+                    sr = (await db.execute(sa_text(
+                        "SELECT self_review FROM script_script WHERE id=:sid"
+                    ), {"sid": sid_str})).fetchone()
+                    if sr and sr[0]:
+                        import json as _json
+                        try:
+                            rv = _json.loads(sr[0])
+                        except Exception:
+                            rv = {}
+                        if rv.get("score") is not None:
+                            sr_text = f"\n\n🔍 自检：质量 {rv.get('score')}/10"
+                            if rv.get("verdict"):
+                                sr_text += f"｜{rv['verdict']}"
+                            if rv.get("issues"):
+                                sr_text += "\n" + "".join(f"  ⚠️ {i[:40]}\n" for i in rv["issues"][:3])
+                except Exception:
+                    pass
+
                 return (
                     f"✅ 拆解完成！\n"
                     f"📊 质量分：{q} · 段落数：{seg_count}\n"
                     f"🎯 核心想法：{ci[:40]}...\n"
                     f"{highlight}"
                     f"{insight_text}"
+                    f"{sr_text}"
                     f"{cw_text}\n"
                     f"\n"
                     f"要不要我帮你找类似的视频？"
