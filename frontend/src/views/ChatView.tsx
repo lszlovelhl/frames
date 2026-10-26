@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useAuth } from "../auth";
+import { useAuth, authHeaders } from "../auth";
 
 interface Message {
   role: "user" | "ai";
@@ -49,7 +49,7 @@ export default function ChatView() {
 
   const loadSessions = async () => {
     try {
-      const res = await fetch(`/api/chat/sessions?user_id=${uid}`);
+      const res = await fetch("/api/chat/sessions", { headers: authHeaders() });
       const data = await res.json();
       setSessions(data.sessions || []);
     } catch {
@@ -59,7 +59,7 @@ export default function ChatView() {
 
   const loadMemories = async () => {
     try {
-      const res = await fetch(`/api/chat/memories?user_id=${uid}`);
+      const res = await fetch("/api/chat/memories", { headers: authHeaders() });
       const data = await res.json();
       setMemories(data.memories || []);
     } catch {
@@ -75,7 +75,7 @@ export default function ChatView() {
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...authHeaders() },
           body: JSON.stringify({ message: "你好", user_id: uid, platform: "web" }),
         });
         const data = await res.json();
@@ -130,7 +130,7 @@ export default function ChatView() {
 
   async function deleteSession(sid: string) {
     try {
-      await fetch(`/api/chat/sessions/${sid}?user_id=${uid}`, { method: "DELETE" });
+      await fetch(`/api/chat/sessions/${sid}`, { method: "DELETE", headers: authHeaders() });
       if (currentSession === sid) {
         setCurrentSession(null);
         setMessages([]);
@@ -143,7 +143,7 @@ export default function ChatView() {
 
   async function deleteMemory(id: string) {
     try {
-      await fetch(`/api/chat/memories/${id}`, { method: "DELETE" });
+      await fetch(`/api/chat/memories/${id}`, { method: "DELETE", headers: authHeaders() });
       setMemories((m) => m.filter((x) => x.id !== id));
     } catch {
       // 删除失败静默，用户可重试
@@ -167,7 +167,7 @@ export default function ChatView() {
     try {
       const resp = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           message: text,
           user_id: uid,

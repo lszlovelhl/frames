@@ -8,7 +8,7 @@ import json
 import logging
 import re
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -471,13 +471,16 @@ async def _handle_help() -> str:
 async def chat(
     req: ChatRequest,
     db: AsyncSession = Depends(get_session),
+    authorization: str = Header(default=""),
 ):
     """自然语言对话入口。各个平台都接这里。"""
     message = req.message.strip()
     if not message:
         return {"reply": "你想说什么？发个视频链接，或者问我拆解结果。"}
 
-    user_id = req.user_id
+    # 带有效 token 时强制以 token 身份为准（防跨用户写入），匿名保持兼容
+    me = await _require_user(db, authorization)
+    user_id = me["id"] if me else req.user_id
     platform = req.platform
 
     # 1. 先做意图识别（纯 LLM，不占 db）
@@ -610,19 +613,37 @@ async def chat(
 # ==============================================================
 # 记忆管理（用户可见、可手动删除——OpenWebUI 式透明控制）
 # ==============================================================
+
+# ==============================================================
+# 鉴权辅助：记忆/会话接口一律要求 Bearer token（隐私安全）
+# ==============================================================
+async def _require_user(db: AsyncSession, authorization: str = "") -> dict | None:
+    """从 Authorization: Bearer <token> 解析登录用户；无效返回 None。"""
+    from app.services.auth import resolve_token
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization[len("Bearer "):].strip()
+    if not token:
+        return None
+    return await resolve_token(db, token)
+
+
 @router.get("/api/chat/memories")
 async def list_memories(
-    user_id: str = "anonymous",
     db: AsyncSession = Depends(get_session),
+    authorization: str = Header(default=""),
 ):
-    """列出某用户的全部记忆（按重要性倒序），供前端展示/管理。"""
+    """列出当前登录用户的全部记忆（按重要性倒序）。需 Bearer token。"""
     from sqlalchemy import text as sa_text
+    me = await _require_user(db, authorization)
+    if not me:
+        raise HTTPException(status_code=401, detail="需要登录")
     try:
         await db.rollback()
         rows = (await db.execute(sa_text(
             "SELECT id, memory_type, content, importance, updated_at FROM user_memory "
             "WHERE user_id=:uid ORDER BY importance DESC, updated_at DESC"
-        ), {"uid": user_id})).fetchall()
+        ), {"uid": me["id"]})).fetchall()
         return {
             "memories": [
                 {
@@ -643,22 +664,33 @@ async def list_memories(
 async def delete_memory(
     mem_id: str,
     db: AsyncSession = Depends(get_session),
+    authorization: str = Header(default=""),
 ):
-    """删除一条记忆（连同向量），让用户对 AI 的记忆有控制权。"""
+    """删除一条记忆（连同向量），需 Bearer token 且只能删自己的。"""
     from sqlalchemy import text as sa_text
+    me = await _require_user(db, authorization)
+    if not me:
+        raise HTTPException(status_code=401, detail="需要登录")
     try:
         await db.rollback()
+    except Exception:
+        pass
+    # 记忆必须属于当前用户（403 不能被吞成 200）
+    own = (await db.execute(sa_text(
+        "SELECT id FROM user_memory WHERE id=:mid AND user_id=:uid"
+    ), {"mid": mem_id, "uid": me["id"]})).fetchone()
+    if not own:
+        raise HTTPException(status_code=403, detail="记忆不存在或无权删除")
+    try:
         # 删向量（lib_embedding target_table='user_memory'）
         await db.execute(sa_text(
             "DELETE FROM lib_embedding WHERE target_table='user_memory' AND target_id=:mid"
         ), {"mid": mem_id})
         # 删记忆
         res = await db.execute(sa_text(
-            "DELETE FROM user_memory WHERE id=:mid"
-        ), {"mid": mem_id})
+            "DELETE FROM user_memory WHERE id=:mid AND user_id=:uid"
+        ), {"mid": mem_id, "uid": me["id"]})
         await db.commit()
-        if res.rowcount == 0:
-            return {"ok": False, "message": "记忆不存在"}
         return {"ok": True, "message": "已忘记"}
     except Exception as e:
         await db.rollback()
@@ -669,11 +701,14 @@ async def delete_memory(
 # ==============================================================
 @router.get("/api/chat/sessions")
 async def list_sessions(
-    user_id: str = "anonymous",
     db: AsyncSession = Depends(get_session),
+    authorization: str = Header(default=""),
 ):
-    """列出某用户的会话（按更新时间倒序），含最后一条消息预览。"""
+    """列出当前登录用户的会话。需 Bearer token。"""
     from sqlalchemy import text as sa_text
+    me = await _require_user(db, authorization)
+    if not me:
+        raise HTTPException(status_code=401, detail="需要登录")
     try:
         await db.rollback()
         rows = (await db.execute(sa_text(
@@ -682,7 +717,7 @@ async def list_sessions(
             "  ORDER BY m.created_at DESC LIMIT 1) AS last_msg "
             "FROM chat_sessions s WHERE s.user_id=:uid "
             "ORDER BY s.updated_at DESC LIMIT 30"
-        ), {"uid": user_id})).fetchall()
+        ), {"uid": me["id"]})).fetchall()
         return {"sessions": [
             {
                 "id": r[0],
@@ -699,11 +734,24 @@ async def list_sessions(
 async def session_history(
     session_id: str,
     db: AsyncSession = Depends(get_session),
+    authorization: str = Header(default=""),
 ):
-    """返回某个会话的全部消息（按时间正序）。"""
+    """返回当前登录用户某个会话的全部消息。需 Bearer token。"""
     from sqlalchemy import text as sa_text
+    me = await _require_user(db, authorization)
+    if not me:
+        raise HTTPException(status_code=401, detail="需要登录")
     try:
         await db.rollback()
+    except Exception:
+        pass
+    # 会话必须属于当前用户（校验在 try 外，403 不能被吞成 200）
+    own = (await db.execute(sa_text(
+        "SELECT id FROM chat_sessions WHERE id=:sid AND user_id=:uid"
+    ), {"sid": session_id, "uid": me["id"]})).fetchone()
+    if not own:
+        raise HTTPException(status_code=403, detail="会话不存在或无权访问")
+    try:
         rows = (await db.execute(sa_text(
             "SELECT role, content, created_at FROM chat_messages "
             "WHERE session_id=:sid ORDER BY created_at ASC LIMIT 200"
@@ -723,19 +771,33 @@ async def session_history(
 @router.delete("/api/chat/sessions/{session_id}")
 async def delete_session(
     session_id: str,
-    user_id: str = "anonymous",
     db: AsyncSession = Depends(get_session),
+    authorization: str = Header(default=""),
 ):
-    """删除一个会话（连同其消息）。"""
+    """删除一个会话（连同其消息），需 Bearer token 且只能删自己的。"""
     from sqlalchemy import text as sa_text
+    me = await _require_user(db, authorization)
+    if not me:
+        raise HTTPException(status_code=401, detail="需要登录")
     try:
         await db.rollback()
-        await db.execute(sa_text("DELETE FROM chat_messages WHERE session_id=:sid"), {"sid": session_id})
+    except Exception:
+        pass
+    # 会话必须属于当前用户（403 不能被吞成 200）
+    own = (await db.execute(sa_text(
+        "SELECT id FROM chat_sessions WHERE id=:sid AND user_id=:uid"
+    ), {"sid": session_id, "uid": me["id"]})).fetchone()
+    if not own:
+        raise HTTPException(status_code=403, detail="会话不存在或无权删除")
+    try:
+        await db.execute(sa_text(
+            "DELETE FROM chat_messages WHERE session_id=:sid"
+        ), {"sid": session_id})
         res = await db.execute(sa_text(
             "DELETE FROM chat_sessions WHERE id=:sid AND user_id=:uid"
-        ), {"sid": session_id, "uid": user_id})
+        ), {"sid": session_id, "uid": me["id"]})
         await db.commit()
-        return {"ok": res.rowcount > 0}
+        return {"ok": True, "message": "已删除"}
     except Exception as e:
         await db.rollback()
         return {"ok": False, "message": str(e)[:100]}

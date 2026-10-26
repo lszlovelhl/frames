@@ -155,7 +155,7 @@ async def hybrid_search(
         score = VECTOR_WEIGHT * v + KEYWORD_WEIGHT * k if mid in vec_scores else k
         # 重要性加权（importance 5~10，映射 1.0~1.3）
         score *= 1.0 + min(max(imp, 5), 10) * 0.03 - 0.15
-        score *= _recency_factor(updated_at)
+        score *= _recency_factor(updated_at, mtype)
         results.append({
             "id": mid,
             "content": content,
@@ -172,10 +172,15 @@ def _blob_to_vec(blob: bytes) -> np.ndarray:
     return np.frombuffer(blob, dtype=np.float32)
 
 
-def _recency_factor(updated_at, now_ts: float | None = None) -> float:
-    """记忆时效因子：最近 3 天 1.5x（boost），之后线性衰减到 0.3x 封底。
+def _recency_factor(updated_at, memory_type: str = "preference", now_ts: float | None = None) -> float:
+    """记忆时效因子：按记忆类型分级（Mem0 分层生命周期）。
 
-    学 Mem0 Memory Decay（0.3x~1.5x 软重排）：旧记忆降权但仍可召回，不硬删。
+    - preference（核心偏好）：长期记忆，3 天内 1.2x boost，之后缓慢降到 0.8x 封底，
+      几乎不遗忘——这是用户稳定的画像
+    - dream（结晶洞察）：中期记忆，3 天内 1.5x，60 天线性降到 0.5x 封底
+    - feedback（即时反馈）：短期记忆，3 天内 1.5x，14 天快速衰减到 0.3x 封底，
+      反馈过期就该淡出，防止陈旧反馈主导召回
+    旧记忆不硬删，降权仍可召回（Mem0 Memory Decay 精神）。
     """
     import time
     if updated_at is None:
@@ -190,11 +195,27 @@ def _recency_factor(updated_at, now_ts: float | None = None) -> float:
         return 0.7
     ref = now_ts if now_ts is not None else time.time()
     age_days = max(0.0, (ref - ts) / 86400)
+    mtype = memory_type or "preference"
+    if mtype == "feedback":
+        # 短期：14 天衰减到 0.3 封底
+        if age_days < 3:
+            return 1.5
+        if age_days < 14:
+            return 1.5 - (age_days - 3) / 11 * 1.2
+        return 0.3
+    if mtype == "dream":
+        # 中期：60 天衰减到 0.5 封底
+        if age_days < 3:
+            return 1.5
+        if age_days < 60:
+            return 1.5 - (age_days - 3) / 57 * 1.0
+        return 0.5
+    # preference：长期，几乎不遗忘
     if age_days < 3:
-        return 1.5  # 最近 3 天：最新鲜，boost
-    if age_days < 30:
-        return 1.5 - (age_days - 3) / 27 * 1.2  # 3→30 天线性降到 0.3
-    return 0.3  # 30 天后封底
+        return 1.2
+    if age_days < 180:
+        return 1.2 - (age_days - 3) / 177 * 0.4
+    return 0.8  # 半年后封底 0.8，核心偏好永远有效
 
 
 # ==============================================================
