@@ -670,6 +670,13 @@ async def chat(
             schedule_summarize(session_id, user_id, db)
     except Exception:
         pass
+    # 记忆自动演化：对话类意图每轮判断有无值得沉淀的偏好/事实（本地 qwen，免费）
+    if intent in ("chat", "followup", "find_content"):
+        try:
+            from app.services.memory_evolve import schedule_evolve
+            schedule_evolve(user_id, message, reply_text)
+        except Exception:
+            pass
 
     await db.commit()
 
@@ -1153,6 +1160,13 @@ async def chat_stream(
                 schedule_summarize(session_id, user_id, db)
         except Exception:
             pass
+        # 记忆自动演化：对话类意图每轮判断有无值得沉淀的偏好/事实（本地 qwen，免费）
+        if intent in ("chat", "followup", "find_content"):
+            try:
+                from app.services.memory_evolve import schedule_evolve
+                schedule_evolve(user_id, message, reply_text)
+            except Exception:
+                pass
         await db.commit()
         yield _sse({"type": "done", "text": reply_text, "citations": _extra.get("citations", [])})
 
