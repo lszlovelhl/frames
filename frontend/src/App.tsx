@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { AuthProvider, useAuth } from "./auth";
+import LoginView from "./views/LoginView";
 import JobMonitor from "./components/JobMonitor";
 import BreakdownView from "./views/BreakdownView";
 import ChatView from "./views/ChatView";
@@ -46,6 +48,15 @@ const NAV_GROUPS: Array<{ group: string; items: Array<{ key: ViewKey; label: str
 ];
 
 export default function App() {
+  return (
+    <AuthProvider>
+      <AppInner />
+    </AuthProvider>
+  );
+}
+
+function AppInner() {
+  const { authed, username, logout } = useAuth();
   const [view, setView] = useState<ViewKey>("breakdown");
   const [libraryFocusId, setLibraryFocusId] = useState<string | null>(null);
   const [createSeed, setCreateSeed] = useState<string[] | null>(null);
@@ -59,6 +70,10 @@ export default function App() {
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, []);
+
+  if (!authed) {
+    return <LoginView />;
+  }
 
   function openVideoInLibrary(videoId: string) {
     setLibraryFocusId(videoId);
@@ -182,6 +197,18 @@ export default function App() {
           v0.4 · 两层拆解 + 自动采集
           <br />
           L1云端定框架 + L2本地展开成稿
+        </div>
+        <div className="mt-3 flex items-center justify-between rounded-lg border border-white/5 bg-white/5 px-3 py-2">
+          <div className="min-w-0">
+            <div className="truncate text-xs font-medium text-zinc-200">{username || "用户"}</div>
+            <div className="text-[10px] text-zinc-500">记忆存本地 · 不上云</div>
+          </div>
+          <button
+            onClick={logout}
+            className="shrink-0 rounded-md px-2 py-1 text-[11px] text-zinc-400 transition-colors hover:bg-white/10 hover:text-zinc-200"
+          >
+            退出
+          </button>
         </div>
       </aside>
 

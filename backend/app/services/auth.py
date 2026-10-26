@@ -77,8 +77,8 @@ async def register(db: AsyncSession, username: str, password: str, display_name:
     uid = uuid.uuid4().hex
     token = uuid.uuid4().hex
     await db.execute(text(
-        "INSERT INTO users (id, username, password_hash, auth_token, display_name) "
-        "VALUES (:id, :u, :h, :t, :d)"
+        "INSERT INTO users (id, username, password_hash, auth_token, display_name, role, platforms) "
+        "VALUES (:id, :u, :h, :t, :d, '全能', '[]')"
     ), {"id": uid, "u": username, "h": hash_password(password), "t": token, "d": display_name or username})
     await db.commit()
     logger.info("新用户注册：%s", username)

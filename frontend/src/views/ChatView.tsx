@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useAuth } from "../auth";
 
 interface Message {
   role: "user" | "ai";
@@ -20,11 +21,13 @@ const MEMORY_ICON: Record<string, string> = {
 };
 
 export default function ChatView() {
+  const { user_id } = useAuth();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const uid = user_id || "anonymous";
 
   // 打开页面时自动打个招呼，AI 根据状态主动说话
   useEffect(() => {
@@ -34,7 +37,7 @@ export default function ChatView() {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message: "你好", user_id: "default", platform: "web" }),
+          body: JSON.stringify({ message: "你好", user_id: uid, platform: "web" }),
         });
         const data = await res.json();
         setMessages([
@@ -57,13 +60,14 @@ export default function ChatView() {
       }
     }
     greet();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 加载 AI 记住的事（OpenWebUI 式透明记忆：可见、可删）
   useEffect(() => {
     async function loadMemories() {
       try {
-        const res = await fetch("/api/chat/memories?user_id=default");
+        const res = await fetch(`/api/chat/memories?user_id=${uid}`);
         const data = await res.json();
         setMemories(data.memories || []);
       } catch {
@@ -71,6 +75,7 @@ export default function ChatView() {
       }
     }
     loadMemories();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function deleteMemory(id: string) {
@@ -100,7 +105,7 @@ export default function ChatView() {
       const resp = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, user_id: "default", platform: "web" }),
+        body: JSON.stringify({ message: text, user_id: uid, platform: "web" }),
       });
       const data = await resp.json();
       setMessages((m) => [
@@ -112,7 +117,7 @@ export default function ChatView() {
         },
       ]);
       // 对话后刷新记忆（可能自动记了新东西）
-      const memRes = await fetch("/api/chat/memories?user_id=default");
+      const memRes = await fetch(`/api/chat/memories?user_id=${uid}`);
       const memData = await memRes.json();
       setMemories(memData.memories || []);
     } catch (e) {
