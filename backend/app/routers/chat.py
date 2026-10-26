@@ -27,6 +27,13 @@ class ChatRequest(BaseModel):
     session_id: str | None = None  # 指定继续某个历史会话（不传则用最新/新建）
 
 
+class MemoryCreate(BaseModel):
+    """记忆中心手动添加记忆。"""
+    content: str
+    memory_type: str = "preference"  # preference / feedback / dream
+    importance: int = 5
+
+
 class ForkRequest(BaseModel):
     """会话分叉（OpenWebUI fork）：从某条消息后开一条新分支。"""
     session_id: str
@@ -268,6 +275,8 @@ async def _handle_get_result(db, video_id) -> str:
                             rv = {}
                         if rv.get("score") is not None:
                             sr_text = f"\n\n🔍 自检：质量 {rv.get('score')}/10"
+                            if rv.get("regenerated"):
+                                sr_text += "\n✅ 已按自检问题自动修订摘要（透明标注，非假装重拆）"
                             if rv.get("verdict"):
                                 sr_text += f"｜{rv['verdict']}"
                             if rv.get("issues"):
@@ -856,6 +865,17 @@ async def list_memories(
             "SELECT id, memory_type, content, importance, updated_at FROM user_memory "
             "WHERE user_id=:uid ORDER BY importance DESC, updated_at DESC"
         ), {"uid": me["id"]})).fetchall()
+        # 实体图谱：记忆中心展示 AI 关注的关系网
+        entities: list[dict] = []
+        try:
+            from app.services.graph_memory import get_user_entities
+            entities = await get_user_entities(db, me["id"], top_n=30)
+        except Exception:
+            pass
+        # 类型统计（记忆中心顶部分段）
+        stats = {"preference": 0, "feedback": 0, "dream": 0, "total": len(rows)}
+        for r in rows:
+            stats[r[1]] = stats.get(r[1], 0) + 1
         return {
             "memories": [
                 {
@@ -866,10 +886,12 @@ async def list_memories(
                     "updated_at": str(r[4]) if r[4] else "",
                 }
                 for r in rows
-            ]
+            ],
+            "entities": entities,
+            "stats": stats,
         }
     except Exception as e:
-        return {"memories": [], "error": str(e)[:100]}
+        return {"memories": [], "entities": [], "stats": {"total": 0}, "error": str(e)[:100]}
 
 
 @router.delete("/api/chat/memories/{mem_id}")
@@ -907,6 +929,40 @@ async def delete_memory(
     except Exception as e:
         await db.rollback()
         return {"ok": False, "message": f"删除失败：{str(e)[:100]}"}
+
+
+@router.post("/api/chat/memories")
+async def create_memory(
+    req: MemoryCreate,
+    db: AsyncSession = Depends(get_session),
+    authorization: str = Header(default=""),
+):
+    """手动添加一条记忆（记忆中心"让 AI 记住"输入框）。需 Bearer token。"""
+    from app.services.memory_search import remember
+
+    me = await _require_user(db, authorization)
+    if not me:
+        raise HTTPException(status_code=401, detail="需要登录")
+    content = req.content.strip()
+    if not content:
+        raise HTTPException(status_code=422, detail="记忆内容不能为空")
+    try:
+        await db.rollback()
+    except Exception:
+        pass
+    try:
+        mem_id = await remember(
+            db,
+            user_id=me["id"],
+            content=content,
+            memory_type=req.memory_type,
+            importance=req.importance,
+        )
+        await db.commit()
+        return {"ok": True, "memory_id": mem_id, "message": "记住了"}
+    except Exception as e:
+        await db.rollback()
+        return {"ok": False, "message": f"写入失败：{str(e)[:100]}"}
 
 # ==============================================================
 # 会话历史管理（OpenWebUI 式：自动保存、可继续、按用户隔离）

@@ -307,17 +307,17 @@ export default function ChatView() {
       {/* 会话历史侧栏（OpenWebUI 式：自动保存、可继续、按时间分组）
           移动端：fixed 抽屉（默认隐藏，点 ☰ 打开）；≥768px：常驻左侧 */}
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col border-r border-white/5 bg-[#1c2027] transition-transform duration-200 md:static md:w-56 md:translate-x-0 md:transition-none ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col border-r border-[var(--separator-soft)] bg-[var(--bg-base)] transition-transform duration-200 md:static md:w-56 md:translate-x-0 md:transition-none ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="border-b border-white/5 px-3 py-2.5">
+        <div className="border-b border-[var(--separator-soft)] px-3 py-2.5">
           <button
             onClick={newChat}
-            className={`w-full rounded-lg px-3 py-2 text-left text-sm font-medium transition-colors ${
+            className={`w-full rounded-full px-3 py-2 text-left text-[13px] font-medium transition-colors ${
               !currentSession
-                ? "bg-amber-400 text-zinc-900"
-                : "bg-white/5 text-zinc-300 hover:bg-white/10"
+                ? "bg-[var(--accent)] text-white"
+                : "bg-[var(--bg-card-hi)] text-[var(--text-1)] hover:bg-[var(--bg-hover)]"
             }`}
           >
             ✚ 新对话
@@ -325,7 +325,7 @@ export default function ChatView() {
         </div>
         <div className="flex-1 overflow-y-auto px-2 py-2">
           {groups.length === 0 && (
-            <div className="px-3 py-6 text-center text-xs text-zinc-600">
+            <div className="px-3 py-6 text-center text-xs text-[var(--text-3)]">
               还没有历史会话
               <br />
               说句话开始吧
@@ -333,14 +333,14 @@ export default function ChatView() {
           )}
           {groups.map((g) => (
             <div key={g.label} className="mb-3">
-              <div className="mb-1 px-2 text-[10px] uppercase tracking-wider text-zinc-600">{g.label}</div>
+              <div className="mb-1 px-2 text-[10px] uppercase tracking-wider text-[var(--text-3)]">{g.label}</div>
               {g.items.map((s) => (
                 <div
                   key={s.id}
-                  className={`group mb-0.5 flex cursor-pointer items-center gap-1 rounded-lg px-2 py-1.5 text-left transition-colors ${
+                  className={`group mb-0.5 flex cursor-pointer items-center gap-1 rounded-[10px] px-2 py-1.5 text-left transition-colors ${
                     currentSession === s.id
-                      ? "bg-amber-300/10 text-amber-200"
-                      : "text-zinc-400 hover:bg-white/5 hover:text-zinc-300"
+                      ? "bg-[var(--bg-selected)] text-[var(--accent)]"
+                      : "text-[var(--text-2)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-1)]"
                   }`}
                   onClick={() => openSession(s.id)}
                 >
@@ -350,7 +350,7 @@ export default function ChatView() {
                       e.stopPropagation();
                       deleteSession(s.id);
                     }}
-                    className="hidden rounded px-1 text-zinc-600 hover:text-red-300 group-hover:block"
+                    className="hidden rounded px-1 text-[var(--text-3)] hover:text-[var(--danger)] group-hover:block"
                     title="删除会话"
                   >
                     ×
@@ -364,29 +364,29 @@ export default function ChatView() {
 
       {/* 主对话区 */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center gap-2 border-b border-white/5 px-4 py-3 md:px-5">
+        <div className="glass flex items-center gap-2 px-4 py-3 md:px-5">
           {/* 移动端：打开会话抽屉 */}
           <button
             onClick={() => setSidebarOpen(true)}
-            className="rounded-lg bg-white/5 px-2.5 py-1.5 text-sm text-zinc-300 hover:bg-white/10 md:hidden"
+            className="btn btn-ghost btn-icon md:hidden"
             title="历史会话"
           >
             ☰
           </button>
           <div className="min-w-0">
-            <h1 className="text-base font-semibold text-zinc-100">AI 助手</h1>
-            <p className="mt-0.5 text-xs text-zinc-500">说人话就能用，发链接自动拆解</p>
+            <h1 className="text-[15px] font-semibold text-[var(--text-1)]">AI 助手</h1>
+            <p className="mt-0.5 text-xs text-[var(--text-3)]">说人话就能用，发链接自动拆解</p>
           </div>
         </div>
 
         {/* AI 记得你：记忆透明展示，可删除 */}
         {memories.length > 0 && (
-          <div className="border-b border-white/5 px-4 py-3 md:px-5">
+          <div className="border-b border-[var(--separator-soft)] px-4 py-3 md:px-5">
             <div className="mb-1.5 flex items-center justify-between">
-              <span className="text-xs text-zinc-500">🧠 AI 记得你</span>
+              <span className="text-xs text-[var(--text-2)]">🧠 AI 记得你</span>
               <button
                 onClick={() => setShowMemories(true)}
-                className="text-[10px] text-zinc-600 transition-colors hover:text-amber-300"
+                className="text-[10px] text-[var(--text-3)] transition-colors hover:text-[var(--accent)]"
               >
                 管理全部 →
               </button>
@@ -396,12 +396,12 @@ export default function ChatView() {
                 <span
                   key={mem.id}
                   title={`${mem.type === "preference" ? "偏好" : mem.type === "feedback" ? "反馈" : "结晶"} · 重要度 ${mem.importance}`}
-                  className="group inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 py-1 pl-2.5 pr-1 text-xs text-zinc-300"
+                  className="group inline-flex items-center gap-1 rounded-full border border-[var(--separator-soft)] bg-[var(--bg-card)] py-1 pl-2.5 pr-1 text-xs text-[var(--text-2)]"
                 >
                   {MEMORY_ICON[mem.type] || "📌"} {mem.content.length > 18 ? mem.content.slice(0, 18) + "…" : mem.content}
                   <button
                     onClick={() => deleteMemory(mem.id)}
-                    className="rounded-full px-1 text-zinc-500 transition-colors hover:bg-amber-400/20 hover:text-amber-300"
+                    className="rounded-full px-1 text-[var(--text-3)] transition-colors hover:bg-[rgba(255,69,58,0.15)] hover:text-[var(--danger)]"
                     title="删除这条记忆"
                   >
                     ×
@@ -416,19 +416,19 @@ export default function ChatView() {
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
-                className={`group max-w-[88%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed md:max-w-[80%] ${
+                className={`group max-w-[88%] rounded-[18px] px-4 py-2.5 text-sm leading-relaxed md:max-w-[80%] ${
                   m.role === "user"
-                    ? "bg-amber-400 text-zinc-900"
-                    : "bg-[#2a2e38] text-zinc-200"
+                    ? "rounded-br-[6px] bg-[var(--accent)] text-white shadow-[0_2px_10px_rgba(10,132,255,0.3)]"
+                    : "rounded-bl-[6px] border border-[var(--separator-soft)] bg-[var(--bg-card)] text-[var(--text-1)]"
                 }`}
               >
                 <div className="whitespace-pre-wrap">
-                  {m.text || (m.streaming ? <span className="text-zinc-400">正在思考<span className="animate-pulse">…</span></span> : "")}
-                  {m.streaming && m.text && <span className="ml-0.5 inline-block h-3.5 w-[2px] animate-pulse bg-amber-300 align-middle" />}
+                  {m.text || (m.streaming ? <span className="text-[var(--text-3)]">正在思考<span className="animate-pulse">…</span></span> : "")}
+                  {m.streaming && m.text && <span className="ml-0.5 inline-block h-3.5 w-[2px] animate-pulse bg-[var(--accent)] align-middle" />}
                 </div>
                 {m.citations && m.citations.length > 0 && (
-                  <div className="mt-1.5 border-t border-white/10 pt-1.5">
-                    <div className="mb-0.5 text-[10px] text-zinc-500">参考来源</div>
+                  <div className="mt-1.5 border-t border-[var(--separator-soft)] pt-1.5">
+                    <div className="mb-0.5 text-[10px] text-[var(--text-3)]">参考来源</div>
                     <div className="flex flex-wrap gap-1">
                       {m.citations.map((c, ci) => (
                         <a
@@ -437,7 +437,7 @@ export default function ChatView() {
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => !c.url && e.preventDefault()}
-                          className="max-w-full truncate rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-amber-200/80 hover:bg-white/10 hover:text-amber-200"
+                          className="max-w-full truncate rounded bg-[var(--bg-hover)] px-1.5 py-0.5 text-[10px] text-[var(--accent-hover)] hover:bg-[var(--bg-active)]"
                           title={c.title}
                         >
                           {c.platform ? `[${c.platform}] ` : ""}{c.title}
@@ -447,13 +447,13 @@ export default function ChatView() {
                   </div>
                 )}
                 <div className="mt-1 flex items-center justify-end gap-2">
-                  <span className={`text-[10px] ${m.role === "user" ? "text-amber-900/60" : "text-zinc-500"}`}>
+                  <span className={`text-[10px] ${m.role === "user" ? "text-white/60" : "text-[var(--text-3)]"}`}>
                     {m.time}
                   </span>
                   {m.role === "ai" && currentSession && (
                     <button
                       onClick={() => forkAt(i)}
-                      className="hidden rounded px-1 text-[10px] text-zinc-500 transition-colors hover:text-amber-300 group-hover:block md:block"
+                      className="hidden rounded px-1 text-[10px] text-[var(--text-3)] transition-colors hover:text-[var(--accent)] group-hover:block md:block"
                       title="从这里分叉出新对话，尝试不同方向"
                     >
                       ⑂ 分叉
@@ -465,37 +465,37 @@ export default function ChatView() {
           ))}
           {loading && !messages.some((x) => x.streaming) && (
             <div className="flex justify-start">
-              <div className="rounded-2xl bg-[#2a2e38] px-4 py-2.5 text-sm text-zinc-400">
+              <div className="rounded-[18px] rounded-bl-[6px] border border-[var(--separator-soft)] bg-[var(--bg-card)] px-4 py-2.5 text-sm text-[var(--text-3)]">
                 思考中...
               </div>
             </div>
           )}
         </div>
 
-        <div className="border-t border-white/5 px-4 py-3 md:px-5">
+        <div className="border-t border-[var(--separator-soft)] px-4 py-3 md:px-5">
           <div className="mb-2 flex flex-wrap gap-1.5">
             {["帮我拆解这个视频 https://v.douyin.com/xxx", "拆完了吗", "还有类似的吗", "记住我喜欢口播类"].map((q) => (
               <button
                 key={q}
                 onClick={() => setInput(q)}
-                className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-zinc-400 transition-colors hover:border-amber-400/30 hover:text-amber-200"
+                className="rounded-full border border-[var(--separator-soft)] bg-[var(--bg-card)] px-3 py-1 text-xs text-[var(--text-2)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]"
               >
                 {q.length > 12 ? q.slice(0, 12) + "..." : q}
               </button>
             ))}
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && send()}
               placeholder="发视频链接，或问我问题..."
-              className="flex-1 rounded-lg border border-white/10 bg-[#252932] px-4 py-2.5 text-sm text-zinc-200 placeholder-zinc-500 outline-none focus:border-amber-400/50"
+              className="input min-w-0 flex-1 !rounded-full !py-2.5"
             />
             <button
               onClick={send}
               disabled={loading || !input.trim()}
-              className="rounded-lg bg-amber-400 px-5 py-2.5 text-sm font-medium text-zinc-900 transition-colors hover:bg-amber-300 disabled:opacity-50"
+              className="btn btn-primary !rounded-full !px-5 !py-2.5 disabled:opacity-50"
             >
               发送
             </button>

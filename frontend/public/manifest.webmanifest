@@ -1,0 +1,25 @@
+{
+  "name": "帧间 · AI 短视频拆解伙伴",
+  "short_name": "帧间",
+  "description": "AI 短视频拆解伙伴：发链接自动拆解，记忆本地不上云",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#000000",
+  "theme_color": "#0a84ff",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

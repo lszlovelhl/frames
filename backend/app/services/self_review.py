@@ -143,6 +143,69 @@ async def run_self_review_if_new(db, script_id: str) -> None:
         ), {"sid": script_id})).fetchone()
         if row and row[0]:
             return
-        await run_self_review(db, script_id)
+        review = await run_self_review(db, script_id)
+        await db.commit()
+        # Reflexion act 环节：flagged → 自动修订拆解摘要（补颗粒度/可执行性）
+        if review.get("flag") == "flagged":
+            await regenerate_summary_if_flagged(db, script_id, review)
     except Exception as e:
         logger.warning("自检跳过（不阻塞拆解）：%s", e)
+
+
+async def regenerate_summary_if_flagged(db, script_id: str, review: dict) -> None:
+    """自检不合格时，基于问题清单自动重写拆解摘要（修订而非假装完美）。"""
+    try:
+        row = (await db.execute(sa_text(
+            "SELECT title, core_idea, summary FROM script_script WHERE id=:sid"
+        ), {"sid": script_id})).fetchone()
+        if not row:
+            return
+        title, core_idea, summary = (row[0] or ""), (row[1] or ""), (row[2] or "")
+        issues = "；".join(review.get("issues", [])[:4])
+        prompt = (
+            "你是资深短视频拆解专家。上一版拆解被质检挑出了这些问题：\n"
+            f"{issues}\n\n"
+            "请针对这些问题重写一份『拆解摘要』（100-180 字）：\n"
+            "要求：按起-承-转-合补足段落颗粒度，给出可执行的剪辑/创作建议，"
+            "杜绝空话套话，与标题和核心创意严格一致。\n\n"
+            f"标题：{title[:80]}\n核心创意：{core_idea[:200]}\n原摘要：{summary[:300]}\n\n"
+            "只输出重写后的摘要正文。"
+        )
+        new_summary = await _call_qwen(prompt, max_tokens=400)
+        if not new_summary or len(new_summary) < 30:
+            return
+        # 清洗：模型偶发输出 JSON/结构化片段 → 转纯文本摘要
+        stripped = new_summary.strip()
+        if stripped.startswith("{") or stripped.startswith("["):
+            try:
+                parsed = json.loads(stripped)
+                vals = []
+                if isinstance(parsed, dict):
+                    for v in parsed.values():
+                        if isinstance(v, str):
+                            vals.append(v)
+                        elif isinstance(v, (list, dict)):
+                            vals.append(str(v))
+                elif isinstance(parsed, list):
+                    vals = [str(v) for v in parsed if isinstance(v, (str, dict, list))]
+                text = "".join(vals) if vals else stripped
+                new_summary = text[:400]
+            except Exception:
+                new_summary = stripped[:400]
+        # 更新摘要并记录修订痕迹（不假装重拆，透明标注）
+        await db.execute(sa_text(
+            "UPDATE script_script SET summary=:s, self_review=:r, updated_at=CURRENT_TIMESTAMP WHERE id=:sid"
+        ), {
+            "s": new_summary,
+            "r": json.dumps({
+                **review,
+                "regenerated": True,
+                "regenerated_at": "now",
+                "prev_summary": summary[:120],
+            }, ensure_ascii=False),
+            "sid": script_id,
+        })
+        await db.commit()
+        logger.info("自检 flagged → 摘要已自动修订：script=%s", script_id[:8])
+    except Exception as e:
+        logger.warning("摘要修订失败（不影响拆解）：%s", e)
