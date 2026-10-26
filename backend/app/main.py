@@ -58,6 +58,11 @@ async def lifespan(_: FastAPI):
     from app.services import breakdown_jobs
 
     await breakdown_jobs.start_workers()
+
+    # 心跳主动智能（30 分钟一次，启动后立即检查一轮）
+    from app.services.heartbeat import heartbeat_loop
+
+    heartbeat_task = asyncio.create_task(heartbeat_loop(immediate=True))
     # 三层分库提示词（tl1~tl6，第 8 章）幂等落库：仅当 code 内容变更才新增版本，不删历史
     try:
         from app.db import SessionLocal
@@ -73,7 +78,7 @@ async def lifespan(_: FastAPI):
         yield
     finally:
         await breakdown_jobs.stop_workers()
-        for t in (task, stats_task, collection_task, report_task):
+        for t in (task, stats_task, collection_task, report_task, heartbeat_task):
             t.cancel()
             try:
                 await t
