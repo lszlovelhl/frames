@@ -125,27 +125,27 @@ export default function CollectionView() {
     }
   }
 
-  if (!config) return <div className="text-zinc-400">加载中...</div>;
+  if (!config) return <div className="text-[var(--text-2)]">加载中...</div>;
 
   return (
     <div className="mx-auto max-w-6xl px-8 py-8">
       <header className="mb-6">
-        <h1 className="text-xl font-semibold text-zinc-100">自动采集</h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <h1 className="text-xl font-semibold text-[var(--text-1)]">自动采集</h1>
+        <p className="mt-1 text-sm text-[var(--text-3)]">
           自动从热榜/关键词获取高赞视频，下载后自动加入拆解队列
         </p>
       </header>
 
       {message && (
-        <div className="mb-4 rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-sm text-amber-200">
+        <div className="mb-4 rounded-lg border border-text-[var(--accent-hover)]/20 bg-[var(--accent-hover)]/10 px-3 py-2 text-sm text-[var(--accent-hover)]">
           {message}
         </div>
       )}
 
       {/* 手动搜索 */}
-      <div className="rounded-xl border border-white/5 bg-[#1c1f26] p-6 mb-4">
-        <h3 className="text-base font-semibold text-zinc-100 mb-2">🔍 手动搜索</h3>
-        <p className="text-sm text-zinc-500 mb-4">
+      <div className="rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)] p-6 mb-4">
+        <h3 className="text-base font-semibold text-[var(--text-1)] mb-2">🔍 手动搜索</h3>
+        <p className="text-sm text-[var(--text-3)] mb-4">
           输入关键词，立即搜索B站+抖音的热门视频，自动加入拆解队列
         </p>
         <div className="flex gap-2">
@@ -154,7 +154,7 @@ export default function CollectionView() {
             value={manualKeyword}
             onChange={(e) => setManualKeyword(e.target.value)}
             placeholder="输入关键词，比如：爬泰山、美妆教程、科技数码"
-            className="flex-1 rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-emerald-400/40"
+            className="flex-1 rounded-lg border border-[var(--separator-soft)] bg-black/30 px-3 py-2 text-sm text-[var(--text-1)] outline-none focus:border-emerald-400/40"
             onKeyDown={(e) => e.key === "Enter" && handleManualSearch()}
           />
           <button
@@ -168,11 +168,11 @@ export default function CollectionView() {
       </div>
 
       {/* 采集开关 */}
-      <div className="rounded-xl border border-white/5 bg-[#1c1f26] p-6 mb-4">
+      <div className="rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)] p-6 mb-4">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-base font-semibold text-zinc-100 mb-2">自动采集总开关</h3>
-            <p className="text-sm text-zinc-500">
+            <h3 className="text-base font-semibold text-[var(--text-1)] mb-2">自动采集总开关</h3>
+            <p className="text-sm text-[var(--text-3)]">
               打开后系统会自动按配置采集热门视频并加入拆解队列
             </p>
           </div>
@@ -181,23 +181,23 @@ export default function CollectionView() {
               type="checkbox"
               checked={config.enabled}
               onChange={(e) => updateConfig({ enabled: e.target.checked })}
-              className="h-4 w-4 accent-amber-300"
+              className="h-4 w-4 accent-text-[var(--accent-hover)]"
             />
-            <span className="text-sm text-zinc-300">{config.enabled ? "已开启" : "已关闭"}</span>
+            <span className="text-sm text-[var(--text-2)]">{config.enabled ? "已开启" : "已关闭"}</span>
           </label>
         </div>
       </div>
 
       {/* 采集模式 */}
-      <div className="rounded-xl border border-white/5 bg-[#1c1f26] p-6 mb-4">
-        <h3 className="text-base font-semibold text-zinc-100 mb-4">采集模式</h3>
+      <div className="rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)] p-6 mb-4">
+        <h3 className="text-base font-semibold text-[var(--text-1)] mb-4">采集模式</h3>
 
         <div className="space-y-4">
           {/* 热榜模式 */}
           <div className="flex items-center justify-between py-2">
             <div>
-              <div className="text-sm font-medium text-zinc-200">热榜模式</div>
-              <div className="text-xs text-zinc-500 mt-1">
+              <div className="text-sm font-medium text-[var(--text-1)]">热榜模式</div>
+              <div className="text-xs text-[var(--text-3)] mt-1">
                 自动从B站/抖音热榜获取高赞视频
               </div>
             </div>
@@ -206,7 +206,7 @@ export default function CollectionView() {
               checked={config.hotlist_enabled}
               onChange={(e) => updateConfig({ hotlist_enabled: e.target.checked })}
               disabled={!config.enabled}
-              className="h-4 w-4 accent-amber-300"
+              className="h-4 w-4 accent-text-[var(--accent-hover)]"
             />
           </div>
 
@@ -214,8 +214,8 @@ export default function CollectionView() {
           <div className="py-2">
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm font-medium text-zinc-200">关键词模式</div>
-                <div className="text-xs text-zinc-500 mt-1">
+                <div className="text-sm font-medium text-[var(--text-1)]">关键词模式</div>
+                <div className="text-xs text-[var(--text-3)] mt-1">
                   按指定关键词搜索热门视频
                 </div>
               </div>
@@ -224,7 +224,7 @@ export default function CollectionView() {
                 checked={config.keyword_enabled}
                 onChange={(e) => updateConfig({ keyword_enabled: e.target.checked })}
                 disabled={!config.enabled}
-                className="h-4 w-4 accent-amber-300"
+                className="h-4 w-4 accent-text-[var(--accent-hover)]"
               />
             </div>
 
@@ -237,12 +237,12 @@ export default function CollectionView() {
                     value={newKeyword}
                     onChange={(e) => setNewKeyword(e.target.value)}
                     placeholder="输入关键词（1-20字）"
-                    className="flex-1 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:border-amber-300/50"
+                    className="flex-1 rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-hover)] px-3 py-2 text-sm text-[var(--text-1)] placeholder-[var(--text-3)] outline-none focus:border-text-[var(--accent-hover)]/50"
                     maxLength={20}
                   />
                   <button
                     onClick={addKeyword}
-                    className="rounded-lg bg-amber-300/15 px-4 py-2 text-sm font-medium text-amber-200 hover:bg-amber-300/25"
+                    className="rounded-lg bg-[var(--accent-hover)]/15 px-4 py-2 text-sm font-medium text-[var(--accent-hover)] hover:bg-[var(--accent-hover)]/25"
                   >
                     添加
                   </button>
@@ -251,12 +251,12 @@ export default function CollectionView() {
                   {config.keywords.map((kw) => (
                     <span
                       key={kw}
-                      className="rounded-full bg-white/5 px-3 py-1 text-xs text-zinc-300 flex items-center gap-1.5"
+                      className="rounded-full bg-[var(--bg-hover)] px-3 py-1 text-xs text-[var(--text-2)] flex items-center gap-1.5"
                     >
                       {kw}
                       <button
                         onClick={() => removeKeyword(kw)}
-                        className="text-zinc-500 hover:text-zinc-300"
+                        className="text-[var(--text-3)] hover:text-[var(--text-2)]"
                       >
                         ×
                       </button>
@@ -270,51 +270,51 @@ export default function CollectionView() {
       </div>
 
       {/* 采集参数 */}
-      <div className="rounded-xl border border-white/5 bg-[#1c1f26] p-6 mb-4">
-        <h3 className="text-base font-semibold text-zinc-100 mb-4">采集参数</h3>
+      <div className="rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)] p-6 mb-4">
+        <h3 className="text-base font-semibold text-[var(--text-1)] mb-4">采集参数</h3>
         <div className="grid grid-cols-3 gap-4">
           <div>
-            <label className="block text-xs text-zinc-500 mb-1.5">每次最多采集视频数</label>
+            <label className="block text-xs text-[var(--text-3)] mb-1.5">每次最多采集视频数</label>
             <input
               type="number"
               value={config.max_videos_per_run}
               onChange={(e) => updateConfig({ max_videos_per_run: parseInt(e.target.value) })}
               min={1}
               max={50}
-              className="w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-100 outline-none focus:border-amber-300/50"
+              className="w-full rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-hover)] px-3 py-2 text-sm text-[var(--text-1)] outline-none focus:border-text-[var(--accent-hover)]/50"
             />
           </div>
           <div>
-            <label className="block text-xs text-zinc-500 mb-1.5">最低点赞数</label>
+            <label className="block text-xs text-[var(--text-3)] mb-1.5">最低点赞数</label>
             <input
               type="number"
               value={config.min_likes}
               onChange={(e) => updateConfig({ min_likes: parseInt(e.target.value) })}
-              className="w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-100 outline-none focus:border-amber-300/50"
+              className="w-full rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-hover)] px-3 py-2 text-sm text-[var(--text-1)] outline-none focus:border-text-[var(--accent-hover)]/50"
             />
           </div>
           <div>
-            <label className="block text-xs text-zinc-500 mb-1.5">采集间隔（分钟）</label>
+            <label className="block text-xs text-[var(--text-3)] mb-1.5">采集间隔（分钟）</label>
             <input
               type="number"
               value={config.interval_minutes}
               onChange={(e) => updateConfig({ interval_minutes: parseInt(e.target.value) })}
               min={10}
               max={1440}
-              className="w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-100 outline-none focus:border-amber-300/50"
+              className="w-full rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-hover)] px-3 py-2 text-sm text-[var(--text-1)] outline-none focus:border-text-[var(--accent-hover)]/50"
             />
           </div>
         </div>
       </div>
 
       {/* 热榜查看 */}
-      <div className="rounded-xl border border-white/5 bg-[#1c1f26] p-6">
+      <div className="rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)] p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-semibold text-zinc-100">每日热榜</h3>
+          <h3 className="text-base font-semibold text-[var(--text-1)]">每日热榜</h3>
           <button
             onClick={refreshHotlist}
             disabled={loading}
-            className="rounded-lg bg-amber-300/15 px-4 py-2 text-sm font-medium text-amber-200 hover:bg-amber-300/25 disabled:opacity-50"
+            className="rounded-lg bg-[var(--accent-hover)]/15 px-4 py-2 text-sm font-medium text-[var(--accent-hover)] hover:bg-[var(--accent-hover)]/25 disabled:opacity-50"
           >
             {loading ? "获取中..." : "刷新热榜"}
           </button>
@@ -329,7 +329,7 @@ export default function CollectionView() {
                 setSelectedDate(e.target.value);
                 loadHotlist(e.target.value);
               }}
-              className="rounded-lg border border-white/10 bg-[#1c1f26] px-3 py-2 text-sm text-zinc-100 outline-none focus:border-amber-300/50"
+              className="rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-card)] px-3 py-2 text-sm text-[var(--text-1)] outline-none focus:border-text-[var(--accent-hover)]/50"
             >
               {dates.map((d) => (
                 <option key={d} value={d}>
@@ -346,7 +346,7 @@ export default function CollectionView() {
             <h4 className="text-sm font-semibold text-emerald-300 mb-2">
               📊 AI热榜分析
             </h4>
-            <div className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">
+            <div className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-1)]">
               {aiSummary}
             </div>
           </div>
@@ -369,15 +369,15 @@ export default function CollectionView() {
                     {platformItems.map((item) => (
                       <div
                         key={item.id}
-                        className="rounded-lg border border-white/5 bg-white/[0.02] p-3"
+                        className="rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-hover)] p-3"
                       >
                         <div className="flex items-center gap-3">
-                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white/5 text-xs font-semibold text-zinc-400">
+                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--bg-hover)] text-xs font-semibold text-[var(--text-2)]">
                             {item.rank}
                           </span>
                           <div className="flex-1">
-                            <div className="text-sm text-zinc-100">{item.title}</div>
-                            <div className="mt-1 text-xs text-zinc-500">
+                            <div className="text-sm text-[var(--text-1)]">{item.title}</div>
+                            <div className="mt-1 text-xs text-[var(--text-3)]">
                               {item.author} · 热度 {item.hot_value}
                             </div>
                           </div>
@@ -390,7 +390,7 @@ export default function CollectionView() {
             })}
           </div>
         ) : (
-          <div className="py-12 text-center text-sm text-zinc-600">
+          <div className="py-12 text-center text-sm text-[var(--text-3)]">
             暂无热榜数据，点击"刷新热榜"获取
           </div>
         )}

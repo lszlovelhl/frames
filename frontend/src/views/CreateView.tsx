@@ -50,7 +50,7 @@ function inlineMd(text: string, keyBase: string): ReactNode[] {
   parts.forEach((p, i) => {
     if (!p) return;
     if (p.startsWith("**") && p.endsWith("**")) {
-      out.push(<strong key={`${keyBase}-b${i}`} className="font-semibold text-zinc-100">{p.slice(2, -2)}</strong>);
+      out.push(<strong key={`${keyBase}-b${i}`} className="font-semibold text-[var(--text-1)]">{p.slice(2, -2)}</strong>);
     } else {
       out.push(<span key={`${keyBase}-s${i}`}>{p}</span>);
     }
@@ -78,14 +78,14 @@ function renderMdLines(text: string): ReactNode[] {
       continue;
     }
     if (trimmed === "---" || trimmed === "***") {
-      nodes.push(<hr key={key++} className="my-2 border-white/10" />);
+      nodes.push(<hr key={key++} className="my-2 border-[var(--separator-soft)]" />);
       i += 1;
       continue;
     }
     const heading = /^(#{1,6})\s+(.*)$/.exec(trimmed);
     if (heading) {
       const level = heading[1].length;
-      const cls = level <= 2 ? "text-base font-semibold text-zinc-100 my-2" : level === 3 ? "text-sm font-semibold text-zinc-200 mt-2.5 mb-1" : "text-xs font-medium text-zinc-300 mt-2 mb-0.5";
+      const cls = level <= 2 ? "text-base font-semibold text-[var(--text-1)] my-2" : level === 3 ? "text-sm font-semibold text-[var(--text-1)] mt-2.5 mb-1" : "text-xs font-medium text-[var(--text-2)] mt-2 mb-0.5";
       const Tag = level <= 2 ? "h3" : level === 3 ? "h4" : "h5";
       nodes.push(<Tag key={key++} className={cls}>{inlineMd(heading[2], `h${key}`)}</Tag>);
       i += 1;
@@ -93,7 +93,7 @@ function renderMdLines(text: string): ReactNode[] {
     }
     // 引用
     if (trimmed.startsWith(">")) {
-      nodes.push(<blockquote key={key++} className="my-1.5 border-l-2 border-amber-300/30 pl-2 text-xs text-zinc-400">{inlineMd(trimmed.replace(/^>\s?/, ""), `q${key}`)}</blockquote>);
+      nodes.push(<blockquote key={key++} className="my-1.5 border-l-2 border-text-[var(--accent-hover)]/30 pl-2 text-xs text-[var(--text-2)]">{inlineMd(trimmed.replace(/^>\s?/, ""), `q${key}`)}</blockquote>);
       i += 1;
       continue;
     }
@@ -111,11 +111,11 @@ function renderMdLines(text: string): ReactNode[] {
         <div key={key++} className="my-2 overflow-x-auto">
           <table className="w-full border-collapse text-xs">
             <thead>
-              <tr>{header.map((h, c) => <th key={c} className="border border-white/10 bg-white/5 px-2 py-1 text-left font-medium text-zinc-300">{inlineMd(h, `th${key}${c}`)}</th>)}</tr>
+              <tr>{header.map((h, c) => <th key={c} className="border border-[var(--separator-soft)] bg-[var(--bg-hover)] px-2 py-1 text-left font-medium text-[var(--text-2)]">{inlineMd(h, `th${key}${c}`)}</th>)}</tr>
             </thead>
             <tbody>
               {body.map((row, r) => (
-                <tr key={r}>{row.map((cell, c) => <td key={c} className="border border-white/10 px-2 py-1 align-top text-zinc-400">{inlineMd(cell, `td${key}${r}${c}`)}</td>)}</tr>
+                <tr key={r}>{row.map((cell, c) => <td key={c} className="border border-[var(--separator-soft)] px-2 py-1 align-top text-[var(--text-2)]">{inlineMd(cell, `td${key}${r}${c}`)}</td>)}</tr>
               ))}
             </tbody>
           </table>
@@ -133,7 +133,7 @@ function renderMdLines(text: string): ReactNode[] {
       }
       nodes.push(
         <ol key={key++} className="my-1 list-decimal space-y-0.5 pl-4">
-          {items.map((it, c) => <li key={c} className="text-xs leading-relaxed text-zinc-400">{inlineMd(it, `ol${key}${c}`)}</li>)}
+          {items.map((it, c) => <li key={c} className="text-xs leading-relaxed text-[var(--text-2)]">{inlineMd(it, `ol${key}${c}`)}</li>)}
         </ol>
       );
       continue;
@@ -150,8 +150,8 @@ function renderMdLines(text: string): ReactNode[] {
       nodes.push(
         <ul key={key++} className="my-1 space-y-0.5">
           {items.map((it, c) => (
-            <li key={c} className="text-xs leading-relaxed text-zinc-400" style={{ paddingLeft: `${it.depth * 0.8}rem` }}>
-              <span className="mr-1 text-zinc-600">{it.depth === 0 ? "•" : "◦"}</span>
+            <li key={c} className="text-xs leading-relaxed text-[var(--text-2)]" style={{ paddingLeft: `${it.depth * 0.8}rem` }}>
+              <span className="mr-1 text-[var(--text-3)]">{it.depth === 0 ? "•" : "◦"}</span>
               {inlineMd(it.raw, `ul${key}${c}`)}
             </li>
           ))}
@@ -166,7 +166,7 @@ function renderMdLines(text: string): ReactNode[] {
       para.push(lines[i].trim());
       i += 1;
     }
-    nodes.push(<p key={key++} className="my-1 text-xs leading-relaxed text-zinc-400">{inlineMd(para.join(" "), `p${key}`)}</p>);
+    nodes.push(<p key={key++} className="my-1 text-xs leading-relaxed text-[var(--text-2)]">{inlineMd(para.join(" "), `p${key}`)}</p>);
   }
   return nodes;
 }
@@ -574,7 +574,7 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
             <button
               key={`${asset}-${idx}`}
               onClick={() => setGuideTipOpen((v) => (v === `${openKey}-${idx}` ? null : `${openKey}-${idx}`))}
-              className="inline-flex items-center gap-0.5 rounded bg-sky-400/10 px-1.5 py-0.5 text-[10px] text-sky-300/90 hover:bg-sky-400/20"
+              className="inline-flex items-center gap-0.5 rounded bg-[var(--accent)]/10 px-1.5 py-0.5 text-[10px] text-sky-300/90 hover:bg-sky-400/20"
             >
               <span className="font-semibold">ⓘ</span>
               <span className="truncate">{t.label || t.name}</span>
@@ -601,33 +601,33 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
     return (
       <div className="overflow-hidden rounded-2xl border border-violet-300/20 bg-[#1b1724]">
         {guide.step === "previewing" && (
-          <div className="flex items-center gap-2 px-4 py-4 text-sm text-zinc-300">
+          <div className="flex items-center gap-2 px-4 py-4 text-sm text-[var(--text-2)]">
             <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border border-zinc-600 border-t-violet-300" />
             AI 正在生成创作任务卡与核心策略（速览）…
           </div>
         )}
         {guide.step === "generating" && (
-          <div className="flex items-center gap-2 px-4 py-4 text-sm text-zinc-300">
+          <div className="flex items-center gap-2 px-4 py-4 text-sm text-[var(--text-2)]">
             <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border border-zinc-600 border-t-violet-300" />
             方向已确认，正在补全脚本 / 拍摄 / 剪辑 / 发布清单，全程约需 1 分钟…
           </div>
         )}
         {guide.step === "confirm" && (
           <div className="max-h-[70vh] overflow-y-auto">
-            <div className="border-b border-white/5 px-4 py-3">
+            <div className="border-b border-[var(--separator-soft)] px-4 py-3">
               <div className="flex items-center gap-2">
                 <span className="rounded bg-violet-400/15 px-1.5 py-0.5 text-[10px] font-medium text-violet-300">创作指南 · 速览</span>
-                {guide.title && <span className="truncate text-sm font-medium text-zinc-100">{guide.title}</span>}
+                {guide.title && <span className="truncate text-sm font-medium text-[var(--text-1)]">{guide.title}</span>}
               </div>
-              <p className="mt-1 text-[11px] text-zinc-500">先确认方向（任务卡 + 核心策略），没问题再一键补全完整执行指南</p>
+              <p className="mt-1 text-[11px] text-[var(--text-3)]">先确认方向（任务卡 + 核心策略），没问题再一键补全完整执行指南</p>
             </div>
             {chs.map((c) => (
-              <div key={c.asset} className="border-b border-white/5 px-4 py-3">
+              <div key={c.asset} className="border-b border-[var(--separator-soft)] px-4 py-3">
                 <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-violet-200/90">
-                  <span className="text-[10px] text-zinc-600">{c.asset.toUpperCase()}</span>
+                  <span className="text-[10px] text-[var(--text-3)]">{c.asset.toUpperCase()}</span>
                   {c.title}
                 </div>
-                <div className="text-sm leading-relaxed text-zinc-300">{renderMdLines(c.text ?? "")}</div>
+                <div className="text-sm leading-relaxed text-[var(--text-2)]">{renderMdLines(c.text ?? "")}</div>
                 {renderTraceChips(chs, c.asset)}
               </div>
             ))}
@@ -640,7 +640,7 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
                   closeGuide();
                   setNotice("已取消，可重新发起或继续对话");
                 }}
-                className="rounded-lg border border-white/10 px-3 py-2 text-xs text-zinc-400 hover:text-zinc-200"
+                className="rounded-lg border border-[var(--separator-soft)] px-3 py-2 text-xs text-[var(--text-2)] hover:text-[var(--text-1)]"
               >
                 不满意，重新描述
               </button>
@@ -649,15 +649,15 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
         )}
         {guide.step === "done" && guide.detail && (
           <div>
-            <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
+            <div className="flex items-center justify-between border-b border-[var(--separator-soft)] px-4 py-3">
               <div className="flex items-center gap-2">
                 <span className="rounded bg-emerald-400/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">已生成完整指南</span>
-                <span className="truncate text-sm font-medium text-zinc-100">{guide.title ?? guide.detail.title}</span>
+                <span className="truncate text-sm font-medium text-[var(--text-1)]">{guide.title ?? guide.detail.title}</span>
               </div>
-              <button onClick={closeGuide} className="rounded border border-white/10 px-2 py-1 text-[10px] text-zinc-400 hover:text-zinc-200">×</button>
+              <button onClick={closeGuide} className="rounded border border-[var(--separator-soft)] px-2 py-1 text-[10px] text-[var(--text-2)] hover:text-[var(--text-1)]">×</button>
             </div>
             <div className="px-4 py-3">
-              <p className="mb-2 text-[11px] text-zinc-500">已按 8 个章节沉淀到产物库，含逐段脚本 / 拍摄 / 剪辑 / 发布执行单与参考依据。</p>
+              <p className="mb-2 text-[11px] text-[var(--text-3)]">已按 8 个章节沉淀到产物库，含逐段脚本 / 拍摄 / 剪辑 / 发布执行单与参考依据。</p>
               <div className="mb-3 flex flex-wrap gap-1">
                 {guideChaptersOf(guide.detail).map((a, idx) => (
                   <span key={a.id} className="rounded bg-violet-400/10 px-1.5 py-0.5 text-[10px] text-violet-300/90">
@@ -675,7 +675,7 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
                 >
                   在产物库查看指南
                 </button>
-                <button onClick={closeGuide} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-zinc-400 hover:text-zinc-200">
+                <button onClick={closeGuide} className="rounded-lg border border-[var(--separator-soft)] px-3 py-2 text-xs text-[var(--text-2)] hover:text-[var(--text-1)]">
                   继续创作
                 </button>
               </div>
@@ -686,8 +686,8 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
           <div className="flex items-start justify-between gap-2 px-4 py-3">
             <p className="text-xs leading-relaxed text-rose-300">指南生成失败：{guide.error ?? "未知错误"}</p>
             <div className="flex shrink-0 gap-2">
-              <button onClick={() => void startGuidePreview()} className="rounded border border-white/10 px-2 py-1 text-[10px] text-zinc-300 hover:text-zinc-100">重试</button>
-              <button onClick={closeGuide} className="rounded border border-white/10 px-2 py-1 text-[10px] text-zinc-500 hover:text-zinc-300">关闭</button>
+              <button onClick={() => void startGuidePreview()} className="rounded border border-[var(--separator-soft)] px-2 py-1 text-[10px] text-[var(--text-2)] hover:text-[var(--text-1)]">重试</button>
+              <button onClick={closeGuide} className="rounded border border-[var(--separator-soft)] px-2 py-1 text-[10px] text-[var(--text-3)] hover:text-[var(--text-2)]">关闭</button>
             </div>
           </div>
         )}
@@ -698,19 +698,19 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
   return (
     <div className="flex h-full flex-col">
       {/* 顶栏 */}
-      <header className="flex items-center justify-between border-b border-white/5 px-6 py-3">
+      <header className="flex items-center justify-between border-b border-[var(--separator-soft)] px-6 py-3">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-100">创作台</h1>
-          <p className="text-xs text-zinc-500">{editing ? "改稿模式 · 针对当前版本迭代" : "对话驱动 · 可引用元素库 · 一键落卡沉淀 · 可生成完整创作指南"}</p>
+          <h1 className="text-lg font-semibold text-[var(--text-1)]">创作台</h1>
+          <p className="text-xs text-[var(--text-3)]">{editing ? "改稿模式 · 针对当前版本迭代" : "对话驱动 · 可引用元素库 · 一键落卡沉淀 · 可生成完整创作指南"}</p>
         </div>
-        <button onClick={() => setDrawerOpen(true)} className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-300 hover:bg-white/5">
+        <button onClick={() => setDrawerOpen(true)} className="rounded-lg border border-[var(--separator-soft)] px-3 py-1.5 text-xs text-[var(--text-2)] hover:bg-[var(--bg-hover)]">
           产物库（{creations.length}）
         </button>
       </header>
 
       {editing && (
-        <div className="flex items-center justify-between border-b border-amber-300/15 bg-amber-300/10 px-6 py-2">
-          <span className="min-w-0 truncate text-xs text-amber-200/90">
+        <div className="flex items-center justify-between border-b border-text-[var(--accent-hover)]/15 bg-[var(--accent-hover)]/10 px-6 py-2">
+          <span className="min-w-0 truncate text-xs text-[var(--accent-hover)]/90">
             正在改稿《{editing.title}》· v{editing.version} · 发送指令将基于当前版本迭代
           </span>
           <button
@@ -719,7 +719,7 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
               setMessages([]);
               setNotice("已退出改稿模式，回到新创作");
             }}
-            className="shrink-0 rounded border border-white/10 px-2 py-0.5 text-[11px] text-zinc-300 hover:text-zinc-100"
+            className="shrink-0 rounded border border-[var(--separator-soft)] px-2 py-0.5 text-[11px] text-[var(--text-2)] hover:text-[var(--text-1)]"
           >
             退出改稿
           </button>
@@ -733,7 +733,7 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6">
           {messages.length === 0 && (
-            <div className="rounded-xl border border-dashed border-white/10 p-6 text-sm leading-relaxed text-zinc-500">
+            <div className="rounded-xl border border-dashed border-[var(--separator-soft)] p-6 text-sm leading-relaxed text-[var(--text-3)]">
               {editing ? (
                 <>
                   改稿模式已开启：直接说要改哪里、怎么改，AI 会基于《{editing.title}》v{editing.version} 给出新版方案。
@@ -753,23 +753,23 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
           )}
           {messages.map((m, i) =>
             m.role === "user" ? (
-              <div key={i} className="self-end max-w-[85%] rounded-2xl rounded-br-md bg-amber-300/15 px-4 py-2.5 text-sm leading-relaxed text-amber-100/90 whitespace-pre-wrap break-words">
+              <div key={i} className="self-end max-w-[85%] rounded-2xl rounded-br-md bg-[var(--accent-hover)]/15 px-4 py-2.5 text-sm leading-relaxed text-[var(--accent)] whitespace-pre-wrap break-words">
                 {m.content}
               </div>
             ) : (
-              <div key={i} className="w-full rounded-2xl border border-white/5 bg-[#1c1f26] px-4 py-3.5">
+              <div key={i} className="w-full rounded-2xl border border-[var(--separator-soft)] bg-[var(--bg-card)] px-4 py-3.5">
                 {m.pending ? (
-                  <div className="flex items-center gap-2 text-sm text-zinc-500">
+                  <div className="flex items-center gap-2 text-sm text-[var(--text-3)]">
                     <span className="inline-block h-3 w-3 animate-spin rounded-full border border-zinc-600 border-t-zinc-300" />
                     正在构思…
                   </div>
                 ) : (
                   <>
-                    <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-200">{m.content}</div>
+                    <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-[var(--text-1)]">{m.content}</div>
                     {m.used && m.used.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1">
                         {m.used.map((u) => (
-                          <span key={u.id} className="rounded bg-sky-400/10 px-1.5 py-0.5 text-[10px] text-sky-300/80">
+                          <span key={u.id} className="rounded bg-[var(--accent)]/10 px-1.5 py-0.5 text-[10px] text-sky-300/80">
                             {u.category} · {u.name}
                           </span>
                         ))}
@@ -778,13 +778,13 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
                     {m.usedProducts && m.usedProducts.length > 0 && (
                       <div className="mt-2 flex flex-wrap gap-1">
                         {m.usedProducts.map((u) => (
-                          <span key={u.id} className="rounded bg-amber-300/10 px-1.5 py-0.5 text-[10px] text-amber-200/90">
+                          <span key={u.id} className="rounded bg-[var(--accent-hover)]/10 px-1.5 py-0.5 text-[10px] text-[var(--accent-hover)]/90">
                             ◈ {u.brand} {u.name}
                           </span>
                         ))}
                       </div>
                     )}
-                    <div className="mt-3 flex items-center gap-2 border-t border-white/5 pt-2.5">
+                    <div className="mt-3 flex items-center gap-2 border-t border-[var(--separator-soft)] pt-2.5">
                       {m.saved ? (
                         <span className="rounded px-2 py-1 text-[11px] text-emerald-300/80">
                           {editing ? "已存为新版本" : "已存产物库"}
@@ -792,12 +792,12 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
                       ) : (
                         <button
                           onClick={() => void saveMessage(i, m)}
-                          className="rounded border border-white/10 px-2.5 py-1 text-[11px] text-zinc-300 hover:border-emerald-300/40 hover:text-emerald-300"
+                          className="rounded border border-[var(--separator-soft)] px-2.5 py-1 text-[11px] text-[var(--text-2)] hover:border-emerald-300/40 hover:text-emerald-300"
                         >
                           {editing ? "存为新版本" : "落卡保存"}
                         </button>
                       )}
-                      <button onClick={() => copyText(m.content)} className="rounded border border-white/10 px-2.5 py-1 text-[11px] text-zinc-400 hover:text-zinc-200">
+                      <button onClick={() => copyText(m.content)} className="rounded border border-[var(--separator-soft)] px-2.5 py-1 text-[11px] text-[var(--text-2)] hover:text-[var(--text-1)]">
                         复制全文
                       </button>
                     </div>
@@ -812,18 +812,18 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
       </div>
 
       {/* 输入区 */}
-      <div className="border-t border-white/5 bg-[#0f1114]">
+      <div className="border-t border-[var(--separator-soft)] bg-[#0f1114]">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-4 py-3">
           <div className="flex flex-wrap items-center gap-2 text-[11px]">
             {!editing && (
-              <select value={platform} onChange={(e) => setPlatform(e.target.value)} className="rounded-md border border-white/10 bg-[#1c1f26] px-2 py-1 text-zinc-400 outline-none">
+              <select value={platform} onChange={(e) => setPlatform(e.target.value)} className="rounded-md border border-[var(--separator-soft)] bg-[var(--bg-card)] px-2 py-1 text-[var(--text-2)] outline-none">
                 {PLATFORMS.map((p) => (
                   <option key={p} value={p}>{p === "不限" ? "平台不限" : p}</option>
                 ))}
               </select>
             )}
             {!editing && (
-              <select value={intent} onChange={(e) => setIntent(e.target.value)} className="rounded-md border border-white/10 bg-[#1c1f26] px-2 py-1 text-zinc-400 outline-none">
+              <select value={intent} onChange={(e) => setIntent(e.target.value)} className="rounded-md border border-[var(--separator-soft)] bg-[var(--bg-card)] px-2 py-1 text-[var(--text-2)] outline-none">
                 {INTENTS.map((p) => (
                   <option key={p} value={p}>{p === "不限" ? "意图不限" : p}</option>
                 ))}
@@ -832,7 +832,7 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
             {picked.length > 0 && (
               <div className="flex flex-wrap items-center gap-1">
                 {picked.map((e) => (
-                  <span key={e.id} className="flex items-center gap-1 rounded-full bg-sky-400/10 px-2 py-0.5 text-sky-300">
+                  <span key={e.id} className="flex items-center gap-1 rounded-full bg-[var(--accent)]/10 px-2 py-0.5 text-sky-300">
                     {e.name}
                     <button onClick={() => togglePicked(e)} className="text-sky-300/50 hover:text-sky-200">×</button>
                   </span>
@@ -842,9 +842,9 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
             {pickedProducts.length > 0 && (
               <div className="flex flex-wrap items-center gap-1">
                 {pickedProducts.map((p) => (
-                  <span key={p.id} className="flex items-center gap-1 rounded-full bg-amber-300/10 px-2 py-0.5 text-amber-200">
+                  <span key={p.id} className="flex items-center gap-1 rounded-full bg-[var(--accent-hover)]/10 px-2 py-0.5 text-[var(--accent-hover)]">
                     ◈ {productLabel(p)}
-                    <button onClick={() => togglePickedProduct(p)} className="text-amber-200/50 hover:text-amber-100">×</button>
+                    <button onClick={() => togglePickedProduct(p)} className="text-[var(--accent-hover)]/50 hover:text-[var(--accent)]">×</button>
                   </span>
                 ))}
               </div>
@@ -863,12 +863,12 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
               }}
               rows={2}
               placeholder={editing ? "告诉 AI 想怎么改这一版…（Enter 发送 / Shift+Enter 换行）" : "描述你想创作的视频…（Enter 发送 / Shift+Enter 换行）"}
-              className="min-w-0 flex-1 resize-none rounded-xl border border-white/10 bg-[#1c1f26] px-3 py-2 text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-amber-300/30"
+              className="min-w-0 flex-1 resize-none rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)] px-3 py-2 text-sm text-[var(--text-1)] placeholder-[var(--text-3)] outline-none focus:border-text-[var(--accent-hover)]/30"
             />
-            <button onClick={() => setPickerOpen(true)} className="shrink-0 rounded-xl border border-white/10 px-3 py-2.5 text-xs text-zinc-400 hover:border-sky-300/30 hover:text-sky-300">
+            <button onClick={() => setPickerOpen(true)} className="shrink-0 rounded-xl border border-[var(--separator-soft)] px-3 py-2.5 text-xs text-[var(--text-2)] hover:border-sky-300/30 hover:text-sky-300">
               引用元素
             </button>
-            <button onClick={() => setProductPickerOpen(true)} className="shrink-0 rounded-xl border border-white/10 px-3 py-2.5 text-xs text-zinc-400 hover:border-amber-300/30 hover:text-amber-300">
+            <button onClick={() => setProductPickerOpen(true)} className="shrink-0 rounded-xl border border-[var(--separator-soft)] px-3 py-2.5 text-xs text-[var(--text-2)] hover:border-text-[var(--accent-hover)]/30 hover:text-[var(--accent-hover)]">
               选产品
             </button>
             {!editing && (
@@ -884,7 +884,7 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
             <button
               onClick={() => void send()}
               disabled={sending}
-              className="shrink-0 rounded-xl bg-amber-300/90 px-4 py-2.5 text-xs font-medium text-[#14161a] hover:bg-amber-300 disabled:opacity-50"
+              className="shrink-0 rounded-xl bg-[var(--accent-hover)]/90 px-4 py-2.5 text-xs font-medium text-[#14161a] hover:bg-[var(--accent-hover)] disabled:opacity-50"
             >
               {sending ? "构思中…" : "发送"}
             </button>
@@ -894,41 +894,41 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
 
       {/* 元素选择弹窗 */}
       {pickerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setPickerOpen(false)}>
-          <div className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl border border-white/10 bg-[#191c21]" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
-              <h3 className="text-sm font-semibold text-zinc-100">引用元素（{picked.length}）</h3>
-              <button onClick={() => setPickerOpen(false)} className="text-zinc-500 hover:text-zinc-300">×</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-base)] p-4" onClick={() => setPickerOpen(false)}>
+          <div className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-2xl border border-[var(--separator-soft)] bg-[#191c21]" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-[var(--separator-soft)] px-4 py-3">
+              <h3 className="text-sm font-semibold text-[var(--text-1)]">引用元素（{picked.length}）</h3>
+              <button onClick={() => setPickerOpen(false)} className="text-[var(--text-3)] hover:text-[var(--text-2)]">×</button>
             </div>
             <div className="px-4 py-2">
               <input
                 value={pickerQ}
                 onChange={(e) => setPickerQ(e.target.value)}
                 placeholder="搜元素名 / 分类 / 描述…"
-                className="w-full rounded-lg border border-white/10 bg-[#1f2228] px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none"
+                className="w-full rounded-lg border border-[var(--separator-soft)] bg-[#1f2228] px-3 py-1.5 text-sm text-[var(--text-1)] placeholder-[var(--text-3)] outline-none"
               />
             </div>
             <div className="flex-1 overflow-y-auto px-4 pb-3">
-              {filterPicked.length === 0 && <div className="py-6 text-center text-xs text-zinc-600">没有可引用元素，先去拆解库产生元素</div>}
+              {filterPicked.length === 0 && <div className="py-6 text-center text-xs text-[var(--text-3)]">没有可引用元素，先去拆解库产生元素</div>}
               {filterPicked.map((e) => {
                 const on = picked.some((x) => x.id === e.id);
                 return (
-                  <button key={e.id} onClick={() => togglePicked(e)} className={`mb-1.5 flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left transition ${on ? "border-sky-300/40 bg-sky-400/10" : "border-white/5 bg-[#1c1f26] hover:bg-white/[0.04]"}`}>
-                    <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${on ? "border-sky-300 bg-sky-400/30 text-sky-100" : "border-white/20 text-transparent"}`}>✓</span>
+                  <button key={e.id} onClick={() => togglePicked(e)} className={`mb-1.5 flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left transition ${on ? "border-[var(--accent)]/40 bg-[var(--accent)]/10" : "border-[var(--separator-soft)] bg-[var(--bg-card)] hover:bg-[var(--bg-hover)]"}`}>
+                    <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${on ? "border-sky-300 bg-sky-400/30 text-sky-100" : "border-[var(--separator-soft)] text-transparent"}`}>✓</span>
                     <span className="min-w-0">
                       <span className="flex flex-wrap items-center gap-1.5">
-                        <span className="rounded bg-sky-400/10 px-1 py-0.5 text-[10px] text-sky-300">{e.category}</span>
-                        <span className="text-xs font-medium text-zinc-200">{e.name}</span>
-                        <span className="text-[10px] text-zinc-600">{STATUS_TAG[e.status] ?? e.status}</span>
+                        <span className="rounded bg-[var(--accent)]/10 px-1 py-0.5 text-[10px] text-sky-300">{e.category}</span>
+                        <span className="text-xs font-medium text-[var(--text-1)]">{e.name}</span>
+                        <span className="text-[10px] text-[var(--text-3)]">{STATUS_TAG[e.status] ?? e.status}</span>
                       </span>
-                      {e.description && <span className="mt-0.5 line-clamp-2 block text-[11px] text-zinc-500">{e.description}</span>}
+                      {e.description && <span className="mt-0.5 line-clamp-2 block text-[11px] text-[var(--text-3)]">{e.description}</span>}
                     </span>
                   </button>
                 );
               })}
             </div>
-            <div className="border-t border-white/5 px-4 py-3 text-right">
-              <button onClick={() => setPickerOpen(false)} className="rounded-lg bg-amber-300/90 px-4 py-1.5 text-xs font-medium text-[#14161a]">
+            <div className="border-t border-[var(--separator-soft)] px-4 py-3 text-right">
+              <button onClick={() => setPickerOpen(false)} className="rounded-lg bg-[var(--accent-hover)]/90 px-4 py-1.5 text-xs font-medium text-[#14161a]">
                 完成（{picked.length}）
               </button>
             </div>
@@ -938,38 +938,38 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
 
       {/* 产品选择弹窗 */}
       {productPickerOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setProductPickerOpen(false)}>
-          <div className="flex max-h-[80vh] w-full max-w-xl flex-col rounded-2xl border border-white/10 bg-[#191c21]" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
-              <h3 className="text-sm font-semibold text-zinc-100">选产品（{pickedProducts.length}）</h3>
-              <button onClick={() => setProductPickerOpen(false)} className="text-zinc-500 hover:text-zinc-300">×</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-base)] p-4" onClick={() => setProductPickerOpen(false)}>
+          <div className="flex max-h-[80vh] w-full max-w-xl flex-col rounded-2xl border border-[var(--separator-soft)] bg-[#191c21]" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-[var(--separator-soft)] px-4 py-3">
+              <h3 className="text-sm font-semibold text-[var(--text-1)]">选产品（{pickedProducts.length}）</h3>
+              <button onClick={() => setProductPickerOpen(false)} className="text-[var(--text-3)] hover:text-[var(--text-2)]">×</button>
             </div>
             <div className="px-4 py-2">
               <input
                 value={productQ}
                 onChange={(e) => setProductQ(e.target.value)}
                 placeholder="搜品牌 / 产品 / 行业 / 卖点…"
-                className="w-full rounded-lg border border-white/10 bg-[#1f2228] px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none"
+                className="w-full rounded-lg border border-[var(--separator-soft)] bg-[#1f2228] px-3 py-1.5 text-sm text-[var(--text-1)] placeholder-[var(--text-3)] outline-none"
               />
             </div>
             <div className="flex-1 overflow-y-auto px-4 pb-3">
-              {filterProducts.length === 0 && <div className="py-6 text-center text-xs text-zinc-600">暂无产品，可先去产品库维护</div>}
+              {filterProducts.length === 0 && <div className="py-6 text-center text-xs text-[var(--text-3)]">暂无产品，可先去产品库维护</div>}
               {filterProducts.map((p) => {
                 const on = pickedProducts.some((x) => x.id === p.id);
                 return (
-                  <button key={p.id} onClick={() => togglePickedProduct(p)} className={`mb-1.5 flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left transition ${on ? "border-amber-300/40 bg-amber-300/10" : "border-white/5 bg-[#1c1f26] hover:bg-white/[0.04]"}`}>
-                    <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${on ? "border-amber-300 bg-amber-300/30 text-amber-100" : "border-white/20 text-transparent"}`}>✓</span>
+                  <button key={p.id} onClick={() => togglePickedProduct(p)} className={`mb-1.5 flex w-full items-start gap-2 rounded-lg border px-3 py-2 text-left transition ${on ? "border-text-[var(--accent-hover)]/40 bg-[var(--accent-hover)]/10" : "border-[var(--separator-soft)] bg-[var(--bg-card)] hover:bg-[var(--bg-hover)]"}`}>
+                    <span className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${on ? "border-text-[var(--accent-hover)] bg-[var(--accent-hover)]/30 text-[var(--accent)]" : "border-[var(--separator-soft)] text-transparent"}`}>✓</span>
                     <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-center gap-1.5">
-                        <span className="rounded bg-amber-300/10 px-1 py-0.5 text-[10px] text-amber-200">{p.industry}</span>
-                        <span className="text-xs font-semibold text-zinc-100">{p.brand}</span>
-                        <span className="text-xs font-medium text-zinc-200">{p.name}</span>
-                        {p.price_range && <span className="text-[10px] text-zinc-500">{p.price_range}</span>}
+                        <span className="rounded bg-[var(--accent-hover)]/10 px-1 py-0.5 text-[10px] text-[var(--accent-hover)]">{p.industry}</span>
+                        <span className="text-xs font-semibold text-[var(--text-1)]">{p.brand}</span>
+                        <span className="text-xs font-medium text-[var(--text-1)]">{p.name}</span>
+                        {p.price_range && <span className="text-[10px] text-[var(--text-3)]">{p.price_range}</span>}
                       </span>
-                      <span className="mt-0.5 line-clamp-1 block text-[11px] text-zinc-500">{p.headline}</span>
+                      <span className="mt-0.5 line-clamp-1 block text-[11px] text-[var(--text-3)]">{p.headline}</span>
                       <span className="mt-0.5 flex flex-wrap gap-1">
                         {p.selling_points.slice(0, 2).map((s) => (
-                          <span key={s.title} className="rounded bg-white/5 px-1 py-0.5 text-[10px] text-zinc-400">{s.title}</span>
+                          <span key={s.title} className="rounded bg-[var(--bg-hover)] px-1 py-0.5 text-[10px] text-[var(--text-2)]">{s.title}</span>
                         ))}
                       </span>
                     </span>
@@ -977,8 +977,8 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
                 );
               })}
             </div>
-            <div className="border-t border-white/5 px-4 py-3 text-right">
-              <button onClick={() => setProductPickerOpen(false)} className="rounded-lg bg-amber-300/90 px-4 py-1.5 text-xs font-medium text-[#14161a]">
+            <div className="border-t border-[var(--separator-soft)] px-4 py-3 text-right">
+              <button onClick={() => setProductPickerOpen(false)} className="rounded-lg bg-[var(--accent-hover)]/90 px-4 py-1.5 text-xs font-medium text-[#14161a]">
                 完成（{pickedProducts.length}）
               </button>
             </div>
@@ -988,22 +988,22 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
 
       {/* 产物抽屉 */}
       {drawerOpen && (
-        <div className="fixed inset-0 z-50 flex bg-black/60" onClick={() => setDrawerOpen(false)}>
-          <div className="ml-auto flex h-full w-full max-w-md flex-col border-l border-white/10 bg-[#14161a]" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
-              <h3 className="text-sm font-semibold text-zinc-100">产物库（{creations.length}）</h3>
-              <button onClick={() => setDrawerOpen(false)} className="text-zinc-500 hover:text-zinc-300">×</button>
+        <div className="fixed inset-0 z-50 flex bg-[var(--bg-base)]" onClick={() => setDrawerOpen(false)}>
+          <div className="ml-auto flex h-full w-full max-w-md flex-col border-l border-[var(--separator-soft)] bg-[#14161a]" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-[var(--separator-soft)] px-4 py-3">
+              <h3 className="text-sm font-semibold text-[var(--text-1)]">产物库（{creations.length}）</h3>
+              <button onClick={() => setDrawerOpen(false)} className="text-[var(--text-3)] hover:text-[var(--text-2)]">×</button>
             </div>
             <div className="flex-1 overflow-y-auto">
-              {creations.length === 0 && <div className="py-10 text-center text-xs text-zinc-600">还没有落卡产物，把满意的方案点「落卡保存」吧</div>}
+              {creations.length === 0 && <div className="py-10 text-center text-xs text-[var(--text-3)]">还没有落卡产物，把满意的方案点「落卡保存」吧</div>}
               {creations.map((c) => (
-                <button key={c.id} onClick={() => void openCreation(c)} className={`block w-full border-b border-white/5 px-4 py-3 text-left transition hover:bg-white/[0.03] ${activeCreation?.id === c.id ? "bg-white/[0.04]" : ""}`}>
+                <button key={c.id} onClick={() => void openCreation(c)} className={`block w-full border-b border-[var(--separator-soft)] px-4 py-3 text-left transition hover:bg-[var(--bg-hover)] ${activeCreation?.id === c.id ? "bg-[var(--bg-hover)]" : ""}`}>
                   <div className="flex items-center justify-between gap-2">
                     <span className="flex min-w-0 items-center gap-1.5">
                       {guideCreationIds.has(c.id) && (
                         <span className="shrink-0 rounded bg-violet-400/15 px-1 py-px text-[9px] text-violet-300">指南</span>
                       )}
-                      <span className="truncate text-sm font-medium text-zinc-200">{c.title}</span>
+                      <span className="truncate text-sm font-medium text-[var(--text-1)]">{c.title}</span>
                     </span>
                     {!guideCreationIds.has(c.id) && (
                       <span
@@ -1011,26 +1011,26 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
                           e.stopPropagation();
                           void startEdit(c);
                         }}
-                        className="shrink-0 cursor-pointer rounded border border-white/10 px-2 py-0.5 text-[10px] text-zinc-400 hover:border-amber-300/40 hover:text-amber-300"
+                        className="shrink-0 cursor-pointer rounded border border-[var(--separator-soft)] px-2 py-0.5 text-[10px] text-[var(--text-2)] hover:border-text-[var(--accent-hover)]/40 hover:text-[var(--accent-hover)]"
                       >
                         继续修改
                       </span>
                     )}
                   </div>
-                  <div className="mt-1 flex items-center gap-2 text-[11px] text-zinc-500">
+                  <div className="mt-1 flex items-center gap-2 text-[11px] text-[var(--text-3)]">
                     <span>{c.platform ?? "平台不限"}</span>
                     <span>{c.intent ?? "意图不限"}</span>
-                    <span className="text-zinc-600">引用 {c.core_elements?.length ?? 0} 元素</span>
+                    <span className="text-[var(--text-3)]">引用 {c.core_elements?.length ?? 0} 元素</span>
                   </div>
                 </button>
               ))}
             </div>
             {activeCreation && (
-              <div className="max-h-[55%] border-t border-white/10 bg-[#1c1f26]">
-                <div className="flex items-center justify-between border-b border-white/5 px-4 py-2">
+              <div className="max-h-[55%] border-t border-[var(--separator-soft)] bg-[var(--bg-card)]">
+                <div className="flex items-center justify-between border-b border-[var(--separator-soft)] px-4 py-2">
                   <div className="min-w-0">
-                    <div className="truncate text-xs font-medium text-zinc-200">{activeCreation.title}</div>
-                    <div className="text-[10px] text-zinc-500">落卡于 {fmtTime(activeCreation.created_at)}</div>
+                    <div className="truncate text-xs font-medium text-[var(--text-1)]">{activeCreation.title}</div>
+                    <div className="text-[10px] text-[var(--text-3)]">落卡于 {fmtTime(activeCreation.created_at)}</div>
                   </div>
                   <div className="flex shrink-0 gap-1.5">
                     <button
@@ -1038,7 +1038,7 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
                         const text = activeCreation.assets?.map((a) => a.content?.text ?? "").filter(Boolean).join("\n\n---\n\n");
                         if (text) copyText(text);
                       }}
-                      className="rounded border border-white/10 px-2 py-1 text-[10px] text-zinc-300 hover:text-zinc-100"
+                      className="rounded border border-[var(--separator-soft)] px-2 py-1 text-[10px] text-[var(--text-2)] hover:text-[var(--text-1)]"
                     >
                       复制
                     </button>
@@ -1050,7 +1050,7 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
                           setTimeout(() => setConfirmId((v) => (v === activeCreation.id ? null : v)), 3000);
                         }
                       }}
-                      className={`rounded border px-2 py-1 text-[10px] ${confirmId === activeCreation.id ? "border-rose-400/40 bg-rose-400/15 text-rose-200" : "border-white/10 text-zinc-500 hover:text-rose-300"}`}
+                      className={`rounded border px-2 py-1 text-[10px] ${confirmId === activeCreation.id ? "border-rose-400/40 bg-rose-400/15 text-rose-200" : "border-[var(--separator-soft)] text-[var(--text-3)] hover:text-rose-300"}`}
                     >
                       {confirmId === activeCreation.id ? "确认删除" : "删除"}
                     </button>
@@ -1071,7 +1071,7 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
                                 <button
                                   key={a.id}
                                   onClick={() => setGuideTab(a.asset_type)}
-                                  className={`rounded-full px-2 py-1 text-[11px] transition ${on ? "bg-violet-400/20 text-violet-200" : "bg-white/5 text-zinc-500 hover:text-zinc-300"}`}
+                                  className={`rounded-full px-2 py-1 text-[11px] transition ${on ? "bg-violet-400/20 text-violet-200" : "bg-[var(--bg-hover)] text-[var(--text-3)] hover:text-[var(--text-2)]"}`}
                                 >
                                   {idx + 1}. {GUIDE_TITLES[a.asset_type] ?? a.asset_type}
                                 </button>
@@ -1080,43 +1080,43 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
                           </div>
                           {active?.asset_type === "guide_sources" ? (
                             <div>
-                              <p className="mb-2 text-[11px] text-zinc-500">聚合自各章节正文 ⓘ 标注的来源素材（已去重）。</p>
+                              <p className="mb-2 text-[11px] text-[var(--text-3)]">聚合自各章节正文 ⓘ 标注的来源素材（已去重）。</p>
                               {active.content?.items?.length ? (
                                 active.content.items.map((it, idx) => (
-                                  <div key={idx} className="mb-2 rounded-lg border border-white/5 bg-black/20 px-3 py-2">
-                                    <div className="flex items-center gap-1.5 text-xs text-zinc-200">
-                                      <span className={`rounded px-1 py-px text-[9px] ${it.kind === "element" ? "bg-sky-400/15 text-sky-300" : "bg-amber-300/15 text-amber-200"}`}>
+                                  <div key={idx} className="mb-2 rounded-lg border border-[var(--separator-soft)] bg-black/20 px-3 py-2">
+                                    <div className="flex items-center gap-1.5 text-xs text-[var(--text-1)]">
+                                      <span className={`rounded px-1 py-px text-[9px] ${it.kind === "element" ? "bg-sky-400/15 text-sky-300" : "bg-[var(--accent-hover)]/15 text-[var(--accent-hover)]"}`}>
                                         {it.kind === "element" ? "元素" : "产品"}
                                       </span>
                                       <span className="font-medium">{it.label || it.name}</span>
                                     </div>
                                     <div className="mt-1 flex flex-wrap gap-1">
                                       {it.chapters?.map((ch) => (
-                                        <span key={ch} className="rounded bg-white/5 px-1 py-px text-[9px] text-zinc-500">{GUIDE_TITLES[`guide_${ch}`] ?? ch}</span>
+                                        <span key={ch} className="rounded bg-[var(--bg-hover)] px-1 py-px text-[9px] text-[var(--text-3)]">{GUIDE_TITLES[`guide_${ch}`] ?? ch}</span>
                                       ))}
                                     </div>
                                   </div>
                                 ))
                               ) : (
-                                <div className="py-6 text-center text-xs text-zinc-600">本指南未标注来源素材</div>
+                                <div className="py-6 text-center text-xs text-[var(--text-3)]">本指南未标注来源素材</div>
                               )}
                             </div>
                           ) : (
                             <div>
                               {active?.content?.text ? (
-                                <div className="text-xs leading-relaxed text-zinc-300">{renderMdLines(active.content.text)}</div>
+                                <div className="text-xs leading-relaxed text-[var(--text-2)]">{renderMdLines(active.content.text)}</div>
                               ) : (
-                                <div className="py-6 text-center text-xs text-zinc-600">该章节暂无内容</div>
+                                <div className="py-6 text-center text-xs text-[var(--text-3)]">该章节暂无内容</div>
                               )}
                               {traceChips.length > 0 && (
-                                <div className="mt-2 border-t border-white/5 pt-2">
-                                  <div className="mb-1 text-[10px] text-zinc-600">本章参考来源</div>
+                                <div className="mt-2 border-t border-[var(--separator-soft)] pt-2">
+                                  <div className="mb-1 text-[10px] text-[var(--text-3)]">本章参考来源</div>
                                   <div className="flex flex-wrap gap-1">
                                     {traceChips.map((t, idx) => (
                                       <button
                                         key={`${active.asset_type}-${idx}`}
                                         onClick={() => setGuideTipOpen((v) => (v === `drawer:${active.asset_type}:${idx}` ? null : `drawer:${active.asset_type}:${idx}`))}
-                                        className="inline-flex items-center gap-0.5 rounded bg-sky-400/10 px-1.5 py-0.5 text-[10px] text-sky-300/90 hover:bg-sky-400/20"
+                                        className="inline-flex items-center gap-0.5 rounded bg-[var(--accent)]/10 px-1.5 py-0.5 text-[10px] text-sky-300/90 hover:bg-sky-400/20"
                                       >
                                         <span className="font-semibold">ⓘ</span>
                                         <span className="truncate">{t.label || t.name}</span>
@@ -1145,23 +1145,23 @@ export default function CreateView({ seedElementIds, seedProductIds }: CreateVie
                       const parentVer = a.parent_id ? activeCreation.assets?.find((p) => p.id === a.parent_id)?.version : null;
                       return (
                         <div key={a.id} className="mb-3">
-                          <div className="mb-1 flex items-center gap-2 text-[10px] uppercase tracking-wide text-zinc-600">
+                          <div className="mb-1 flex items-center gap-2 text-[10px] uppercase tracking-wide text-[var(--text-3)]">
                             <span>{a.asset_type}</span>
-                            {a.version ? <span className="rounded bg-sky-400/10 px-1 py-px text-[9px] normal-case text-sky-300">v{a.version}</span> : null}
+                            {a.version ? <span className="rounded bg-[var(--accent)]/10 px-1 py-px text-[9px] normal-case text-sky-300">v{a.version}</span> : null}
                             {a.parent_id && parentVer != null ? (
-                              <span className="rounded bg-zinc-400/10 px-1 py-px text-[9px] normal-case text-zinc-500">衍生自 v{parentVer}</span>
+                              <span className="rounded bg-zinc-400/10 px-1 py-px text-[9px] normal-case text-[var(--text-3)]">衍生自 v{parentVer}</span>
                             ) : null}
-                            <span className="text-[9px] normal-case text-zinc-700">{fmtTime(a.created_at)}</span>
+                            <span className="text-[9px] normal-case text-[var(--text-3)]">{fmtTime(a.created_at)}</span>
                             {a.content?.text ? (
                               <button
                                 onClick={() => void startEditFromAsset(a)}
-                                className="ml-auto rounded border border-white/10 px-2 py-0.5 text-[9px] normal-case text-zinc-400 hover:border-amber-300/40 hover:text-amber-300"
+                                className="ml-auto rounded border border-[var(--separator-soft)] px-2 py-0.5 text-[9px] normal-case text-[var(--text-2)] hover:border-text-[var(--accent-hover)]/40 hover:text-[var(--accent-hover)]"
                               >
                                 以此版续改
                               </button>
                             ) : null}
                           </div>
-                          <div className="whitespace-pre-wrap break-words rounded-lg bg-black/20 px-3 py-2 text-xs leading-relaxed text-zinc-300">{a.content?.text}</div>
+                          <div className="whitespace-pre-wrap break-words rounded-lg bg-black/20 px-3 py-2 text-xs leading-relaxed text-[var(--text-2)]">{a.content?.text}</div>
                         </div>
                       );
                     })
@@ -1265,15 +1265,15 @@ function CreationPublishBox({ creationId }: { creationId: string }) {
   }
 
   return (
-    <div className="mb-3 rounded-lg border border-white/5 bg-[#1c1f26] p-3">
+    <div className="mb-3 rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-card)] p-3">
       <div className="mb-1 flex items-center gap-2">
-        <span className="text-[10px] uppercase tracking-wider text-zinc-500">发布回流</span>
+        <span className="text-[10px] uppercase tracking-wider text-[var(--text-3)]">发布回流</span>
         {items && items.length > 0 && (
-          <span className="rounded bg-amber-300/10 px-1.5 py-px text-[9px] text-amber-200/90">{items.length} 条</span>
+          <span className="rounded bg-[var(--accent-hover)]/10 px-1.5 py-px text-[9px] text-[var(--accent-hover)]/90">{items.length} 条</span>
         )}
         <button
           onClick={() => setFormOpen((v) => !v)}
-          className="ml-auto rounded border border-white/10 px-2 py-0.5 text-[9px] normal-case text-zinc-400 hover:border-amber-300/40 hover:text-amber-300"
+          className="ml-auto rounded border border-[var(--separator-soft)] px-2 py-0.5 text-[9px] normal-case text-[var(--text-2)] hover:border-text-[var(--accent-hover)]/40 hover:text-[var(--accent-hover)]"
         >
           {formOpen ? "收起登记" : "登记发布"}
         </button>
@@ -1282,12 +1282,12 @@ function CreationPublishBox({ creationId }: { creationId: string }) {
       {error && <div className="mb-2 rounded bg-rose-400/10 px-2 py-1 text-[10px] text-rose-300">{error}</div>}
 
       {formOpen && (
-        <div className="mb-2 space-y-2 rounded-lg border border-white/5 bg-black/20 p-2.5">
+        <div className="mb-2 space-y-2 rounded-lg border border-[var(--separator-soft)] bg-black/20 p-2.5">
           <div className="flex flex-wrap gap-2">
             <select
               value={platform}
               onChange={(e) => setPlatform(e.target.value)}
-              className="rounded border border-white/10 bg-[#14161a] px-2 py-1.5 text-[11px] text-zinc-200 outline-none"
+              className="rounded border border-[var(--separator-soft)] bg-[#14161a] px-2 py-1.5 text-[11px] text-[var(--text-1)] outline-none"
             >
               {PUBLISH_PLATFORM_OPTIONS.map((p) => (
                 <option key={p} value={p}>{p}</option>
@@ -1297,14 +1297,14 @@ function CreationPublishBox({ creationId }: { creationId: string }) {
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               placeholder="发布链接（可留空）"
-              className="min-w-0 flex-1 rounded border border-white/10 bg-[#14161a] px-2 py-1.5 text-[11px] text-zinc-200 placeholder-zinc-600 outline-none"
+              className="min-w-0 flex-1 rounded border border-[var(--separator-soft)] bg-[#14161a] px-2 py-1.5 text-[11px] text-[var(--text-1)] placeholder-[var(--text-3)] outline-none"
             />
           </div>
           <input
             type="datetime-local"
             value={pubAt}
             onChange={(e) => setPubAt(e.target.value)}
-            className="rounded border border-white/10 bg-[#14161a] px-2 py-1.5 text-[11px] text-zinc-200 outline-none"
+            className="rounded border border-[var(--separator-soft)] bg-[#14161a] px-2 py-1.5 text-[11px] text-[var(--text-1)] outline-none"
           />
           <textarea
             value={statsText}
@@ -1312,12 +1312,12 @@ function CreationPublishBox({ creationId }: { creationId: string }) {
             spellCheck={false}
             rows={2}
             placeholder='回流数据（可留空，JSON 对象）：{"view_count": 128000, "like_count": 9200}'
-            className="w-full resize-y rounded border border-white/10 bg-[#14161a] px-2 py-1.5 font-mono text-[10px] text-zinc-300 placeholder-zinc-600 outline-none"
+            className="w-full resize-y rounded border border-[var(--separator-soft)] bg-[#14161a] px-2 py-1.5 font-mono text-[10px] text-[var(--text-2)] placeholder-[var(--text-3)] outline-none"
           />
           <button
             disabled={busy}
             onClick={() => void submit()}
-            className="rounded bg-amber-300/90 px-3 py-1 text-[10px] font-medium text-[#14161a] disabled:opacity-40"
+            className="rounded bg-[var(--accent-hover)]/90 px-3 py-1 text-[10px] font-medium text-[#14161a] disabled:opacity-40"
           >
             {busy ? "登记中…" : "登记"}
           </button>
@@ -1325,15 +1325,15 @@ function CreationPublishBox({ creationId }: { creationId: string }) {
       )}
 
       {items === null ? (
-        <div className="py-2 text-[10px] text-zinc-600">加载中…</div>
+        <div className="py-2 text-[10px] text-[var(--text-3)]">加载中…</div>
       ) : items.length === 0 ? (
-        <div className="py-2 text-[10px] text-zinc-600">暂无已登记的发布回流</div>
+        <div className="py-2 text-[10px] text-[var(--text-3)]">暂无已登记的发布回流</div>
       ) : (
         <div className="space-y-1.5">
           {items.map((p) => (
-            <div key={p.id} className="flex flex-wrap items-center gap-1.5 rounded-lg border border-white/5 bg-black/20 px-2.5 py-2">
-              <span className="rounded bg-amber-300/10 px-1.5 py-px text-[9px] text-amber-200">{p.publish_platform}</span>
-              {p.published_at && <span className="text-[10px] text-zinc-400">{fmtTime(p.published_at)}</span>}
+            <div key={p.id} className="flex flex-wrap items-center gap-1.5 rounded-lg border border-[var(--separator-soft)] bg-black/20 px-2.5 py-2">
+              <span className="rounded bg-[var(--accent-hover)]/10 px-1.5 py-px text-[9px] text-[var(--accent-hover)]">{p.publish_platform}</span>
+              {p.published_at && <span className="text-[10px] text-[var(--text-2)]">{fmtTime(p.published_at)}</span>}
               {p.publish_url ? (
                 <a
                   href={p.publish_url}
@@ -1344,19 +1344,19 @@ function CreationPublishBox({ creationId }: { creationId: string }) {
                   {p.publish_url}
                 </a>
               ) : (
-                <span className="text-[10px] text-zinc-600">无链接</span>
+                <span className="text-[10px] text-[var(--text-3)]">无链接</span>
               )}
               <span className="ml-auto flex shrink-0 items-center gap-2">
                 {Object.keys(p.stats ?? {}).length > 0 ? (
-                  <span className="max-w-[180px] truncate font-mono text-[9px] text-zinc-500" title={JSON.stringify(p.stats)}>
+                  <span className="max-w-[180px] truncate font-mono text-[9px] text-[var(--text-3)]" title={JSON.stringify(p.stats)}>
                     {JSON.stringify(p.stats)}
                   </span>
                 ) : (
-                  <span className="text-[9px] text-zinc-700">无回流数据</span>
+                  <span className="text-[9px] text-[var(--text-3)]">无回流数据</span>
                 )}
                 <button
                   onClick={() => remove(p.id)}
-                  className={`rounded border px-1.5 py-px text-[9px] ${confirmId === p.id ? "border-rose-400/40 bg-rose-400/15 text-rose-200" : "border-white/10 text-zinc-500 hover:text-rose-300"}`}
+                  className={`rounded border px-1.5 py-px text-[9px] ${confirmId === p.id ? "border-rose-400/40 bg-rose-400/15 text-rose-200" : "border-[var(--separator-soft)] text-[var(--text-3)] hover:text-rose-300"}`}
                 >
                   {confirmId === p.id ? "确认删除" : "删除"}
                 </button>

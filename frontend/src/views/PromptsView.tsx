@@ -23,12 +23,12 @@ function fmtTime(iso: string | null): string {
 const statusBadge = (status: string) => {
   const map: Record<string, string> = {
     active: "bg-emerald-400/15 text-emerald-300",
-    draft: "bg-amber-300/15 text-amber-200",
-    archived: "bg-white/5 text-zinc-500",
+    draft: "bg-[var(--accent-hover)]/15 text-[var(--accent-hover)]",
+    archived: "bg-[var(--bg-hover)] text-[var(--text-3)]",
   };
   const label: Record<string, string> = { active: "线上", draft: "草稿", archived: "已归档" };
   return (
-    <span className={`rounded-full px-2 py-0.5 text-[10px] ${map[status] ?? "bg-white/5 text-zinc-400"}`}>
+    <span className={`rounded-full px-2 py-0.5 text-[10px] ${map[status] ?? "bg-[var(--bg-hover)] text-[var(--text-2)]"}`}>
       {label[status] ?? status}
     </span>
   );
@@ -38,7 +38,7 @@ const statusBadge = (status: string) => {
 const SCOPE_CHIP_CLS: Record<string, string> = {
   role: "bg-sky-400/20 text-sky-200",
   platform: "bg-violet-400/20 text-violet-200",
-  group: "bg-amber-300/20 text-amber-200",
+  group: "bg-[var(--accent-hover)]/20 text-[var(--accent-hover)]",
 };
 
 export default function PromptsView() {
@@ -163,17 +163,17 @@ export default function PromptsView() {
   return (
     <div className="flex h-full min-h-0">
       {/* 左侧 code 列表 */}
-      <aside className="flex w-72 shrink-0 flex-col border-r border-white/5">
-        <div className="border-b border-white/5 px-4 py-3">
-          <div className="text-sm font-semibold text-zinc-200">提示词模板</div>
-          <div className="mt-0.5 text-[11px] text-zinc-500">分层拆解 · 创作链路 · 版本热生效</div>
+      <aside className="flex w-72 shrink-0 flex-col border-r border-[var(--separator-soft)]">
+        <div className="border-b border-[var(--separator-soft)] px-4 py-3">
+          <div className="text-sm font-semibold text-[var(--text-1)]">提示词模板</div>
+          <div className="mt-0.5 text-[11px] text-[var(--text-3)]">分层拆解 · 创作链路 · 版本热生效</div>
         </div>
         {scopeOptions.length > 0 && (
-          <div className="flex flex-wrap gap-1 border-b border-white/5 px-3 py-2">
+          <div className="flex flex-wrap gap-1 border-b border-[var(--separator-soft)] px-3 py-2">
             <button
               onClick={() => setScopeFilter(null)}
               className={`rounded-full px-2 py-0.5 text-[10px] transition-colors ${
-                scopeFilter === null ? "bg-amber-300/20 text-amber-200" : "text-zinc-500 hover:text-zinc-300"
+                scopeFilter === null ? "bg-[var(--accent-hover)]/20 text-[var(--accent-hover)]" : "text-[var(--text-3)] hover:text-[var(--text-2)]"
               }`}
             >
               全部
@@ -188,7 +188,7 @@ export default function PromptsView() {
                   key={o}
                   onClick={() => setScopeFilter(active ? null : o)}
                   className={`rounded-full px-2 py-0.5 text-[10px] transition-colors ${
-                    active ? `${SCOPE_CHIP_CLS[dim]} ring-1 ring-current` : "text-zinc-500 hover:text-zinc-300"
+                    active ? `${SCOPE_CHIP_CLS[dim]} ring-1 ring-current` : "text-[var(--text-3)] hover:text-[var(--text-2)]"
                   }`}
                 >
                   {label}
@@ -203,46 +203,46 @@ export default function PromptsView() {
               key={it.code}
               onClick={() => void loadDetail(it.code)}
               className={`mb-1 block w-full rounded-lg px-3 py-2 text-left transition-colors ${
-                selectedCode === it.code ? "bg-amber-300/10" : "hover:bg-white/5"
+                selectedCode === it.code ? "bg-[var(--accent-hover)]/10" : "hover:bg-[var(--bg-hover)]"
               }`}
             >
               <div className="flex items-center gap-2">
-                <span className="text-[10px] text-zinc-500">{LAYER_LABEL[it.layer ?? 0] ?? `L${it.layer}`}</span>
+                <span className="text-[10px] text-[var(--text-3)]">{LAYER_LABEL[it.layer ?? 0] ?? `L${it.layer}`}</span>
                 {it.active_version !== null && (
                   <span className="rounded bg-emerald-400/10 px-1.5 py-px text-[10px] text-emerald-300">
                     v{it.active_version}
                   </span>
                 )}
               </div>
-              <div className={`mt-0.5 truncate text-[13px] ${selectedCode === it.code ? "text-amber-200" : "text-zinc-300"}`}>
+              <div className={`mt-0.5 truncate text-[13px] ${selectedCode === it.code ? "text-[var(--accent-hover)]" : "text-[var(--text-2)]"}`}>
                 {it.name}
               </div>
-              <div className="mt-0.5 font-mono text-[10px] text-zinc-600">{it.code}</div>
+              <div className="mt-0.5 font-mono text-[10px] text-[var(--text-3)]">{it.code}</div>
             </button>
           ))}
           {grouped.creation.length > 0 && (
-            <div className="mb-1 mt-3 px-3 text-[10px] uppercase tracking-wider text-zinc-600">创作链路</div>
+            <div className="mb-1 mt-3 px-3 text-[10px] uppercase tracking-wider text-[var(--text-3)]">创作链路</div>
           )}
           {grouped.creation.map((it) => (
             <button
               key={it.code}
               onClick={() => void loadDetail(it.code)}
               className={`mb-1 block w-full rounded-lg px-3 py-2 text-left transition-colors ${
-                selectedCode === it.code ? "bg-amber-300/10" : "hover:bg-white/5"
+                selectedCode === it.code ? "bg-[var(--accent-hover)]/10" : "hover:bg-[var(--bg-hover)]"
               }`}
             >
               <div className="flex items-center gap-2">
-                <span className="text-[10px] text-zinc-500">创作</span>
+                <span className="text-[10px] text-[var(--text-3)]">创作</span>
                 {it.active_version !== null && (
                   <span className="rounded bg-emerald-400/10 px-1.5 py-px text-[10px] text-emerald-300">
                     v{it.active_version}
                   </span>
                 )}
               </div>
-              <div className={`mt-0.5 truncate text-[13px] ${selectedCode === it.code ? "text-amber-200" : "text-zinc-300"}`}>
+              <div className={`mt-0.5 truncate text-[13px] ${selectedCode === it.code ? "text-[var(--accent-hover)]" : "text-[var(--text-2)]"}`}>
                 {it.name}
               </div>
-              <div className="mt-0.5 font-mono text-[10px] text-zinc-600">{it.code}</div>
+              <div className="mt-0.5 font-mono text-[10px] text-[var(--text-3)]">{it.code}</div>
             </button>
           ))}
         </div>
@@ -251,15 +251,15 @@ export default function PromptsView() {
       {/* 右侧：版本历史 + 编辑器 */}
       {selected && editingVersion ? (
         <section className="flex min-h-0 flex-1 flex-col">
-          <div className="flex items-center gap-3 border-b border-white/5 px-5 py-3">
+          <div className="flex items-center gap-3 border-b border-[var(--separator-soft)] px-5 py-3">
             <div>
-              <div className="text-sm font-semibold text-zinc-200">{selected.name}</div>
-              <div className="font-mono text-[11px] text-zinc-500">
+              <div className="text-sm font-semibold text-[var(--text-1)]">{selected.name}</div>
+              <div className="font-mono text-[11px] text-[var(--text-3)]">
                 {selected.code} · 线上 v{selected.versions.find((v) => v.status === "active")?.version ?? "-"} · 共{" "}
                 {selected.versions.length} 版
               </div>
             </div>
-            <div className="ml-auto flex items-center gap-2 text-[11px] text-zinc-500">
+            <div className="ml-auto flex items-center gap-2 text-[11px] text-[var(--text-3)]">
               <span>{statusBadge(editingVersion.status)}</span>
               <span>正在编辑 v{editingVersion.version}</span>
             </div>
@@ -268,36 +268,36 @@ export default function PromptsView() {
           <div className="min-h-0 flex-1 overflow-y-auto p-5">
             {/* 编辑区 */}
             <div className="mb-5">
-              <div className="mb-2 flex items-center gap-2 text-xs text-zinc-400">
+              <div className="mb-2 flex items-center gap-2 text-xs text-[var(--text-2)]">
                 <span>编辑内容</span>
-                <span className="text-zinc-600">— 保存将追加为新版本（不改动历史）</span>
+                <span className="text-[var(--text-3)]">— 保存将追加为新版本（不改动历史）</span>
               </div>
               <input
                 value={draftName}
                 onChange={(e) => setDraftName(e.target.value)}
                 placeholder="模板名称（可留空继承）"
-                className="mb-2 w-full rounded-lg border border-white/10 bg-[#0f1114] px-3 py-2 text-[13px] text-zinc-200 outline-none focus:border-amber-300/40"
+                className="mb-2 w-full rounded-lg border border-[var(--separator-soft)] bg-[#0f1114] px-3 py-2 text-[13px] text-[var(--text-1)] outline-none focus:border-text-[var(--accent-hover)]/40"
               />
               <textarea
                 value={draftContent}
                 onChange={(e) => setDraftContent(e.target.value)}
                 spellCheck={false}
-                className="h-80 w-full resize-y rounded-lg border border-white/10 bg-[#0f1114] p-3 font-mono text-[12px] leading-relaxed text-zinc-200 outline-none focus:border-amber-300/40"
+                className="h-80 w-full resize-y rounded-lg border border-[var(--separator-soft)] bg-[#0f1114] p-3 font-mono text-[12px] leading-relaxed text-[var(--text-1)] outline-none focus:border-text-[var(--accent-hover)]/40"
               />
               {error && <div className="mt-2 text-xs text-rose-400">{error}</div>}
-              {ok && <div className="mt-2 text-xs text-emerald-400">{ok}</div>}
+              {ok && <div className="mt-2 text-xs text-[var(--success)]">{ok}</div>}
               <div className="mt-3 flex gap-2">
                 <button
                   disabled={busy}
                   onClick={() => void saveVersion(true)}
-                  className="rounded-lg bg-amber-300 px-4 py-2 text-xs font-semibold text-zinc-900 transition-opacity hover:opacity-90 disabled:opacity-40"
+                  className="rounded-lg bg-[var(--accent-hover)] px-4 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
                 >
                   {busy ? "保存中…" : "发布新版本（立即生效）"}
                 </button>
                 <button
                   disabled={busy}
                   onClick={() => void saveVersion(false)}
-                  className="rounded-lg border border-white/10 px-4 py-2 text-xs text-zinc-300 transition-colors hover:bg-white/5 disabled:opacity-40"
+                  className="rounded-lg border border-[var(--separator-soft)] px-4 py-2 text-xs text-[var(--text-2)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-40"
                 >
                   存为草稿
                 </button>
@@ -306,7 +306,7 @@ export default function PromptsView() {
 
             {/* 历史版本 */}
             <div>
-              <div className="mb-2 text-xs text-zinc-400">历史版本（点击可载入编辑）</div>
+              <div className="mb-2 text-xs text-[var(--text-2)]">历史版本（点击可载入编辑）</div>
               <div className="space-y-1">
                 {selected.versions.map((v) => (
                   <div
@@ -314,14 +314,14 @@ export default function PromptsView() {
                     onClick={() => pickEdit(v)}
                     className={`flex cursor-pointer items-center gap-3 rounded-lg border px-3 py-2 transition-colors ${
                       v.id === editingVersion.id
-                        ? "border-amber-300/30 bg-amber-300/5"
-                        : "border-white/5 bg-white/[0.02] hover:bg-white/5"
+                        ? "border-text-[var(--accent-hover)]/30 bg-[var(--accent-hover)]/5"
+                        : "border-[var(--separator-soft)] bg-[var(--bg-hover)] hover:bg-[var(--bg-hover)]"
                     }`}
                   >
-                    <span className="w-10 shrink-0 font-mono text-xs text-zinc-400">v{v.version}</span>
+                    <span className="w-10 shrink-0 font-mono text-xs text-[var(--text-2)]">v{v.version}</span>
                     {statusBadge(v.status)}
-                    <span className="min-w-0 flex-1 truncate text-xs text-zinc-400">{v.name}</span>
-                    <span className="shrink-0 font-mono text-[10px] text-zinc-600">{fmtTime(v.updated_at)}</span>
+                    <span className="min-w-0 flex-1 truncate text-xs text-[var(--text-2)]">{v.name}</span>
+                    <span className="shrink-0 font-mono text-[10px] text-[var(--text-3)]">{fmtTime(v.updated_at)}</span>
                     {v.status !== "active" && (
                       <button
                         disabled={busy}
@@ -329,7 +329,7 @@ export default function PromptsView() {
                           e.stopPropagation();
                           void activateVersion(v);
                         }}
-                        className="shrink-0 rounded-md border border-white/10 px-2 py-1 text-[10px] text-zinc-300 transition-colors hover:bg-white/5 disabled:opacity-40"
+                        className="shrink-0 rounded-md border border-[var(--separator-soft)] px-2 py-1 text-[10px] text-[var(--text-2)] transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-40"
                       >
                         切为线上
                       </button>
@@ -341,7 +341,7 @@ export default function PromptsView() {
           </div>
         </section>
       ) : (
-        <div className="flex flex-1 items-center justify-center text-sm text-zinc-600">选择左侧模板开始编辑</div>
+        <div className="flex flex-1 items-center justify-center text-sm text-[var(--text-3)]">选择左侧模板开始编辑</div>
       )}
     </div>
   );

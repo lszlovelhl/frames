@@ -205,23 +205,23 @@ export default function ProductsView({ onCreateWithProducts }: Props) {
 
   const selectedItems = list.filter((p) => selected.has(p.id));
   const inputCls =
-    "w-full rounded-lg border border-white/10 bg-[#1c1f26] px-2.5 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-amber-300/40";
+    "w-full rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-card)] px-2.5 py-1.5 text-sm text-[var(--text-1)] placeholder-[var(--text-3)] outline-none focus:border-text-[var(--accent-hover)]/40";
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 lg:px-8">
       <header className="mb-5 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-zinc-100">产品库</h1>
-          <p className="mt-1 text-sm text-zinc-500">主流产品参数与卖点 · 按行业 / 内容赛道检索 · 创作台可直接带入种草</p>
+          <h1 className="text-xl font-semibold text-[var(--text-1)]">产品库</h1>
+          <p className="mt-1 text-sm text-[var(--text-3)]">主流产品参数与卖点 · 按行业 / 内容赛道检索 · 创作台可直接带入种草</p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-xs text-amber-200">
+          <span className="rounded-full border border-text-[var(--accent-hover)]/20 bg-[var(--accent-hover)]/10 px-3 py-1 text-xs text-[var(--accent-hover)]">
             {list.length} 个产品
           </span>
           {!selectionMode && (
             <button
               onClick={() => setCreateOpen(true)}
-              className="rounded-lg border border-amber-300/20 bg-amber-300/10 px-3 py-1.5 text-xs text-amber-200 hover:bg-amber-300/20"
+              className="rounded-lg border border-text-[var(--accent-hover)]/20 bg-[var(--accent-hover)]/10 px-3 py-1.5 text-xs text-[var(--accent-hover)] hover:bg-[var(--accent-hover)]/20"
             >
               + 新产品
             </button>
@@ -232,7 +232,7 @@ export default function ProductsView({ onCreateWithProducts }: Props) {
               setSelected(new Set());
               void load();
             }}
-            className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-400 hover:bg-white/5"
+            className="rounded-lg border border-[var(--separator-soft)] px-3 py-1.5 text-xs text-[var(--text-2)] hover:bg-[var(--bg-hover)]"
           >
             刷新
           </button>
@@ -243,12 +243,12 @@ export default function ProductsView({ onCreateWithProducts }: Props) {
 
       {/* 多选操作条 */}
       {selectionMode && (
-        <div className="sticky top-0 z-20 -mx-1 mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-amber-300/20 bg-[#191c21]/95 px-3 py-2 shadow-lg backdrop-blur">
-          <span className="text-xs text-zinc-300">
-            已选 <span className="font-semibold text-amber-300">{selected.size}</span> 个产品
+        <div className="sticky top-0 z-20 -mx-1 mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-text-[var(--accent-hover)]/20 bg-[#191c21]/95 px-3 py-2 shadow-lg backdrop-blur">
+          <span className="text-xs text-[var(--text-2)]">
+            已选 <span className="font-semibold text-[var(--accent-hover)]">{selected.size}</span> 个产品
           </span>
           {selectedItems.length > 0 && (
-            <span className="max-w-[240px] truncate text-[11px] text-zinc-500">
+            <span className="max-w-[240px] truncate text-[11px] text-[var(--text-3)]">
               {selectedItems.map((p) => productShort(p)).join("、")}
             </span>
           )}
@@ -266,7 +266,7 @@ export default function ProductsView({ onCreateWithProducts }: Props) {
                 setSelectionMode(false);
                 setSelected(new Set());
               }}
-              className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-400 hover:bg-white/5"
+              className="rounded-lg border border-[var(--separator-soft)] px-3 py-1.5 text-xs text-[var(--text-2)] hover:bg-[var(--bg-hover)]"
             >
               取消
             </button>
@@ -276,13 +276,13 @@ export default function ProductsView({ onCreateWithProducts }: Props) {
 
       {/* 过滤行 */}
       <div className="mb-5 flex flex-wrap gap-2">
-        <select value={industry} onChange={(e) => setIndustry(e.target.value)} className="rounded-lg border border-white/10 bg-[#1c1f26] px-2.5 py-1.5 text-sm text-zinc-300 outline-none">
+        <select value={industry} onChange={(e) => setIndustry(e.target.value)} className="rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-card)] px-2.5 py-1.5 text-sm text-[var(--text-2)] outline-none">
           <option value="all">全部行业</option>
           {industries.map((c) => (
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
-        <select value={category} onChange={(e) => setCategory(e.target.value)} className="rounded-lg border border-white/10 bg-[#1c1f26] px-2.5 py-1.5 text-sm text-zinc-300 outline-none">
+        <select value={category} onChange={(e) => setCategory(e.target.value)} className="rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-card)] px-2.5 py-1.5 text-sm text-[var(--text-2)] outline-none">
           <option value="all">全部赛道</option>
           {categoryOptions.map(([key]) => (
             <option key={key} value={key}>{key}</option>
@@ -292,23 +292,23 @@ export default function ProductsView({ onCreateWithProducts }: Props) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="搜品牌 / 产品 / 卖点 / 参数…"
-          className="min-w-0 flex-1 rounded-lg border border-white/10 bg-[#1c1f26] px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-amber-300/30"
+          className="min-w-0 flex-1 rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-card)] px-3 py-1.5 text-sm text-[var(--text-1)] placeholder-[var(--text-3)] outline-none focus:border-text-[var(--accent-hover)]/30"
         />
       </div>
 
-      {loading && <div className="text-sm text-zinc-500">加载中…</div>}
+      {loading && <div className="text-sm text-[var(--text-3)]">加载中…</div>}
       {!loading && shown.length === 0 && (
-        <div className="rounded-xl border border-dashed border-white/10 p-8 text-center text-sm text-zinc-500">
+        <div className="rounded-xl border border-dashed border-[var(--separator-soft)] p-8 text-center text-sm text-[var(--text-3)]">
           没有符合条件的产品，可以点右上角「+ 新产品」补充
         </div>
       )}
 
       {!loading && grouped.map(([ind, items]) => (
         <section key={ind} className="mb-6">
-          <h2 className="mb-2 flex items-center gap-2 text-sm font-medium text-zinc-400">
+          <h2 className="mb-2 flex items-center gap-2 text-sm font-medium text-[var(--text-2)]">
             <span className="text-base">{INDUSTRY_ICONS[ind] ?? "▧"}</span>
             {ind}
-            <span className="text-xs font-normal text-zinc-600">{items.length}</span>
+            <span className="text-xs font-normal text-[var(--text-3)]">{items.length}</span>
           </h2>
           <div className="flex flex-col gap-2.5">
             {items.map((p) => {
@@ -316,7 +316,7 @@ export default function ProductsView({ onCreateWithProducts }: Props) {
               return (
                 <div
                   key={p.id}
-                  className={`rounded-xl border bg-[#1c1f26] transition ${expanded ? "border-amber-300/25" : "border-white/5 hover:border-white/10"}`}
+                  className={`rounded-xl border bg-[var(--bg-card)] transition ${expanded ? "border-text-[var(--accent-hover)]/25" : "border-[var(--separator-soft)] hover:border-[var(--separator-soft)]"}`}
                 >
                   {/* 摘要行 */}
                   <button
@@ -329,19 +329,19 @@ export default function ProductsView({ onCreateWithProducts }: Props) {
                           e.stopPropagation();
                           toggleSelect(p.id);
                         }}
-                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${selected.has(p.id) ? "border-amber-300 bg-amber-300/30 text-amber-100" : "border-white/25 text-transparent"}`}
+                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${selected.has(p.id) ? "border-text-[var(--accent-hover)] bg-[var(--accent-hover)]/30 text-[var(--accent)]" : "border-[var(--separator-soft)] text-transparent"}`}
                       >
                         ✓
                       </span>
                     )}
                     <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        <span className="text-sm font-semibold text-zinc-100">{p.brand}</span>
-                        <span className="text-sm font-medium text-zinc-200">{p.name}</span>
-                        {p.price_range && <span className="text-[11px] text-zinc-500">{p.price_range}</span>}
+                        <span className="text-sm font-semibold text-[var(--text-1)]">{p.brand}</span>
+                        <span className="text-sm font-medium text-[var(--text-1)]">{p.name}</span>
+                        {p.price_range && <span className="text-[11px] text-[var(--text-3)]">{p.price_range}</span>}
                       </span>
-                      <span className="mt-0.5 block truncate text-xs text-zinc-500">
-                        {p.series && p.series !== p.name && <span className="text-zinc-600">{p.series} · </span>}
+                      <span className="mt-0.5 block truncate text-xs text-[var(--text-3)]">
+                        {p.series && p.series !== p.name && <span className="text-[var(--text-3)]">{p.series} · </span>}
                         {p.headline}
                       </span>
                       <span className="mt-1.5 flex flex-wrap gap-1">
@@ -349,39 +349,39 @@ export default function ProductsView({ onCreateWithProducts }: Props) {
                           <span key={t} className="rounded bg-violet-400/10 px-1.5 py-0.5 text-[10px] text-violet-300/90">{t}</span>
                         ))}
                         {(p.selling_points ?? []).slice(0, 2).map((s) => (
-                          <span key={s.title} className="rounded bg-amber-300/10 px-1.5 py-0.5 text-[10px] text-amber-200/90">{s.title}</span>
+                          <span key={s.title} className="rounded bg-[var(--accent-hover)]/10 px-1.5 py-0.5 text-[10px] text-[var(--accent-hover)]/90">{s.title}</span>
                         ))}
                       </span>
                     </span>
-                    <span className="mt-0.5 shrink-0 text-[10px] text-zinc-600">{expanded ? "收起 ▴" : "详情 ▾"}</span>
+                    <span className="mt-0.5 shrink-0 text-[10px] text-[var(--text-3)]">{expanded ? "收起 ▴" : "详情 ▾"}</span>
                   </button>
 
                   {/* 展开详情 */}
                   {expanded && (
-                    <div className="border-t border-white/5 px-3.5 py-3">
+                    <div className="border-t border-[var(--separator-soft)] px-3.5 py-3">
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div>
-                          <h4 className="mb-1.5 text-[11px] font-medium text-zinc-500">核心参数</h4>
+                          <h4 className="mb-1.5 text-[11px] font-medium text-[var(--text-3)]">核心参数</h4>
                           <div className="flex flex-col gap-1">
                             {(p.specs ?? []).map((s) => (
                               <div key={s.k} className="flex gap-2 text-xs">
-                                <span className="w-16 shrink-0 text-zinc-500">{s.k}</span>
-                                <span className="text-zinc-300">{s.v}</span>
+                                <span className="w-16 shrink-0 text-[var(--text-3)]">{s.k}</span>
+                                <span className="text-[var(--text-2)]">{s.v}</span>
                               </div>
                             ))}
-                            {(p.specs ?? []).length === 0 && <span className="text-xs text-zinc-600">暂无参数</span>}
+                            {(p.specs ?? []).length === 0 && <span className="text-xs text-[var(--text-3)]">暂无参数</span>}
                           </div>
                         </div>
                         <div>
-                          <h4 className="mb-1.5 text-[11px] font-medium text-zinc-500">种草卖点</h4>
+                          <h4 className="mb-1.5 text-[11px] font-medium text-[var(--text-3)]">种草卖点</h4>
                           <div className="flex flex-col gap-1.5">
                             {(p.selling_points ?? []).map((s) => (
                               <div key={s.title} className="text-xs leading-relaxed">
-                                <span className="font-medium text-amber-200/90">{s.title}</span>
-                                {s.detail && <span className="text-zinc-500"> — {s.detail}</span>}
+                                <span className="font-medium text-[var(--accent-hover)]/90">{s.title}</span>
+                                {s.detail && <span className="text-[var(--text-3)]"> — {s.detail}</span>}
                               </div>
                             ))}
-                            {(p.selling_points ?? []).length === 0 && <span className="text-xs text-zinc-600">暂无卖点</span>}
+                            {(p.selling_points ?? []).length === 0 && <span className="text-xs text-[var(--text-3)]">暂无卖点</span>}
                           </div>
                         </div>
                       </div>
@@ -392,7 +392,7 @@ export default function ProductsView({ onCreateWithProducts }: Props) {
                               setSelectionMode(true);
                               setSelected(new Set([p.id]));
                             }}
-                            className="rounded-lg border border-white/10 px-2.5 py-1 text-[11px] text-zinc-400 hover:border-amber-300/30 hover:text-amber-300"
+                            className="rounded-lg border border-[var(--separator-soft)] px-2.5 py-1 text-[11px] text-[var(--text-2)] hover:border-text-[var(--accent-hover)]/30 hover:text-[var(--accent-hover)]"
                           >
                             组合带入
                           </button>
@@ -417,23 +417,23 @@ export default function ProductsView({ onCreateWithProducts }: Props) {
 
       {/* 新建产品弹窗 */}
       {createOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setCreateOpen(false)}>
-          <div className="flex max-h-[88vh] w-full max-w-lg flex-col rounded-2xl border border-white/10 bg-[#191c21]" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
-              <h3 className="text-sm font-semibold text-zinc-100">新增产品</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-base)] p-4" onClick={() => setCreateOpen(false)}>
+          <div className="flex max-h-[88vh] w-full max-w-lg flex-col rounded-2xl border border-[var(--separator-soft)] bg-[#191c21]" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-[var(--separator-soft)] px-4 py-3">
+              <h3 className="text-sm font-semibold text-[var(--text-1)]">新增产品</h3>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => void runAutofill()}
                   disabled={autofilling || !formIndustry || !formBrand.trim() || !formName.trim()}
-                  className="rounded-lg border border-amber-300/30 bg-amber-300/10 px-2.5 py-1 text-[11px] font-medium text-amber-200 hover:bg-amber-300/20 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-lg border border-text-[var(--accent-hover)]/30 bg-[var(--accent-hover)]/10 px-2.5 py-1 text-[11px] font-medium text-[var(--accent-hover)] hover:bg-[var(--accent-hover)]/20 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {autofilling ? "AI 生成中…" : "✦ AI 一键补全"}
                 </button>
-                <button onClick={() => setCreateOpen(false)} className="text-zinc-500 hover:text-zinc-300">×</button>
+                <button onClick={() => setCreateOpen(false)} className="text-[var(--text-3)] hover:text-[var(--text-2)]">×</button>
               </div>
             </div>
             {autoMsg && (
-              <div className="border-b border-amber-300/10 bg-amber-300/5 px-4 py-1.5 text-[11px] text-amber-200/80">{autoMsg}</div>
+              <div className="border-b border-text-[var(--accent-hover)]/10 bg-[var(--accent-hover)]/5 px-4 py-1.5 text-[11px] text-[var(--accent-hover)]/80">{autoMsg}</div>
             )}
             <div className="flex-1 space-y-2.5 overflow-y-auto px-4 py-3">
               <div className="grid grid-cols-2 gap-2">
@@ -457,15 +457,15 @@ export default function ProductsView({ onCreateWithProducts }: Props) {
 
               <div className="pt-1">
                 <div className="mb-1 flex items-center justify-between">
-                  <span className="text-[11px] font-medium text-zinc-500">核心参数</span>
-                  <button onClick={() => setFormSpecs((v) => [...v, { ...EMPTY_SPEC }])} className="text-[11px] text-amber-300 hover:text-amber-200">+ 参数</button>
+                  <span className="text-[11px] font-medium text-[var(--text-3)]">核心参数</span>
+                  <button onClick={() => setFormSpecs((v) => [...v, { ...EMPTY_SPEC }])} className="text-[11px] text-[var(--accent-hover)] hover:text-[var(--accent-hover)]">+ 参数</button>
                 </div>
                 <div className="space-y-1.5">
                   {formSpecs.map((s, i) => (
                     <div key={i} className="flex items-center gap-1.5">
                       <input value={s.k} onChange={(e) => setFormSpecs((v) => v.map((x, j) => (j === i ? { ...x, k: e.target.value } : x)))} placeholder="参数名（如 续航）" className={inputCls + " flex-1"} />
                       <input value={s.v} onChange={(e) => setFormSpecs((v) => v.map((x, j) => (j === i ? { ...x, v: e.target.value } : x)))} placeholder="值（如 700km）" className={inputCls + " flex-1"} />
-                      <button onClick={() => setFormSpecs((v) => v.filter((_, j) => j !== i))} className="shrink-0 text-zinc-600 hover:text-rose-300">×</button>
+                      <button onClick={() => setFormSpecs((v) => v.filter((_, j) => j !== i))} className="shrink-0 text-[var(--text-3)] hover:text-rose-300">×</button>
                     </div>
                   ))}
                 </div>
@@ -473,26 +473,26 @@ export default function ProductsView({ onCreateWithProducts }: Props) {
 
               <div className="pt-1">
                 <div className="mb-1 flex items-center justify-between">
-                  <span className="text-[11px] font-medium text-zinc-500">种草卖点</span>
-                  <button onClick={() => setFormSellings((v) => [...v, { ...EMPTY_SELLING }])} className="text-[11px] text-amber-300 hover:text-amber-200">+ 卖点</button>
+                  <span className="text-[11px] font-medium text-[var(--text-3)]">种草卖点</span>
+                  <button onClick={() => setFormSellings((v) => [...v, { ...EMPTY_SELLING }])} className="text-[11px] text-[var(--accent-hover)] hover:text-[var(--accent-hover)]">+ 卖点</button>
                 </div>
                 <div className="space-y-1.5">
                   {formSellings.map((s, i) => (
                     <div key={i} className="flex items-center gap-1.5">
                       <input value={s.title} onChange={(e) => setFormSellings((v) => v.map((x, j) => (j === i ? { ...x, title: e.target.value } : x)))} placeholder="卖点标题" className={inputCls + " w-1/3 shrink-0"} />
                       <input value={s.detail} onChange={(e) => setFormSellings((v) => v.map((x, j) => (j === i ? { ...x, detail: e.target.value } : x)))} placeholder="一句话展开（选填）" className={inputCls + " flex-1"} />
-                      <button onClick={() => setFormSellings((v) => v.filter((_, j) => j !== i))} className="shrink-0 text-zinc-600 hover:text-rose-300">×</button>
+                      <button onClick={() => setFormSellings((v) => v.filter((_, j) => j !== i))} className="shrink-0 text-[var(--text-3)] hover:text-rose-300">×</button>
                     </div>
                   ))}
                 </div>
               </div>
             </div>
-            <div className="flex items-center justify-end gap-2 border-t border-white/5 px-4 py-3">
-              <button onClick={() => setCreateOpen(false)} className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-400 hover:bg-white/5">取消</button>
+            <div className="flex items-center justify-end gap-2 border-t border-[var(--separator-soft)] px-4 py-3">
+              <button onClick={() => setCreateOpen(false)} className="rounded-lg border border-[var(--separator-soft)] px-3 py-1.5 text-xs text-[var(--text-2)] hover:bg-[var(--bg-hover)]">取消</button>
               <button
                 onClick={() => void submitCreate()}
                 disabled={submitting || !formIndustry || !formBrand.trim() || !formName.trim() || !formHeadline.trim()}
-                className="rounded-lg bg-amber-300/90 px-4 py-1.5 text-xs font-medium text-[#14161a] hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-lg bg-[var(--accent-hover)]/90 px-4 py-1.5 text-xs font-medium text-[#14161a] hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {submitting ? "保存中…" : "保存产品"}
               </button>

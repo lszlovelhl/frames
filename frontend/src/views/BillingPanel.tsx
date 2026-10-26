@@ -79,7 +79,7 @@ export default function BillingPanel() {
 
   if (!data) {
     return (
-      <div className="mb-4 rounded-xl border border-white/5 bg-[#1c1f26] p-4 text-sm text-zinc-500">
+      <div className="mb-4 rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)] p-4 text-sm text-[var(--text-3)]">
         {error ? <span className="text-rose-300">{error}</span> : "点数账户加载中…"}
       </div>
     );
@@ -90,25 +90,25 @@ export default function BillingPanel() {
   const dailyPct = Math.min(100, Math.round((account.today_consumed / account.daily_limit) * 100));
 
   return (
-    <div className="mb-5 rounded-2xl border border-amber-200/15 bg-gradient-to-br from-[#23262f] to-[#1a1d24] p-4 lg:p-5">
+    <div className="mb-5 rounded-2xl border border-text-[var(--accent-hover)]/15 bg-gradient-to-br from-[#23262f] to-[#1a1d24] p-4 lg:p-5">
       {error && <p className="mb-3 rounded-lg border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-sm text-rose-300">{error}</p>}
 
       <div className="flex flex-wrap items-start justify-between gap-4">
         {/* 左：点数余额 */}
         <div className="min-w-[220px]">
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-zinc-500">
+          <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-[var(--text-3)]">
             点数账户
             {freeMode ? (
               <span className="rounded-full bg-emerald-400/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300">免计费模式</span>
             ) : (
-              <span className="rounded-full bg-amber-300/15 px-2 py-0.5 text-[10px] font-medium text-amber-200">模拟计费</span>
+              <span className="rounded-full bg-[var(--accent-hover)]/15 px-2 py-0.5 text-[10px] font-medium text-[var(--accent-hover)]">模拟计费</span>
             )}
           </div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-3xl font-bold text-amber-200">{fmtPoints(account.balance_points)}</span>
-            <span className="text-sm text-zinc-500">点</span>
+            <span className="text-3xl font-bold text-[var(--accent-hover)]">{fmtPoints(account.balance_points)}</span>
+            <span className="text-sm text-[var(--text-3)]">点</span>
           </div>
-          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-zinc-500">
+          <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-[11px] text-[var(--text-3)]">
             <span>今日已用 {fmtPoints(account.today_consumed)} / {fmtPoints(account.daily_limit)}</span>
             <span>累计充值 {fmtPoints(account.total_recharged_points)}</span>
             <span>累计消耗 {fmtPoints(account.total_consumed_points)}</span>
@@ -118,8 +118,8 @@ export default function BillingPanel() {
               </span>
             )}
           </div>
-          <div className="mt-2 h-1 w-full max-w-[240px] overflow-hidden rounded-full bg-white/5">
-            <div className="h-full rounded-full bg-amber-300/70" style={{ width: `${dailyPct}%` }} />
+          <div className="mt-2 h-1 w-full max-w-[240px] overflow-hidden rounded-full bg-[var(--bg-hover)]">
+            <div className="h-full rounded-full bg-[var(--accent-hover)]/70" style={{ width: `${dailyPct}%` }} />
           </div>
           {!account.free_claimed && (
             <button
@@ -134,12 +134,12 @@ export default function BillingPanel() {
 
         {/* 中：动作价格表 */}
         <div className="min-w-[180px]">
-          <div className="text-[11px] uppercase tracking-wider text-zinc-500">动作 · 点数</div>
+          <div className="text-[11px] uppercase tracking-wider text-[var(--text-3)]">动作 · 点数</div>
           <ul className="mt-2 space-y-1 text-xs">
             {action_points.map((a) => (
               <li key={a.action} className="flex items-center justify-between gap-3">
-                <span className="text-zinc-400">{ACTION_LABEL[a.action] ?? a.action}</span>
-                <span className="font-medium text-zinc-200">{fmtPoints(a.points)}</span>
+                <span className="text-[var(--text-2)]">{ACTION_LABEL[a.action] ?? a.action}</span>
+                <span className="font-medium text-[var(--text-1)]">{fmtPoints(a.points)}</span>
               </li>
             ))}
           </ul>
@@ -147,43 +147,43 @@ export default function BillingPanel() {
 
         {/* 右：套餐 */}
         <div className="min-w-[220px] flex-1">
-          <div className="text-[11px] uppercase tracking-wider text-zinc-500">套餐充值（模拟到账）</div>
+          <div className="text-[11px] uppercase tracking-wider text-[var(--text-3)]">套餐充值（模拟到账）</div>
           <div className="mt-2 grid gap-2 sm:grid-cols-3">
             {packages.map((p) => (
               <button
                 key={p.key}
                 onClick={() => void doRecharge(p.key, p.name)}
                 disabled={busy}
-                className="group rounded-xl border border-white/10 bg-white/[0.03] p-3 text-left transition hover:border-amber-300/40 hover:bg-amber-300/5 disabled:opacity-50"
+                className="group rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-hover)] p-3 text-left transition hover:border-text-[var(--accent-hover)]/40 hover:bg-[var(--accent-hover)]/5 disabled:opacity-50"
               >
-                <div className="text-xs font-medium text-zinc-200 group-hover:text-amber-200">{p.name}</div>
-                <div className="mt-1 text-lg font-semibold text-amber-200">¥{p.amount_cny}</div>
-                <div className="text-[10px] text-zinc-500">{fmtPoints(p.points)} 点</div>
+                <div className="text-xs font-medium text-[var(--text-1)] group-hover:text-[var(--accent-hover)]">{p.name}</div>
+                <div className="mt-1 text-lg font-semibold text-[var(--accent-hover)]">¥{p.amount_cny}</div>
+                <div className="text-[10px] text-[var(--text-3)]">{fmtPoints(p.points)} 点</div>
               </button>
             ))}
           </div>
-          <p className="mt-2 text-[10px] text-zinc-600">演示环境为模拟充值，接入真实支付后自动切换为在线支付。</p>
+          <p className="mt-2 text-[10px] text-[var(--text-3)]">演示环境为模拟充值，接入真实支付后自动切换为在线支付。</p>
         </div>
       </div>
 
       {/* 最近流水 */}
       {recent_transactions.length > 0 && (
-        <div className="mt-4 border-t border-white/5 pt-3">
-          <div className="mb-2 text-[11px] uppercase tracking-wider text-zinc-500">最近流水</div>
+        <div className="mt-4 border-t border-[var(--separator-soft)] pt-3">
+          <div className="mb-2 text-[11px] uppercase tracking-wider text-[var(--text-3)]">最近流水</div>
           <div className="grid gap-1.5 sm:grid-cols-2">
             {recent_transactions.slice(0, 6).map((t) => (
-              <div key={t.id} className="flex items-center justify-between gap-3 rounded-lg bg-white/[0.03] px-3 py-1.5 text-xs">
+              <div key={t.id} className="flex items-center justify-between gap-3 rounded-lg bg-[var(--bg-hover)] px-3 py-1.5 text-xs">
                 <div className="min-w-0">
-                  <span className={`mr-2 rounded px-1.5 py-0.5 text-[10px] ${t.type === "consume" ? "bg-rose-400/10 text-rose-300" : t.type === "recharge" ? "bg-emerald-400/10 text-emerald-300" : "bg-sky-400/10 text-sky-300"}`}>
+                  <span className={`mr-2 rounded px-1.5 py-0.5 text-[10px] ${t.type === "consume" ? "bg-rose-400/10 text-rose-300" : t.type === "recharge" ? "bg-emerald-400/10 text-emerald-300" : "bg-[var(--accent)]/10 text-sky-300"}`}>
                     {TX_TYPE_LABEL[t.type] ?? t.type}
                   </span>
-                  <span className="text-zinc-300">{t.note || t.action}</span>
+                  <span className="text-[var(--text-2)]">{t.note || t.action}</span>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
                   <span className={`font-mono font-medium ${t.points >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
                     {t.points >= 0 ? "+" : ""}{fmtPoints(t.points)}
                   </span>
-                  <span className="text-[10px] text-zinc-600">{fmtTime(t.created_at)}</span>
+                  <span className="text-[10px] text-[var(--text-3)]">{fmtTime(t.created_at)}</span>
                 </div>
               </div>
             ))}

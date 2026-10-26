@@ -1,5 +1,6 @@
 // 帧间前端 API 封装
-export const BASE = "http://127.0.0.1:8000";
+// 同源相对路径：生产（后端 serve dist）与多端部署下无 CORS 问题
+export const BASE = "";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(`${BASE}${path}`, {

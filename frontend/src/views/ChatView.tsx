@@ -299,7 +299,7 @@ export default function ChatView() {
       {/* 小屏抽屉遮罩 */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/50 md:hidden"
+          className="fixed inset-0 z-30 bg-[var(--bg-base)] md:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}

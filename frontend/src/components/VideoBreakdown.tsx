@@ -47,9 +47,9 @@ const NOTE_TYPE_LABEL: Record<string, string> = {
 };
 
 const ELEMENT_STATUS: Record<string, { label: string; cls: string; btn: string }> = {
-  draft: { label: "待审", cls: "bg-white/5 text-zinc-400", btn: "text-zinc-400 hover:bg-white/5" },
+  draft: { label: "待审", cls: "bg-[var(--bg-hover)] text-[var(--text-2)]", btn: "text-[var(--text-2)] hover:bg-[var(--bg-hover)]" },
   accepted: { label: "已采纳", cls: "bg-emerald-400/15 text-emerald-300", btn: "text-emerald-300 hover:bg-emerald-400/10" },
-  adjusted: { label: "已纠错", cls: "bg-sky-400/15 text-sky-300", btn: "text-sky-300 hover:bg-sky-400/10" },
+  adjusted: { label: "已纠错", cls: "bg-sky-400/15 text-sky-300", btn: "text-sky-300 hover:bg-[var(--accent)]/10" },
   rejected: { label: "已驳回", cls: "bg-rose-400/15 text-rose-300", btn: "text-rose-300 hover:bg-rose-400/10" },
 };
 
@@ -58,9 +58,9 @@ const ELEMENT_CATEGORIES = ["选题", "钩子", "结构", "话术", "情绪", "�
 
 function Card({ label, extra, children }: { label: string; extra?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="rounded-xl border border-white/5 bg-[#1c1f26] p-4">
+    <section className="rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)] p-4">
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500">{label}</h3>
+        <h3 className="text-xs font-medium uppercase tracking-wider text-[var(--text-3)]">{label}</h3>
         {extra}
       </div>
       {children}
@@ -71,8 +71,8 @@ function Card({ label, extra, children }: { label: string; extra?: React.ReactNo
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
-      <div className="text-xs text-zinc-500">{label}</div>
-      <div className="mt-0.5 text-sm leading-relaxed text-zinc-300">{children}</div>
+      <div className="text-xs text-[var(--text-3)]">{label}</div>
+      <div className="mt-0.5 text-sm leading-relaxed text-[var(--text-2)]">{children}</div>
     </div>
   );
 }
@@ -120,13 +120,13 @@ function L2Panel({ c }: { c: Record<string, unknown> }) {
           </svg>
           <div className="flex gap-1.5 mt-1">
             {curve.map((pt, i) => (
-              <div key={i} className="flex-1 truncate text-center text-[9px] text-zinc-600">
+              <div key={i} className="flex-1 truncate text-center text-[9px] text-[var(--text-3)]">
                 {pt.phase}
               </div>
             ))}
           </div>
           {/* 时间轴标注 */}
-          <div className="flex gap-1.5 mt-1 text-[9px] text-zinc-600">
+          <div className="flex gap-1.5 mt-1 text-[9px] text-[var(--text-3)]">
             <div className="flex-1 text-left">0s</div>
             <div className="flex-1 text-center">中段</div>
             <div className="flex-1 text-right">结束</div>
@@ -161,11 +161,11 @@ function FrameStrip({ frames, currentMs, onSeek }: { frames: FrameInfo[]; curren
           onClick={() => onSeek(f.time_ms)}
           title={`${fmt(f.time_ms)} ${f.desc ?? ""}`}
           className={`relative h-14 w-20 shrink-0 overflow-hidden rounded-md ring-1 transition ${
-            active === f.seq ? "ring-2 ring-amber-300" : "ring-white/10 hover:ring-white/40"
+            active === f.seq ? "ring-2 ring-text-[var(--accent-hover)]" : "ring-[var(--separator-soft)] hover:ring-white/40"
           }`}
         >
-          {f.url ? <img src={`${BASE}${f.url}`} alt={`帧 ${f.seq}`} className="h-full w-full object-cover" loading="lazy" /> : <div className="h-full w-full bg-white/5" />}
-          <span className="absolute bottom-0 right-0 rounded-tl bg-black/60 px-0.5 text-[8px] text-zinc-300">{fmt(f.time_ms)}</span>
+          {f.url ? <img src={`${BASE}${f.url}`} alt={`帧 ${f.seq}`} className="h-full w-full object-cover" loading="lazy" /> : <div className="h-full w-full bg-[var(--bg-hover)]" />}
+          <span className="absolute bottom-0 right-0 rounded-tl bg-[var(--bg-base)] px-0.5 text-[8px] text-[var(--text-2)]">{fmt(f.time_ms)}</span>
         </button>
       ))}
     </div>
@@ -190,15 +190,15 @@ function NotesList({
           <button
             key={i}
             onClick={() => (n.start_ms != null ? onSeek(n.start_ms) : undefined)}
-            className="rounded-xl border border-white/5 bg-white/[0.02] p-4 text-left hover:border-white/15"
+            className="rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-hover)] p-4 text-left hover:border-[var(--separator-soft)]"
           >
             <div className="flex items-center gap-2.5 text-xs">
-              <span className="rounded bg-white/5 px-1.5 py-0.5 text-zinc-300">{NOTE_TYPE_LABEL[n.note_type] ?? n.note_type}</span>
-              <span className="text-zinc-500">{n.role_view}</span>
-              {n.start_ms != null ? <span className="font-mono text-zinc-600">{fmt(n.start_ms)}</span> : null}
-              {typeof n.confidence === "number" ? <span className="ml-auto text-zinc-600">置信 {Math.round(n.confidence * 100)}%</span> : null}
+              <span className="rounded bg-[var(--bg-hover)] px-1.5 py-0.5 text-[var(--text-2)]">{NOTE_TYPE_LABEL[n.note_type] ?? n.note_type}</span>
+              <span className="text-[var(--text-3)]">{n.role_view}</span>
+              {n.start_ms != null ? <span className="font-mono text-[var(--text-3)]">{fmt(n.start_ms)}</span> : null}
+              {typeof n.confidence === "number" ? <span className="ml-auto text-[var(--text-3)]">置信 {Math.round(n.confidence * 100)}%</span> : null}
             </div>
-            <p className="mt-2 text-sm leading-relaxed text-zinc-300">{n.content}</p>
+            <p className="mt-2 text-sm leading-relaxed text-[var(--text-2)]">{n.content}</p>
           </button>
         ))}
       </div>
@@ -237,14 +237,14 @@ function ElementCard({
   }
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-white/5 bg-white/[0.02] p-3">
+    <div className="flex flex-col gap-2 rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-hover)] p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="rounded bg-sky-400/10 px-1.5 py-0.5 text-xs text-sky-300">{e.category}</span>
-        <span className="text-sm font-medium text-zinc-100">{e.name}</span>
-        {typeof e.confidence === "number" ? <span className="text-[11px] text-zinc-600">{Math.round(e.confidence * 100)}%</span> : null}
+        <span className="rounded bg-[var(--accent)]/10 px-1.5 py-0.5 text-xs text-sky-300">{e.category}</span>
+        <span className="text-sm font-medium text-[var(--text-1)]">{e.name}</span>
+        {typeof e.confidence === "number" ? <span className="text-[11px] text-[var(--text-3)]">{Math.round(e.confidence * 100)}%</span> : null}
         <span className={`ml-auto rounded px-1.5 py-0.5 text-[11px] ${st.cls}`}>{st.label}</span>
       </div>
-      {e.description ? <p className="text-xs text-zinc-400">{e.description}</p> : null}
+      {e.description ? <p className="text-xs text-[var(--text-2)]">{e.description}</p> : null}
       {e.formula ? (
         <p className="rounded border border-emerald-300/10 bg-emerald-300/5 p-2 font-mono text-xs leading-relaxed text-emerald-200/90">{e.formula}</p>
       ) : null}
@@ -261,9 +261,9 @@ function ElementCard({
         </div>
       ) : null}
       {e.imagination ? (
-        <div className="rounded border border-amber-300/10 bg-amber-300/5 p-2">
-          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-amber-300/70">换个场景怎么用</div>
-          <p className="text-xs leading-relaxed text-amber-200/90">{e.imagination}</p>
+        <div className="rounded border border-text-[var(--accent-hover)]/10 bg-[var(--accent-hover)]/5 p-2">
+          <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-[var(--accent-hover)]/70">换个场景怎么用</div>
+          <p className="text-xs leading-relaxed text-[var(--accent-hover)]/90">{e.imagination}</p>
         </div>
       ) : null}
       {e.evidence && e.evidence.length > 0 && (
@@ -275,59 +275,59 @@ function ElementCard({
                 key={i}
                 onClick={() => (sg ? onSeek(sg.start_ms) : undefined)}
                 title={sg ? "跳转到该证据所在段落" : undefined}
-                className="rounded border border-white/5 bg-black/20 p-1.5 text-left text-xs italic text-zinc-500 hover:border-amber-300/30 hover:text-zinc-300"
+                className="rounded border border-[var(--separator-soft)] bg-black/20 p-1.5 text-left text-xs italic text-[var(--text-3)] hover:border-text-[var(--accent-hover)]/30 hover:text-[var(--text-2)]"
               >
-                <span className="not-italic text-zinc-600">{sg ? `#${sg.seq} ${sg.type} ${fmt(sg.start_ms)} · ` : "#? "}</span>
+                <span className="not-italic text-[var(--text-3)]">{sg ? `#${sg.seq} ${sg.type} ${fmt(sg.start_ms)} · ` : "#? "}</span>
                 {ev.quote || ""}
               </button>
             );
           })}
         </div>
       )}
-      <div className="mt-0.5 flex items-center gap-1.5 border-t border-white/5 pt-2">
+      <div className="mt-0.5 flex items-center gap-1.5 border-t border-[var(--separator-soft)] pt-2">
         <button onClick={() => void act("accept")} disabled={busy} className={`rounded px-2 py-1 text-xs ${st.btn}`}>
           采纳
         </button>
-        <button onClick={() => setEditing(true)} disabled={busy} className="rounded px-2 py-1 text-xs text-zinc-400 hover:bg-white/5">
+        <button onClick={() => setEditing(true)} disabled={busy} className="rounded px-2 py-1 text-xs text-[var(--text-2)] hover:bg-[var(--bg-hover)]">
           纠错
         </button>
-        <button onClick={() => void act("reject")} disabled={busy} className="rounded px-2 py-1 text-xs text-zinc-500 hover:bg-rose-400/10 hover:text-rose-300">
+        <button onClick={() => void act("reject")} disabled={busy} className="rounded px-2 py-1 text-xs text-[var(--text-3)] hover:bg-rose-400/10 hover:text-rose-300">
           驳回
         </button>
       </div>
 
       {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => setEditing(false)}>
-          <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-xl border border-white/10 bg-[#17191d] p-4 shadow-2xl" onClick={(ev) => ev.stopPropagation()}>
-            <div className="mb-3 text-sm font-medium text-zinc-100">纠错元素</div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-base)] p-4" onClick={() => setEditing(false)}>
+          <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-xl border border-[var(--separator-soft)] bg-[#17191d] p-4 shadow-2xl" onClick={(ev) => ev.stopPropagation()}>
+            <div className="mb-3 text-sm font-medium text-[var(--text-1)]">纠错元素</div>
             <label className="mb-2 block">
-              <span className="text-xs text-zinc-500">分类</span>
-              <select value={category} onChange={(e) => setCategory(e.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-[#1f2228] px-2 py-1.5 text-sm text-zinc-200 outline-none">
+              <span className="text-xs text-[var(--text-3)]">分类</span>
+              <select value={category} onChange={(e) => setCategory(e.target.value)} className="mt-1 w-full rounded-lg border border-[var(--separator-soft)] bg-[#1f2228] px-2 py-1.5 text-sm text-[var(--text-1)] outline-none">
                 {ELEMENT_CATEGORIES.map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>
             </label>
             <label className="mb-2 block">
-              <span className="text-xs text-zinc-500">元素名</span>
-              <input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full rounded-lg border border-white/10 bg-[#1f2228] px-2 py-1.5 text-sm text-zinc-200 outline-none" />
+              <span className="text-xs text-[var(--text-3)]">元素名</span>
+              <input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full rounded-lg border border-[var(--separator-soft)] bg-[#1f2228] px-2 py-1.5 text-sm text-[var(--text-1)] outline-none" />
             </label>
             <label className="mb-2 block">
-              <span className="text-xs text-zinc-500">一句话说明</span>
-              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="mt-1 w-full rounded-lg border border-white/10 bg-[#1f2228] px-2 py-1.5 text-sm text-zinc-200 outline-none" />
+              <span className="text-xs text-[var(--text-3)]">一句话说明</span>
+              <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="mt-1 w-full rounded-lg border border-[var(--separator-soft)] bg-[#1f2228] px-2 py-1.5 text-sm text-[var(--text-1)] outline-none" />
             </label>
             <label className="mb-3 block">
-              <span className="text-xs text-zinc-500">可复用配方</span>
-              <textarea value={formula} onChange={(e) => setFormula(e.target.value)} rows={4} className="mt-1 w-full rounded-lg border border-white/10 bg-[#1f2228] px-2 py-1.5 font-mono text-xs text-emerald-200 outline-none" />
+              <span className="text-xs text-[var(--text-3)]">可复用配方</span>
+              <textarea value={formula} onChange={(e) => setFormula(e.target.value)} rows={4} className="mt-1 w-full rounded-lg border border-[var(--separator-soft)] bg-[#1f2228] px-2 py-1.5 font-mono text-xs text-emerald-200 outline-none" />
             </label>
             <div className="flex justify-end gap-2">
-              <button onClick={() => setEditing(false)} className="rounded-lg px-3 py-1.5 text-xs text-zinc-400 hover:bg-white/5">
+              <button onClick={() => setEditing(false)} className="rounded-lg px-3 py-1.5 text-xs text-[var(--text-2)] hover:bg-[var(--bg-hover)]">
                 取消
               </button>
               <button
                 onClick={() => void act("adjust")}
                 disabled={busy || !name.trim()}
-                className="rounded-lg bg-amber-300 px-3 py-1.5 text-xs font-medium text-zinc-900 hover:bg-amber-200 disabled:opacity-40"
+                className="rounded-lg bg-[var(--accent-hover)] px-3 py-1.5 text-xs font-medium text-white hover:bg-text-[var(--accent-hover)] disabled:opacity-40"
               >
                 保存纠错
               </button>
@@ -368,7 +368,7 @@ function ElementsPanel({
     <Card
       label={`L5 提炼元素 · ${elements.length} 张`}
       extra={
-        <div className="flex items-center gap-2 text-[11px] text-zinc-500">
+        <div className="flex items-center gap-2 text-[11px] text-[var(--text-3)]">
           {counts.accepted ? <span className="text-emerald-300">已采纳 {counts.accepted}</span> : null}
           {counts.adjusted ? <span className="text-sky-300">已纠错 {counts.adjusted}</span> : null}
           {counts.rejected ? <span className="text-rose-300">已驳回 {counts.rejected}</span> : null}
@@ -390,7 +390,7 @@ function ElementsPanel({
         <div className="mb-3 flex flex-wrap gap-1.5">
           <button
             onClick={() => setFilterCategory("all")}
-            className={`rounded px-2 py-0.5 text-[11px] ${filterCategory === "all" ? "bg-amber-400/20 text-amber-300" : "bg-white/5 text-zinc-400 hover:bg-white/10"}`}
+            className={`rounded px-2 py-0.5 text-[11px] ${filterCategory === "all" ? "bg-text-[var(--accent)]/20 text-[var(--accent-hover)]" : "bg-[var(--bg-hover)] text-[var(--text-2)] hover:bg-[var(--bg-active)]"}`}
           >
             全部
           </button>
@@ -398,7 +398,7 @@ function ElementsPanel({
             <button
               key={cat}
               onClick={() => setFilterCategory(cat)}
-              className={`rounded px-2 py-0.5 text-[11px] ${filterCategory === cat ? "bg-amber-400/20 text-amber-300" : "bg-white/5 text-zinc-400 hover:bg-white/10"}`}
+              className={`rounded px-2 py-0.5 text-[11px] ${filterCategory === cat ? "bg-text-[var(--accent)]/20 text-[var(--accent-hover)]" : "bg-[var(--bg-hover)] text-[var(--text-2)] hover:bg-[var(--bg-active)]"}`}
             >
               {cat}
             </button>
@@ -427,20 +427,20 @@ function TranscriptPanel({
   const [open, setOpen] = useState(true);
   if (segments.length === 0 && !text) return null;
   return (
-    <section className="rounded-xl border border-white/5 bg-[#1c1f26]/80 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+    <section className="rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)]/80 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
       <button onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="h-3.5 w-1 rounded-full bg-amber-300/70" />
-          <h3 className="text-xs font-medium uppercase tracking-wider text-zinc-500">字幕 / 转写全文 · {segments.length} 条</h3>
+          <span className="h-3.5 w-1 rounded-full bg-[var(--accent-hover)]/70" />
+          <h3 className="text-xs font-medium uppercase tracking-wider text-[var(--text-3)]">字幕 / 转写全文 · {segments.length} 条</h3>
         </div>
-        <span className="text-[11px] text-zinc-500">{open ? "收起" : "展开"}</span>
+        <span className="text-[11px] text-[var(--text-3)]">{open ? "收起" : "展开"}</span>
       </button>
       {open && (
         <div className="mt-4 space-y-1">
           {segments.map((s, i) => (
-            <button key={i} onClick={() => onSeek(s.start * 1000)} className="flex w-full gap-3 rounded-lg px-1.5 py-1.5 text-left hover:bg-white/5">
-              <span className="w-10 shrink-0 font-mono text-[11px] text-zinc-600">{fmt(s.start * 1000)}</span>
-              <span className="text-xs leading-relaxed text-zinc-400">{s.text}</span>
+            <button key={i} onClick={() => onSeek(s.start * 1000)} className="flex w-full gap-3 rounded-lg px-1.5 py-1.5 text-left hover:bg-[var(--bg-hover)]">
+              <span className="w-10 shrink-0 font-mono text-[11px] text-[var(--text-3)]">{fmt(s.start * 1000)}</span>
+              <span className="text-xs leading-relaxed text-[var(--text-2)]">{s.text}</span>
             </button>
           ))}
         </div>
@@ -535,10 +535,10 @@ function StatsTrendChart({ history }: { history: VideoStatsHistoryView }) {
     <div>
       <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1.5">
         {series.map((s) => (
-          <span key={s.key} className="inline-flex items-center gap-1.5 text-xs text-zinc-400">
+          <span key={s.key} className="inline-flex items-center gap-1.5 text-xs text-[var(--text-2)]">
             <span className="inline-block h-0.5 w-4 rounded-full" style={{ backgroundColor: s.color }} />
             {s.label}
-            <span className="font-mono text-zinc-200">{fmtNum(s.last)}</span>
+            <span className="font-mono text-[var(--text-1)]">{fmtNum(s.last)}</span>
           </span>
         ))}
       </div>
@@ -675,18 +675,18 @@ function StatsSection({
   }, [notice]);
 
   return (
-    <section className="rounded-xl border border-white/5 bg-[#1c1f26] p-5">
+    <section className="rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)] p-5">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <span className="h-3.5 w-1 rounded-full bg-amber-300/70" />
-          <span className="text-xs font-medium uppercase tracking-wider text-zinc-400">作者与互动数据</span>
+          <span className="h-3.5 w-1 rounded-full bg-[var(--accent-hover)]/70" />
+          <span className="text-xs font-medium uppercase tracking-wider text-[var(--text-2)]">作者与互动数据</span>
         </div>
         <div className="flex items-center gap-3">
-          {stats?.updated_at && <span className="text-[11px] text-zinc-600">更新于 {fmtShortTime(stats.updated_at)}</span>}
+          {stats?.updated_at && <span className="text-[11px] text-[var(--text-3)]">更新于 {fmtShortTime(stats.updated_at)}</span>}
           <button
             onClick={() => setAuto((a) => !a)}
             className={`rounded-lg border px-3 py-1.5 text-xs transition ${
-              auto ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-200" : "border-white/10 text-zinc-400 hover:bg-white/5"
+              auto ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-200" : "border-[var(--separator-soft)] text-[var(--text-2)] hover:bg-[var(--bg-hover)]"
             }`}
             title="每 60 秒自动抓取，发现数据变化时高亮提醒"
           >
@@ -696,7 +696,7 @@ function StatsSection({
           <button
             onClick={() => void doRefresh(true)}
             disabled={busy}
-            className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-400 hover:bg-white/5 disabled:opacity-50"
+            className="rounded-lg border border-[var(--separator-soft)] px-3 py-1.5 text-xs text-[var(--text-2)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
           >
             {busy ? "抓取中…" : "刷新数据"}
           </button>
@@ -716,17 +716,17 @@ function StatsSection({
       {err && <p className="mb-3 rounded-lg border border-rose-400/20 bg-rose-400/10 px-3 py-2 text-xs text-rose-300">{err}</p>}
 
       {!hasView ? (
-        <p className="text-sm text-zinc-500">该平台暂未接入互动数据抓取，暂无法展示。</p>
+        <p className="text-sm text-[var(--text-3)]">该平台暂未接入互动数据抓取，暂无法展示。</p>
       ) : (
         <>
           {/* 作者 */}
           <div className="mb-4 flex flex-wrap items-center gap-3">
             {author?.avatar && (
-              <img src={author.avatar} alt="" className="h-10 w-10 rounded-full bg-white/5 object-cover" referrerPolicy="no-referrer" />
+              <img src={author.avatar} alt="" className="h-10 w-10 rounded-full bg-[var(--bg-hover)] object-cover" referrerPolicy="no-referrer" />
             )}
             <div>
-              <div className="text-sm font-medium text-zinc-100">{author?.name ?? "未知作者"}</div>
-              <div className="mt-0.5 flex flex-wrap gap-3 text-xs text-zinc-500">
+              <div className="text-sm font-medium text-[var(--text-1)]">{author?.name ?? "未知作者"}</div>
+              <div className="mt-0.5 flex flex-wrap gap-3 text-xs text-[var(--text-3)]">
                 <span>粉丝 {fmtNum(author?.fans)}</span>
                 <span>获赞 {fmtNum(author?.likes)}</span>
                 {stats.baseline_at && <span>初始于 {fmtShortTime(stats.baseline_at)}</span>}
@@ -738,7 +738,7 @@ function StatsSection({
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
-                <tr className="border-b border-white/5 text-[11px] uppercase tracking-wider text-zinc-500">
+                <tr className="border-b border-[var(--separator-soft)] text-[11px] uppercase tracking-wider text-[var(--text-3)]">
                   <th className="py-1.5 pr-3 font-medium">指标</th>
                   <th className="py-1.5 pr-3 text-right font-medium">初始值</th>
                   <th className="py-1.5 pr-3 text-right font-medium">当前值</th>
@@ -752,11 +752,11 @@ function StatsSection({
                   const d = stats.diff[k] ?? (b != null && c != null ? Number(c) - Number(b) : null);
                   if (b == null && c == null) return null;
                   return (
-                    <tr key={k} className="border-b border-white/[0.03] last:border-0">
-                      <td className="py-2 pr-3 text-zinc-300">{label}</td>
-                      <td className="py-2 pr-3 text-right text-zinc-500">{fmtNum(b)}</td>
-                      <td className="py-2 pr-3 text-right text-zinc-200">{fmtNum(c)}</td>
-                      <td className={`py-2 text-right font-mono ${d == null ? "text-zinc-600" : d > 0 ? "text-emerald-300" : d < 0 ? "text-rose-300" : "text-zinc-500"}`}>
+                    <tr key={k} className="border-b border-[var(--separator-soft)] last:border-0">
+                      <td className="py-2 pr-3 text-[var(--text-2)]">{label}</td>
+                      <td className="py-2 pr-3 text-right text-[var(--text-3)]">{fmtNum(b)}</td>
+                      <td className="py-2 pr-3 text-right text-[var(--text-1)]">{fmtNum(c)}</td>
+                      <td className={`py-2 text-right font-mono ${d == null ? "text-[var(--text-3)]" : d > 0 ? "text-emerald-300" : d < 0 ? "text-rose-300" : "text-[var(--text-3)]"}`}>
                         {fmtDelta(d as number)}
                       </td>
                     </tr>
@@ -766,15 +766,15 @@ function StatsSection({
             </table>
           </div>
           {stats.warnings?.length > 0 && (
-            <p className="mt-2 text-[11px] text-amber-200/80">{stats.warnings.join("；")}</p>
+            <p className="mt-2 text-[11px] text-[var(--accent-hover)]/80">{stats.warnings.join("；")}</p>
           )}
 
           {/* 互动数据历史趋势 */}
           {history !== null && (
-            <div className="mt-4 rounded-lg bg-white/[0.03] p-3">
-              <div className="mb-2 text-[11px] uppercase tracking-wider text-zinc-500">互动数据趋势</div>
+            <div className="mt-4 rounded-lg bg-[var(--bg-hover)] p-3">
+              <div className="mb-2 text-[11px] uppercase tracking-wider text-[var(--text-3)]">互动数据趋势</div>
               {history.points.length < 2 ? (
-                <p className="text-xs leading-relaxed text-zinc-500">
+                <p className="text-xs leading-relaxed text-[var(--text-3)]">
                   历史快照不足（当前 {history.points.length} 个时间点），至少累计 2 次刷新后才能绘制趋势曲线。
                 </p>
               ) : (
@@ -786,17 +786,17 @@ function StatsSection({
           {/* 热评 */}
           {stats.comments.length > 0 && (
             <div className="mt-4">
-              <div className="mb-2 text-[11px] uppercase tracking-wider text-zinc-500">高赞热评 TOP {Math.min(stats.comments.length, 8)}</div>
+              <div className="mb-2 text-[11px] uppercase tracking-wider text-[var(--text-3)]">高赞热评 TOP {Math.min(stats.comments.length, 8)}</div>
               <div className="space-y-2">
                 {stats.comments.slice(0, 8).map((cm) => (
-                  <div key={cm.comment_id} className="rounded-lg bg-white/[0.03] p-3">
+                  <div key={cm.comment_id} className="rounded-lg bg-[var(--bg-hover)] p-3">
                     <div className="flex items-center gap-2 text-xs">
-                      <span className="font-medium text-zinc-300">{cm.user_name}</span>
-                      <span className="rounded bg-amber-300/10 px-1.5 py-0.5 text-[9px] text-amber-200/90">{cm.like_count.toLocaleString()} 赞</span>
-                      {cm.reply_count > 0 && <span className="text-zinc-600">{cm.reply_count} 回复</span>}
-                      {cm.is_top && <span className="rounded bg-white/10 px-1.5 py-0.5 text-[9px] text-zinc-300">置顶</span>}
+                      <span className="font-medium text-[var(--text-2)]">{cm.user_name}</span>
+                      <span className="rounded bg-[var(--accent-hover)]/10 px-1.5 py-0.5 text-[9px] text-[var(--accent-hover)]/90">{cm.like_count.toLocaleString()} 赞</span>
+                      {cm.reply_count > 0 && <span className="text-[var(--text-3)]">{cm.reply_count} 回复</span>}
+                      {cm.is_top && <span className="rounded bg-[var(--bg-hover)] px-1.5 py-0.5 text-[9px] text-[var(--text-2)]">置顶</span>}
                     </div>
-                    <p className="mt-1.5 text-[13px] leading-relaxed text-zinc-400">{cm.content}</p>
+                    <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--text-2)]">{cm.content}</p>
                   </div>
                 ))}
               </div>
@@ -819,16 +819,16 @@ function NoLocalMediaBox({ video, frames }: { video: VideoItem; frames: FrameInf
       {src ? (
         <img src={src} alt="关键帧预览" className="h-full w-full object-cover opacity-60" />
       ) : (
-        <div className="flex h-full w-full items-center justify-center text-xs text-zinc-600">暂无本地关键帧</div>
+        <div className="flex h-full w-full items-center justify-center text-xs text-[var(--text-3)]">暂无本地关键帧</div>
       )}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/80 to-transparent" />
       <div className="absolute inset-x-0 bottom-0 flex flex-wrap items-center gap-2 p-3">
-        <span className="rounded bg-amber-300/90 px-2 py-0.5 text-[11px] font-semibold text-zinc-900">
+        <span className="rounded bg-[var(--accent-hover)]/90 px-2 py-0.5 text-[11px] font-semibold text-white">
           {cleaned ? "原片已清理" : "无本地原片"}
         </span>
-        <span className="rounded bg-white/10 px-2 py-0.5 text-[11px] text-zinc-300">已降级为关键帧预览</span>
+        <span className="rounded bg-[var(--bg-hover)] px-2 py-0.5 text-[11px] text-[var(--text-2)]">已降级为关键帧预览</span>
         {video.media?.audio_track_url ? (
-          <span className="rounded bg-white/10 px-2 py-0.5 text-[11px] text-zinc-400">保留音轨 m4a</span>
+          <span className="rounded bg-[var(--bg-hover)] px-2 py-0.5 text-[11px] text-[var(--text-2)]">保留音轨 m4a</span>
         ) : null}
       </div>
       {video.url ? (
@@ -836,7 +836,7 @@ function NoLocalMediaBox({ video, frames }: { video: VideoItem; frames: FrameInf
           href={video.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="absolute right-3 top-3 rounded-lg border border-white/15 bg-black/60 px-3 py-1.5 text-xs text-zinc-200 backdrop-blur transition hover:border-amber-300/40 hover:text-amber-200"
+          className="absolute right-3 top-3 rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-base)] px-3 py-1.5 text-xs text-[var(--text-1)] backdrop-blur transition hover:border-text-[var(--accent-hover)]/40 hover:text-[var(--accent-hover)]"
         >
           回源打开原视频 ↗
         </a>
@@ -931,9 +931,9 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
           <button
             onClick={() => setRail(false)}
             title="点击固定展开 / 鼠标移入临时展开"
-            className="flex min-h-[460px] w-full flex-col items-center gap-3 rounded-xl border border-white/5 bg-[#1c1f26] px-2 py-3 text-zinc-400 transition-colors hover:bg-[#232733] hover:text-zinc-200"
+            className="flex min-h-[460px] w-full flex-col items-center gap-3 rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)] px-2 py-3 text-[var(--text-2)] transition-colors hover:bg-[#232733] hover:text-[var(--text-1)]"
           >
-            <span className="text-amber-300/80">▶</span>
+            <span className="text-[var(--accent-hover)]/80">▶</span>
             <span className="text-lg opacity-40">┆</span>
             {video.cover_url ? (
               <img src={video.cover_url} alt="" className="w-9 rounded-lg object-cover" referrerPolicy="no-referrer" />
@@ -941,33 +941,33 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
               <span className="text-xs opacity-40">▤</span>
             )}
             <span className="whitespace-nowrap text-[11px] [writing-mode:vertical-rl] tracking-widest">{video.title || video.platform}</span>
-            <span className="mt-auto whitespace-nowrap text-[9px] text-zinc-600 [writing-mode:vertical-rl]">hover 展开</span>
+            <span className="mt-auto whitespace-nowrap text-[9px] text-[var(--text-3)] [writing-mode:vertical-rl]">hover 展开</span>
           </button>
         ) : (
           /* 展开态 */
           <div className="lg:sticky lg:top-4">
-            <div className="overflow-hidden rounded-xl border border-white/5 bg-[#1c1f26]">
+            <div className="overflow-hidden rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)]">
               <div className="flex items-start justify-between gap-3 px-4 pb-1 pt-4">
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium text-zinc-100">{video.title || "未命名视频"}</div>
+                  <div className="truncate text-sm font-medium text-[var(--text-1)]">{video.title || "未命名视频"}</div>
                   <div className="mt-1 flex items-center gap-2">
                     {video.author_avatar ? (
                       <img
                         src={video.author_avatar}
                         alt=""
-                        className="h-5 w-5 shrink-0 rounded-full bg-white/10 object-cover"
+                        className="h-5 w-5 shrink-0 rounded-full bg-[var(--bg-hover)] object-cover"
                         referrerPolicy="no-referrer"
                       />
                     ) : null}
-                    <span className="text-xs text-zinc-400" title={video.author_id ?? undefined}>
+                    <span className="text-xs text-[var(--text-2)]" title={video.author_id ?? undefined}>
                       {video.author_name ?? "未知作者"}
                     </span>
-                    <span className="text-xs text-zinc-600">· {video.platform}</span>
+                    <span className="text-xs text-[var(--text-3)]">· {video.platform}</span>
                   </div>
-                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-zinc-600">
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-[var(--text-3)]">
                     {video.publish_time ? <span>发布于 {fmtShortTime(video.publish_time)}</span> : null}
                     {video.subtitle_source ? (
-                      <span className="rounded bg-white/5 px-1.5 py-px text-zinc-500">字幕：{video.subtitle_source}</span>
+                      <span className="rounded bg-[var(--bg-hover)] px-1.5 py-px text-[var(--text-3)]">字幕：{video.subtitle_source}</span>
                     ) : null}
                   </div>
                 </div>
@@ -978,7 +978,7 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
                       target="_blank"
                       rel="noopener noreferrer"
                       title="打开平台原视频"
-                      className="rounded-lg border border-white/10 px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                      className="rounded-lg border border-[var(--separator-soft)] px-2 py-1 text-[11px] text-[var(--text-2)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-1)]"
                     >
                       回源 ↗
                     </a>
@@ -990,7 +990,7 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
                       else setRail(true);
                     }}
                     title={rail && hoverOpen ? "固定展开" : "收窄为竖条，鼠标移入展开"}
-                    className="shrink-0 rounded-lg border border-white/10 px-2 py-1 text-[11px] text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                    className="shrink-0 rounded-lg border border-[var(--separator-soft)] px-2 py-1 text-[11px] text-[var(--text-2)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-1)]"
                   >
                     {rail && hoverOpen ? "固定 ◉" : "收窄 ◂"}
                   </button>
@@ -1013,7 +1013,7 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
               )}
 
               <div className="space-y-3 p-3">
-                <div className="flex flex-wrap gap-2 text-[11px] text-zinc-500">
+                <div className="flex flex-wrap gap-2 text-[11px] text-[var(--text-3)]">
                   {video.duration_ms != null ? <span>时长 {fmt(video.duration_ms)}</span> : null}
                   {video.media?.bpm ? <span>BPM {video.media.bpm}</span> : null}
                   {detail ? <span>{detail.frames.length} 关键帧</span> : null}
@@ -1021,7 +1021,7 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
                   {video.category_guess ? <span>{video.category_guess}</span> : null}
                   {video.tags && video.tags.length > 0
                     ? video.tags.slice(0, 8).map((t) => (
-                        <span key={t} className="rounded border border-amber-300/20 bg-amber-300/5 px-1.5 py-px text-[9px] text-amber-200/80">
+                        <span key={t} className="rounded border border-text-[var(--accent-hover)]/20 bg-[var(--accent-hover)]/5 px-1.5 py-px text-[9px] text-[var(--accent-hover)]/80">
                           #{t}
                         </span>
                       ))
@@ -1029,7 +1029,7 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
                 </div>
                 {detail && detail.frames.length > 0 && (
                   <div>
-                    <div className="mb-2 text-[11px] uppercase tracking-wider text-zinc-600">关键帧 · 点击跳转</div>
+                    <div className="mb-2 text-[11px] uppercase tracking-wider text-[var(--text-3)]">关键帧 · 点击跳转</div>
                     <FrameStrip frames={detail.frames} currentMs={currentMs} onSeek={seekTo} />
                   </div>
                 )}
@@ -1047,7 +1047,7 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
       {/* 右列：五层拆解内容（编导视角 tab 切换） */}
       <div className="min-w-0 space-y-4">
         {/* tab 导航 */}
-        <div className="flex gap-1 border-b border-white/10 pb-1">
+        <div className="flex gap-1 border-b border-[var(--separator-soft)] pb-1">
           {([
             ["script", "完整脚本"],
             ["curve", "情绪曲线"],
@@ -1062,8 +1062,8 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
               onClick={() => setActiveTab(key)}
               className={`rounded-t px-3 py-1.5 text-xs transition ${
                 activeTab === key
-                  ? "bg-amber-400/10 text-amber-300 border-b-2 border-amber-400"
-                  : "text-zinc-500 hover:text-zinc-300"
+                  ? "bg-text-[var(--accent)]/10 text-[var(--accent-hover)] border-b-2 border-text-[var(--accent)]"
+                  : "text-[var(--text-3)] hover:text-[var(--text-2)]"
               }`}
             >
               {label}
@@ -1091,7 +1091,7 @@ export default function VideoBreakdown({ video, result, onCreateWithElements }: 
         )}
         {activeTab === "other" && (
           <>
-            <div className="mb-3 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3 text-xs text-amber-200/80">
+            <div className="mb-3 rounded-lg border border-text-[var(--accent)]/20 bg-text-[var(--accent)]/5 p-3 text-xs text-[var(--accent-hover)]/80">
               ⚠️ 以下内容为辅助参考信息，仅供参考，不建议直接用于创作
             </div>
             <NotesList notes={notes} onSeek={seekTo} />
@@ -1134,7 +1134,7 @@ function FullScriptPanel({
       <div className="mt-2 space-y-4">
         <div className="min-w-0">
           <div className="mb-1 text-[11px] uppercase tracking-wide text-emerald-200/50">📝 完整编导脚本（Markdown）</div>
-          <pre className="max-h-[75vh] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[#14161a] p-3 font-mono text-[12px] leading-relaxed text-zinc-200">
+          <pre className="max-h-[75vh] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[#14161a] p-3 font-mono text-[12px] leading-relaxed text-[var(--text-1)]">
             {showBody}
           </pre>
         </div>
@@ -1143,23 +1143,23 @@ function FullScriptPanel({
           {storyboard?.length ? (
             <div className="max-h-[520px] space-y-2 overflow-auto pr-1">
               {storyboard.map((sb) => (
-                <div key={sb.seg} className="rounded-lg border border-white/5 bg-[#14161a] p-2.5">
+                <div key={sb.seg} className="rounded-lg border border-[var(--separator-soft)] bg-[#14161a] p-2.5">
                   <div className="mb-1 flex items-baseline justify-between">
                     <span className="text-xs font-semibold text-emerald-300">
                       段{sb.seg}
                     </span>
-                    <span className="text-[11px] text-zinc-500">
+                    <span className="text-[11px] text-[var(--text-3)]">
                       {sb.start_s}s~{sb.end_s}s
                     </span>
                   </div>
                   {sb.shots.map((s, i) => (
-                    <div key={i} className="mb-1 flex gap-1.5 text-xs leading-relaxed text-zinc-300">
+                    <div key={i} className="mb-1 flex gap-1.5 text-xs leading-relaxed text-[var(--text-2)]">
                       <span className="mt-0.5 h-1 w-1 shrink-0 rounded-full bg-emerald-400/60" />
                       <span>{s}</span>
                     </div>
                   ))}
                   {sb.overlay && (
-                    <div className="mt-1 border-t border-white/5 pt-1 text-xs text-amber-200/80">
+                    <div className="mt-1 border-t border-[var(--separator-soft)] pt-1 text-xs text-[var(--accent-hover)]/80">
                       字幕：{sb.overlay}
                     </div>
                   )}
@@ -1170,7 +1170,7 @@ function FullScriptPanel({
               ))}
             </div>
           ) : (
-            <div className="rounded-lg bg-[#14161a] p-3 text-xs text-zinc-500">
+            <div className="rounded-lg bg-[#14161a] p-3 text-xs text-[var(--text-3)]">
               画面分镜未生成（视频暂无帧级画面数据）
             </div>
           )}
@@ -1183,8 +1183,8 @@ function FullScriptPanel({
 function AuditField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0">
-      <div className="mb-0.5 text-[11px] uppercase tracking-wide text-zinc-600">{label}</div>
-      <div className="break-words text-xs text-zinc-300">{children}</div>
+      <div className="mb-0.5 text-[11px] uppercase tracking-wide text-[var(--text-3)]">{label}</div>
+      <div className="break-words text-xs text-[var(--text-2)]">{children}</div>
     </div>
   );
 }
@@ -1198,25 +1198,25 @@ function SegmentsFromScript({ fullScript }: { fullScript?: string }) {
   const segPart = fullScript.slice(idx);
   // 按 ### 段 分割
   const segs = segPart.split(/### 段/).slice(1);
-  if (!segs.length) return <pre className="text-sm text-zinc-300 whitespace-pre-wrap">{segPart}</pre>;
+  if (!segs.length) return <pre className="text-sm text-[var(--text-2)] whitespace-pre-wrap">{segPart}</pre>;
   return (
     <div className="space-y-4">
-      <div className="text-xs text-zinc-500">共 {segs.length} 个段落 · 点击段落可查看详细分析</div>
+      <div className="text-xs text-[var(--text-3)]">共 {segs.length} 个段落 · 点击段落可查看详细分析</div>
       {segs.map((seg, i) => {
         const lines = seg.trim().split("\n");
         const title = lines[0]?.trim() || `段 ${i + 1}`;
         const body = lines.slice(1).join("\n").trim();
         return (
-          <details key={i} className="group rounded-lg border border-white/10 bg-white/[0.02] p-4">
+          <details key={i} className="group rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-hover)] p-4">
             <summary className="cursor-pointer select-none">
               <div className="flex items-center gap-3">
-                <span className="rounded bg-amber-400/10 px-2 py-0.5 text-xs text-amber-300">段 {i + 1}</span>
-                <span className="text-sm font-medium text-zinc-200">{title}</span>
-                <span className="ml-auto text-[11px] text-zinc-600 group-open:rotate-90 inline-block transition-transform">▶</span>
+                <span className="rounded bg-text-[var(--accent)]/10 px-2 py-0.5 text-xs text-[var(--accent-hover)]">段 {i + 1}</span>
+                <span className="text-sm font-medium text-[var(--text-1)]">{title}</span>
+                <span className="ml-auto text-[11px] text-[var(--text-3)] group-open:rotate-90 inline-block transition-transform">▶</span>
               </div>
             </summary>
             {body && (
-              <pre className="mt-3 text-xs text-zinc-300 whitespace-pre-wrap leading-relaxed">{body}</pre>
+              <pre className="mt-3 text-xs text-[var(--text-2)] whitespace-pre-wrap leading-relaxed">{body}</pre>
             )}
           </details>
         );
@@ -1235,32 +1235,32 @@ function AuditCard({ result }: { result: AnalysisResult }) {
     .filter((x) => x.has);
 
   return (
-    <details className="group rounded-xl border border-white/5 bg-[#1c1f26]">
-      <summary className="cursor-pointer select-none px-4 py-3 text-xs text-zinc-400 transition-colors hover:text-zinc-200">
-        <span className="mr-2 text-[11px] text-zinc-600 group-open:rotate-90 inline-block transition-transform">▶</span>
+    <details className="group rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)]">
+      <summary className="cursor-pointer select-none px-4 py-3 text-xs text-[var(--text-2)] transition-colors hover:text-[var(--text-1)]">
+        <span className="mr-2 text-[11px] text-[var(--text-3)] group-open:rotate-90 inline-block transition-transform">▶</span>
         审计信息
-        <span className="ml-2 text-[11px] text-zinc-600">AI 置信度 · 人工复核 · 模型与提示词版本</span>
+        <span className="ml-2 text-[11px] text-[var(--text-3)]">AI 置信度 · 人工复核 · 模型与提示词版本</span>
       </summary>
-      <div className="border-t border-white/5 px-4 py-3">
+      <div className="border-t border-[var(--separator-soft)] px-4 py-3">
         {top.length > 0 ? (
           <div className="grid grid-cols-2 gap-3 pb-3 sm:grid-cols-4">{top.map(([k, v]) => <AuditField key={k} label={k}>{v}</AuditField>)}</div>
         ) : (
-          <div className="pb-3 text-xs text-zinc-500">该次分析暂未记录顶层置信度/复核信息</div>
+          <div className="pb-3 text-xs text-[var(--text-3)]">该次分析暂未记录顶层置信度/复核信息</div>
         )}
         {layerEntries.length === 0 ? (
-          <div className="text-xs text-zinc-600">各层均无 model / prompt_version / raw_response 审计字段</div>
+          <div className="text-xs text-[var(--text-3)]">各层均无 model / prompt_version / raw_response 审计字段</div>
         ) : (
           <div className="space-y-2">
             {layerEntries.map(({ l }, idx) => (
               <div key={`${l.layer}-${idx}`} className="rounded-lg bg-black/20 p-2.5">
-                <div className="mb-1 text-[11px] text-zinc-500">L{l.layer} · {l.role_view}</div>
+                <div className="mb-1 text-[11px] text-[var(--text-3)]">L{l.layer} · {l.role_view}</div>
                 <div className="flex flex-wrap gap-x-5 gap-y-2">
                   {l.model != null && <AuditField label="模型">{String(l.model)}</AuditField>}
                   {l.prompt_version != null && <AuditField label="提示词版本">{String(l.prompt_version)}</AuditField>}
                   {l.raw_response != null && (
                     <div className="min-w-0 flex-1">
-                      <div className="mb-0.5 text-[11px] uppercase tracking-wide text-zinc-600">原始响应</div>
-                      <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-[#14161a] px-2 py-1.5 font-mono text-[11px] leading-relaxed text-zinc-400">{String(l.raw_response)}</pre>
+                      <div className="mb-0.5 text-[11px] uppercase tracking-wide text-[var(--text-3)]">原始响应</div>
+                      <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-[#14161a] px-2 py-1.5 font-mono text-[11px] leading-relaxed text-[var(--text-2)]">{String(l.raw_response)}</pre>
                     </div>
                   )}
                 </div>
@@ -1276,11 +1276,11 @@ function AuditCard({ result }: { result: AnalysisResult }) {
 /** 画面分镜面板：按时间顺序展示关键帧 */
 function StoryboardPanel({ frames, onSeek }: { frames: any[]; onSeek?: (ms: number) => void }) {
   if (!frames || frames.length === 0) {
-    return <div className="py-8 text-center text-sm text-zinc-500">暂无画面分镜数据</div>;
+    return <div className="py-8 text-center text-sm text-[var(--text-3)]">暂无画面分镜数据</div>;
   }
   return (
     <div className="space-y-3">
-      <div className="mb-2 text-xs text-zinc-500">
+      <div className="mb-2 text-xs text-[var(--text-3)]">
         共 {frames.length} 个关键帧，点击时间跳转视频对应位置
       </div>
       <div className="space-y-2">
@@ -1288,11 +1288,11 @@ function StoryboardPanel({ frames, onSeek }: { frames: any[]; onSeek?: (ms: numb
           const startS = (f.start_ms || 0) / 1000;
           const endS = (f.end_ms || f.start_ms || 0) / 1000;
           return (
-            <div key={i} className="flex gap-3 rounded-lg border border-white/5 bg-white/[0.02] p-3">
+            <div key={i} className="flex gap-3 rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-hover)] p-3">
               {/* 时间标签 */}
               <button
                 onClick={() => onSeek?.(f.start_ms || 0)}
-                className="shrink-0 rounded bg-amber-400/10 px-2 py-1 font-mono text-[11px] text-amber-300 hover:bg-amber-400/20"
+                className="shrink-0 rounded bg-text-[var(--accent)]/10 px-2 py-1 font-mono text-[11px] text-[var(--accent-hover)] hover:bg-[rgba(10,132,255,0.15)]"
               >
                 {startS.toFixed(1)}s
               </button>
@@ -1306,13 +1306,13 @@ function StoryboardPanel({ frames, onSeek }: { frames: any[]; onSeek?: (ms: numb
               )}
               {/* 描述 */}
               <div className="min-w-0 flex-1">
-                <div className="text-[13px] leading-relaxed text-zinc-200">{f.desc}</div>
+                <div className="text-[13px] leading-relaxed text-[var(--text-1)]">{f.desc}</div>
                 {f.text_overlay && (
-                  <div className="mt-1 text-[11px] text-zinc-500">
-                    字幕：<span className="text-zinc-400">{f.text_overlay}</span>
+                  <div className="mt-1 text-[11px] text-[var(--text-3)]">
+                    字幕：<span className="text-[var(--text-2)]">{f.text_overlay}</span>
                   </div>
                 )}
-                <div className="mt-1 text-[10px] text-zinc-600">
+                <div className="mt-1 text-[10px] text-[var(--text-3)]">
                   时长 {(endS - startS).toFixed(1)}s
                 </div>
               </div>

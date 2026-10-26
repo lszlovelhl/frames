@@ -250,10 +250,10 @@ export default function LibraryView({ focusVideoId, onFocusConsumed, onCreateWit
     <div className="mx-auto max-w-[1600px] px-8 py-8">
       <header className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-zinc-100">拆解库</h1>
-          <p className="mt-1 text-sm text-zinc-500">已建档素材与最近一次拆解状态</p>
+          <h1 className="text-xl font-semibold text-[var(--text-1)]">拆解库</h1>
+          <p className="mt-1 text-sm text-[var(--text-3)]">已建档素材与最近一次拆解状态</p>
         </div>
-        <button onClick={() => void load()} className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-400 hover:bg-white/5">
+        <button onClick={() => void load()} className="rounded-lg border border-[var(--separator-soft)] px-3 py-1.5 text-xs text-[var(--text-2)] hover:bg-[var(--bg-hover)]">
           刷新
         </button>
       </header>
@@ -262,18 +262,18 @@ export default function LibraryView({ focusVideoId, onFocusConsumed, onCreateWit
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="relative min-w-[200px] flex-1">
-          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600">⌕</span>
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-3)]">⌕</span>
           <input
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             placeholder="搜索标题 / 作者 / 类目…"
-            className="w-full rounded-lg border border-white/10 bg-[#1c1f26] py-1.5 pl-8 pr-3 text-sm text-zinc-200 placeholder:text-zinc-600 focus:border-amber-300/40 focus:outline-none"
+            className="w-full rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-card)] py-1.5 pl-8 pr-3 text-sm text-[var(--text-1)] placeholder:text-[var(--text-3)] focus:border-text-[var(--accent-hover)]/40 focus:outline-none"
           />
         </div>
         <select
           value={platformFilter}
           onChange={(e) => setPlatformFilter(e.target.value)}
-          className="rounded-lg border border-white/10 bg-[#1c1f26] px-2.5 py-1.5 text-sm text-zinc-300 focus:border-amber-300/40 focus:outline-none"
+          className="rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-card)] px-2.5 py-1.5 text-sm text-[var(--text-2)] focus:border-text-[var(--accent-hover)]/40 focus:outline-none"
         >
           <option value="all">全部平台</option>
           {platformOptions.map(([key, label]) => (
@@ -285,7 +285,7 @@ export default function LibraryView({ focusVideoId, onFocusConsumed, onCreateWit
         <select
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}
-          className="rounded-lg border border-white/10 bg-[#1c1f26] px-2.5 py-1.5 text-sm text-zinc-300 focus:border-amber-300/40 focus:outline-none"
+          className="rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-card)] px-2.5 py-1.5 text-sm text-[var(--text-2)] focus:border-text-[var(--accent-hover)]/40 focus:outline-none"
         >
           <option value="all">全部赛道</option>
           {categoryOptions.map(([key, label]) => (
@@ -294,7 +294,7 @@ export default function LibraryView({ focusVideoId, onFocusConsumed, onCreateWit
             </option>
           ))}
         </select>
-        <div className="flex overflow-hidden rounded-lg border border-white/10 text-xs">
+        <div className="flex overflow-hidden rounded-lg border border-[var(--separator-soft)] text-xs">
           {(
             [
               ["platform", "按平台"],
@@ -316,7 +316,7 @@ export default function LibraryView({ focusVideoId, onFocusConsumed, onCreateWit
                 }
               }}
               className={`px-2.5 py-1.5 transition ${
-                groupBy === key ? "bg-amber-300/15 text-amber-200" : "bg-[#1c1f26] text-zinc-400 hover:bg-white/5"
+                groupBy === key ? "bg-[var(--accent-hover)]/15 text-[var(--accent-hover)]" : "bg-[var(--bg-card)] text-[var(--text-2)] hover:bg-[var(--bg-hover)]"
               }`}
             >
               {label}
@@ -326,7 +326,7 @@ export default function LibraryView({ focusVideoId, onFocusConsumed, onCreateWit
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="rounded-lg border border-white/10 bg-[#1c1f26] px-2.5 py-1.5 text-sm text-zinc-300 focus:border-amber-300/40 focus:outline-none"
+          className="rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-card)] px-2.5 py-1.5 text-sm text-[var(--text-2)] focus:border-text-[var(--accent-hover)]/40 focus:outline-none"
         >
           {STATUS_OPTIONS.map((s) => (
             <option key={s.value} value={s.value}>
@@ -342,12 +342,12 @@ export default function LibraryView({ focusVideoId, onFocusConsumed, onCreateWit
               setCategoryFilter("all");
               setStatusFilter("all");
             }}
-            className="rounded-lg border border-white/10 px-2.5 py-1.5 text-xs text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+            className="rounded-lg border border-[var(--separator-soft)] px-2.5 py-1.5 text-xs text-[var(--text-2)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-1)]"
           >
             清除筛选
           </button>
         )}
-        <span className="ml-1 text-xs text-zinc-600">
+        <span className="ml-1 text-xs text-[var(--text-3)]">
           {filteredVideos.length} / {videos.length} 条
         </span>
       </div>
@@ -373,50 +373,50 @@ export default function LibraryView({ focusVideoId, onFocusConsumed, onCreateWit
             <button
               onClick={() => setRail(false)}
               title="点击固定展开 / 鼠标移入临时展开"
-              className="flex min-h-[420px] w-full flex-col items-center gap-3 rounded-xl border border-white/5 bg-[#1c1f26] px-2 py-3 text-zinc-400 transition-colors hover:bg-[#232733] hover:text-zinc-200"
+              className="flex min-h-[420px] w-full flex-col items-center gap-3 rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)] px-2 py-3 text-[var(--text-2)] transition-colors hover:bg-[#232733] hover:text-[var(--text-1)]"
             >
-              <span className="text-amber-300/80">▤</span>
+              <span className="text-[var(--accent-hover)]/80">▤</span>
               <span className="text-lg opacity-40">┆</span>
               <span className="whitespace-nowrap text-[10px] [writing-mode:vertical-rl] tracking-widest">素材库</span>
               {selected?.title && (
-                <span className="line-clamp-4 whitespace-pre-wrap text-[9px] leading-4 text-zinc-500 [writing-mode:vertical-rl]">{selected.title}</span>
+                <span className="line-clamp-4 whitespace-pre-wrap text-[9px] leading-4 text-[var(--text-3)] [writing-mode:vertical-rl]">{selected.title}</span>
               )}
-              <span className="mt-auto whitespace-nowrap text-[9px] text-zinc-600 [writing-mode:vertical-rl]">{filteredVideos.length} 条 · hover 展开</span>
+              <span className="mt-auto whitespace-nowrap text-[9px] text-[var(--text-3)] [writing-mode:vertical-rl]">{filteredVideos.length} 条 · hover 展开</span>
             </button>
           ) : (
             <div className="flex flex-col gap-2">
               <div className="mb-1 flex items-center justify-between pr-1">
-                <span className="text-[11px] uppercase tracking-wider text-zinc-600">素材列表</span>
+                <span className="text-[11px] uppercase tracking-wider text-[var(--text-3)]">素材列表</span>
                 {isWide && (
                   <button
                     onClick={() => setRail(true)}
                     title="收窄为竖条，鼠标移入展开"
-                    className="rounded border border-white/10 px-1.5 py-0.5 text-[10px] text-zinc-500 hover:bg-white/5 hover:text-zinc-200"
+                    className="rounded border border-[var(--separator-soft)] px-1.5 py-0.5 text-[10px] text-[var(--text-3)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-1)]"
                   >
                     收窄 ◂
                   </button>
                 )}
               </div>
-              {loading && <div className="text-sm text-zinc-500">加载中…</div>}
+              {loading && <div className="text-sm text-[var(--text-3)]">加载中…</div>}
               {!loading && videos.length === 0 && (
-                <div className="rounded-xl border border-dashed border-white/10 p-6 text-center text-sm text-zinc-500">还没有拆解记录，去工作台建一条吧</div>
+                <div className="rounded-xl border border-dashed border-[var(--separator-soft)] p-6 text-center text-sm text-[var(--text-3)]">还没有拆解记录，去工作台建一条吧</div>
               )}
               {!loading && videos.length > 0 && filteredVideos.length === 0 && (
-                <div className="rounded-xl border border-dashed border-white/10 p-6 text-center text-sm text-zinc-500">没有匹配的素材，试试调整筛选条件</div>
+                <div className="rounded-xl border border-dashed border-[var(--separator-soft)] p-6 text-center text-sm text-[var(--text-3)]">没有匹配的素材，试试调整筛选条件</div>
               )}
               {groups.map((g) => (
                 <div key={g.label} className="flex flex-col gap-1.5">
                   <button
                     onClick={() => toggleGroup(g.label)}
-                    className="group flex items-center justify-between rounded-lg border border-transparent px-1.5 py-1 text-left hover:bg-white/[0.03]"
+                    className="group flex items-center justify-between rounded-lg border border-transparent px-1.5 py-1 text-left hover:bg-[var(--bg-hover)]"
                   >
-                    <span className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-400">
-                      <span className="text-zinc-600 transition group-hover:text-zinc-300">
+                    <span className="flex items-center gap-1.5 text-[11px] font-medium text-[var(--text-2)]">
+                      <span className="text-[var(--text-3)] transition group-hover:text-[var(--text-2)]">
                         {collapsedGroups.includes(g.label) ? "▸" : "▾"}
                       </span>
                       {g.label}
                     </span>
-                    <span className="rounded bg-white/5 px-1.5 py-px text-[10px] text-zinc-500">{g.list.length}</span>
+                    <span className="rounded bg-[var(--bg-hover)] px-1.5 py-px text-[10px] text-[var(--text-3)]">{g.list.length}</span>
                   </button>
                   {!collapsedGroups.includes(g.label) &&
                     g.list.map((v) => (
@@ -424,18 +424,18 @@ export default function LibraryView({ focusVideoId, onFocusConsumed, onCreateWit
                         key={v.id}
                         onClick={() => void openAnalysis(v)}
                         className={`rounded-xl border p-3 text-left transition ${
-                          selected?.id === v.id ? "border-amber-300/40 bg-amber-300/5" : "border-white/5 bg-[#1c1f26] hover:bg-white/[0.04]"
+                          selected?.id === v.id ? "border-text-[var(--accent-hover)]/40 bg-[var(--accent-hover)]/5" : "border-[var(--separator-soft)] bg-[var(--bg-card)] hover:bg-[var(--bg-hover)]"
                         }`}
                       >
                         <div className="flex items-center gap-2">
-                          <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] uppercase text-zinc-400">{v.platform}</span>
+                          <span className="rounded bg-[var(--bg-hover)] px-1.5 py-0.5 text-[10px] uppercase text-[var(--text-2)]">{v.platform}</span>
                           {v.category_guess && (
-                            <span className="rounded bg-amber-300/10 px-1.5 py-0.5 text-[10px] text-amber-200/90">{v.category_guess}</span>
+                            <span className="rounded bg-[var(--accent-hover)]/10 px-1.5 py-0.5 text-[10px] text-[var(--accent-hover)]/90">{v.category_guess}</span>
                           )}
                           {v.latest_analysis && <LayerBadge status={v.latest_analysis.status} />}
                         </div>
-                        <div className="mt-1.5 line-clamp-2 text-sm font-medium text-zinc-200">{v.title}</div>
-                        <div className="mt-1 text-[11px] text-zinc-500">
+                        <div className="mt-1.5 line-clamp-2 text-sm font-medium text-[var(--text-1)]">{v.title}</div>
+                        <div className="mt-1 text-[11px] text-[var(--text-3)]">
                           {v.author_name ?? "未知作者"} · {v.created_at.slice(0, 10)}
                         </div>
                       </button>
@@ -448,14 +448,14 @@ export default function LibraryView({ focusVideoId, onFocusConsumed, onCreateWit
 
         {/* 右侧：详情 */}
         <div className="min-w-0">
-          {!selected && <div className="rounded-xl border border-dashed border-white/10 p-10 text-center text-sm text-zinc-600">选择左侧素材查看拆解详情</div>}
-          {selected && !result && <div className="text-sm text-zinc-500">{selected.latest_analysis ? "读取拆解结果…" : "该素材尚未拆解，去工作台发起。"}</div>}
+          {!selected && <div className="rounded-xl border border-dashed border-[var(--separator-soft)] p-10 text-center text-sm text-[var(--text-3)]">选择左侧素材查看拆解详情</div>}
+          {selected && !result && <div className="text-sm text-[var(--text-3)]">{selected.latest_analysis ? "读取拆解结果…" : "该素材尚未拆解，去工作台发起。"}</div>}
           {result && (
             <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/5 bg-[#1c1f26] px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)] px-4 py-3">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-zinc-100">{selected?.title}</div>
-                  <div className="text-[11px] text-zinc-500">拆解 #{result.id.slice(0, 8)}</div>
+                  <div className="truncate text-sm font-medium text-[var(--text-1)]">{selected?.title}</div>
+                  <div className="text-[11px] text-[var(--text-3)]">拆解 #{result.id.slice(0, 8)}</div>
                 </div>
                 <LayersRail r={result} />
               </div>

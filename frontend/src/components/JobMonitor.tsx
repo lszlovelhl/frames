@@ -12,8 +12,8 @@ const STATUS_TEXT: Record<string, string> = {
 };
 
 const STATUS_STYLE: Record<string, string> = {
-  queued: "text-zinc-400",
-  running: "text-amber-300",
+  queued: "text-[var(--text-2)]",
+  running: "text-[var(--accent-hover)]",
   done: "text-emerald-300",
   partial: "text-orange-300",
   failed: "text-rose-300",
@@ -72,12 +72,12 @@ export default function JobMonitor({ onOpenVideo }: { onOpenVideo: (videoId: str
     return (
       <button
         onClick={() => setExpanded(true)}
-        className="fixed bottom-4 right-4 z-40 flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-[#1c1f26] text-zinc-300 shadow-lg transition hover:border-amber-300/40"
+        className="fixed bottom-4 right-4 z-40 flex h-10 w-10 items-center justify-center rounded-full border border-[var(--separator-soft)] bg-[var(--bg-card)] text-[var(--text-2)] shadow-lg transition hover:border-text-[var(--accent-hover)]/40"
         title="拆解进度"
       >
-        <span className={active.length ? "text-amber-300" : "text-zinc-500"}>◔</span>
+        <span className={active.length ? "text-[var(--accent-hover)]" : "text-[var(--text-3)]"}>◔</span>
         {active.length > 0 && (
-          <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold text-black">
+          <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-text-[var(--accent)] px-1 text-[10px] font-bold text-black">
             {active.length}
           </span>
         )}
@@ -87,53 +87,53 @@ export default function JobMonitor({ onOpenVideo }: { onOpenVideo: (videoId: str
 
   // 展开状态：完整面板
   return (
-    <div className="fixed bottom-4 right-4 z-40 w-[340px] max-w-[92vw] overflow-hidden rounded-xl border border-white/10 bg-[#1c1f26]/95 shadow-2xl backdrop-blur">
-      <div className="flex items-center justify-between border-b border-white/5 px-3 py-2">
-        <div className="flex items-center gap-2 text-xs font-medium text-zinc-200">
-          <span className={active.length ? "text-amber-300" : "text-zinc-500"}>◔</span>
+    <div className="fixed bottom-4 right-4 z-40 w-[340px] max-w-[92vw] overflow-hidden rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)]/95 shadow-2xl backdrop-blur">
+      <div className="flex items-center justify-between border-b border-[var(--separator-soft)] px-3 py-2">
+        <div className="flex items-center gap-2 text-xs font-medium text-[var(--text-1)]">
+          <span className={active.length ? "text-[var(--accent-hover)]" : "text-[var(--text-3)]"}>◔</span>
           拆解进度
           {active.length > 0 && (
-            <span className="rounded bg-amber-300/15 px-1.5 py-0.5 text-[10px] text-amber-200">
+            <span className="rounded bg-[var(--accent-hover)]/15 px-1.5 py-0.5 text-[10px] text-[var(--accent-hover)]">
               进行中 {active.length}
             </span>
           )}
         </div>
-        <button onClick={() => setExpanded(false)} className="text-xs text-zinc-500 hover:text-zinc-300">
+        <button onClick={() => setExpanded(false)} className="text-xs text-[var(--text-3)] hover:text-[var(--text-2)]">
           收起
         </button>
       </div>
 
       <div className="max-h-[46vh] overflow-y-auto px-3 py-2">
-        {!reachable && <p className="text-[11px] text-zinc-500">后端未连接，稍后重试…</p>}
+        {!reachable && <p className="text-[11px] text-[var(--text-3)]">后端未连接，稍后重试…</p>}
 
         {active.map((it) => (
-          <div key={it.analysis_id} className="mb-2 rounded-lg bg-white/[0.03] px-2.5 py-2">
+          <div key={it.analysis_id} className="mb-2 rounded-lg bg-[var(--bg-hover)] px-2.5 py-2">
             <div className="flex items-center justify-between gap-2">
-              <span className="truncate text-[12px] text-zinc-100">{it.title || "未命名视频"}</span>
+              <span className="truncate text-[12px] text-[var(--text-1)]">{it.title || "未命名视频"}</span>
               <span className={`shrink-0 text-[10px] ${STATUS_STYLE[it.status]}`}>
                 {STATUS_TEXT[it.status] ?? it.status}
               </span>
             </div>
-            <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-white/10">
+            <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-[var(--bg-hover)]">
               <div
-                className="h-full rounded-full bg-amber-300/70 transition-all"
+                className="h-full rounded-full bg-[var(--accent-hover)]/70 transition-all"
                 style={{ width: `${Math.min(100, Math.max(3, it.progress.pct || 3))}%` }}
               />
             </div>
-            <div className="mt-1 truncate text-[10px] text-zinc-500">{it.progress.message}</div>
+            <div className="mt-1 truncate text-[10px] text-[var(--text-3)]">{it.progress.message}</div>
           </div>
         ))}
 
         {recent.length > 0 && (
           <div className={active.length ? "mt-3" : ""}>
-            <div className="mb-1 text-[10px] text-zinc-600">最近完成</div>
+            <div className="mb-1 text-[10px] text-[var(--text-3)]">最近完成</div>
             {recent.map((it) => (
               <button
                 key={it.analysis_id}
                 onClick={() => onOpenVideo(it.video_id)}
-                className="mb-1 flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left transition hover:bg-white/5"
+                className="mb-1 flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left transition hover:bg-[var(--bg-hover)]"
               >
-                <span className="truncate text-[11px] text-zinc-400">{it.title || "未命名视频"}</span>
+                <span className="truncate text-[11px] text-[var(--text-2)]">{it.title || "未命名视频"}</span>
                 <span className={`shrink-0 text-[10px] ${STATUS_STYLE[it.status]}`}>
                   {STATUS_TEXT[it.status] ?? it.status}
                 </span>

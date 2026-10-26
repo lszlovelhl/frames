@@ -5,9 +5,9 @@ import {
   type ElementVersionEntry,
 } from "../api";
 const STATUS_META: Record<string, { label: string; cls: string; btn: string }> = {
-  draft: { label: "待质控", cls: "bg-zinc-400/15 text-zinc-300", btn: "" },
+  draft: { label: "待质控", cls: "bg-zinc-400/15 text-[var(--text-2)]", btn: "" },
   accepted: { label: "已采纳", cls: "bg-emerald-400/15 text-emerald-300", btn: "text-emerald-300 hover:bg-emerald-400/10" },
-  adjusted: { label: "已纠错", cls: "bg-sky-400/15 text-sky-300", btn: "text-sky-300 hover:bg-sky-400/10" },
+  adjusted: { label: "已纠错", cls: "bg-sky-400/15 text-sky-300", btn: "text-sky-300 hover:bg-[var(--accent)]/10" },
   rejected: { label: "已驳回", cls: "bg-rose-400/15 text-rose-300", btn: "text-rose-300 hover:bg-rose-400/10" },
 };
 
@@ -160,11 +160,11 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
     <div className="mx-auto max-w-3xl px-4 py-6 lg:px-8">
       <header className="mb-5 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-zinc-100">元素库</h1>
-          <p className="mt-1 text-sm text-zinc-500">跨片聚合提炼元素 · 质控后沉淀为创作素材</p>
+          <h1 className="text-xl font-semibold text-[var(--text-1)]">元素库</h1>
+          <p className="mt-1 text-sm text-[var(--text-3)]">跨片聚合提炼元素 · 质控后沉淀为创作素材</p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 text-xs text-amber-200">
+          <span className="rounded-full border border-text-[var(--accent-hover)]/20 bg-[var(--accent-hover)]/10 px-3 py-1 text-xs text-[var(--accent-hover)]">
             {totalDraft} 待质控
           </span>
           {!selectionMode && (
@@ -176,7 +176,7 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
               变异 / 组合
             </button>
           )}
-          <button onClick={() => void load()} className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-zinc-400 hover:bg-white/5">
+          <button onClick={() => void load()} className="rounded-lg border border-[var(--separator-soft)] px-3 py-1.5 text-xs text-[var(--text-2)] hover:bg-[var(--bg-hover)]">
             {selectionMode ? "取消选择" : "刷新"}
           </button>
         </div>
@@ -187,11 +187,11 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
       {/* 变异/组合选择模式操作条 */}
       {selectionMode && (
         <div className="sticky top-0 z-20 -mx-1 mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-violet-300/20 bg-[#191c21]/95 px-3 py-2 shadow-lg backdrop-blur">
-          <span className="text-xs text-zinc-300">
+          <span className="text-xs text-[var(--text-2)]">
             已选 <span className="font-semibold text-violet-300">{selected.size}</span> 个元素
           </span>
           {selectedItems.length > 0 && (
-            <span className="max-w-[260px] truncate text-[11px] text-zinc-500">
+            <span className="max-w-[260px] truncate text-[11px] text-[var(--text-3)]">
               {selectedItems.map((e) => e.name).join("、")}
             </span>
           )}
@@ -217,10 +217,10 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
             <button
               key={t.key}
               onClick={() => setStatus(t.key)}
-              className={`rounded-full px-3 py-1.5 text-xs transition ${active ? "bg-amber-300/15 text-amber-200" : "border border-white/10 text-zinc-400 hover:bg-white/5"}`}
+              className={`rounded-full px-3 py-1.5 text-xs transition ${active ? "bg-[var(--accent-hover)]/15 text-[var(--accent-hover)]" : "border border-[var(--separator-soft)] text-[var(--text-2)] hover:bg-[var(--bg-hover)]"}`}
             >
               {t.label}
-              <span className={`ml-1 ${active ? "text-amber-300/70" : "text-zinc-600"}`}>{n}</span>
+              <span className={`ml-1 ${active ? "text-[var(--accent-hover)]/70" : "text-[var(--text-3)]"}`}>{n}</span>
             </button>
           );
         })}
@@ -231,24 +231,24 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
         <select
           value={category}
           onChange={(e) => setCategory(e.target.value)}
-          className="rounded-lg border border-white/10 bg-[#1c1f26] px-2.5 py-1.5 text-sm text-zinc-300 outline-none"
+          className="rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-card)] px-2.5 py-1.5 text-sm text-[var(--text-2)] outline-none"
         >
           <option value="all">全部分类</option>
           {CATEGORIES.map((c) => (
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
-        <div className="flex overflow-hidden rounded-lg border border-white/10">
+        <div className="flex overflow-hidden rounded-lg border border-[var(--separator-soft)]">
           <button
             onClick={() => setSearchMode("keyword")}
-            className={`px-2.5 py-1.5 text-xs transition ${searchMode === "keyword" ? "bg-amber-300/20 text-amber-200" : "bg-[#1c1f26] text-zinc-500 hover:text-zinc-300"}`}
+            className={`px-2.5 py-1.5 text-xs transition ${searchMode === "keyword" ? "bg-[var(--accent-hover)]/20 text-[var(--accent-hover)]" : "bg-[var(--bg-card)] text-[var(--text-3)] hover:text-[var(--text-2)]"}`}
             title="传统关键词搜索（LIKE 匹配）"
           >
             关键词
           </button>
           <button
             onClick={() => setSearchMode("semantic")}
-            className={`px-2.5 py-1.5 text-xs transition ${searchMode === "semantic" ? "bg-amber-300/20 text-amber-200" : "bg-[#1c1f26] text-zinc-500 hover:text-zinc-300"}`}
+            className={`px-2.5 py-1.5 text-xs transition ${searchMode === "semantic" ? "bg-[var(--accent-hover)]/20 text-[var(--accent-hover)]" : "bg-[var(--bg-card)] text-[var(--text-3)] hover:text-[var(--text-2)]"}`}
             title="语义搜索（向量召回，按意思找素材）"
           >
             ✦ 语义
@@ -258,7 +258,7 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
           value={trackFilter}
           onChange={(e) => setTrackFilter(e.target.value)}
           title="按元素来源视频的内容赛道筛选"
-          className="rounded-lg border border-white/10 bg-[#1c1f26] px-2.5 py-1.5 text-sm text-zinc-300 outline-none"
+          className="rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-card)] px-2.5 py-1.5 text-sm text-[var(--text-2)] outline-none"
           style={{ display: searchMode === "semantic" ? "none" : undefined }}
         >
           <option value="all">全部赛道</option>
@@ -271,7 +271,7 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
             value={semanticTable}
             onChange={(e) => setSemanticTable(e.target.value)}
             title="素材类型"
-            className="rounded-lg border border-white/10 bg-[#1c1f26] px-2.5 py-1.5 text-sm text-zinc-300 outline-none"
+            className="rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-card)] px-2.5 py-1.5 text-sm text-[var(--text-2)] outline-none"
           >
             <option value="all">全部素材</option>
             <option value="hook">钩子</option>
@@ -285,7 +285,7 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value as SortMode)}
           title="排序方式"
-          className="rounded-lg border border-white/10 bg-[#1c1f26] px-2.5 py-1.5 text-sm text-zinc-300 outline-none"
+          className="rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-card)] px-2.5 py-1.5 text-sm text-[var(--text-2)] outline-none"
           style={{ display: searchMode === "semantic" ? "none" : undefined }}
         >
           <option value="quality">质控优先</option>
@@ -297,41 +297,41 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
           placeholder={searchMode === "semantic"
             ? "用自然语言描述你要找的素材，例如：开头制造焦虑让用户停下"
             : "搜名称 / 描述 / 配方…"}
-          className="min-w-0 flex-1 rounded-lg border border-white/10 bg-[#1c1f26] px-3 py-1.5 text-sm text-zinc-200 placeholder-zinc-600 outline-none focus:border-amber-300/30"
+          className="min-w-0 flex-1 rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-card)] px-3 py-1.5 text-sm text-[var(--text-1)] placeholder-[var(--text-3)] outline-none focus:border-text-[var(--accent-hover)]/30"
         />
       </div>
 
       {/* ============ 语义搜索结果 ============ */}
       {searchMode === "semantic" && (
         <div className="flex flex-col gap-3">
-          {semanticLoading && <div className="text-sm text-zinc-500">向量检索中…</div>}
+          {semanticLoading && <div className="text-sm text-[var(--text-3)]">向量检索中…</div>}
           {!semanticLoading && semanticError && (
             <div className="rounded-lg border border-rose-400/30 bg-rose-400/10 p-3 text-sm text-rose-300">{semanticError}</div>
           )}
           {!semanticLoading && !semanticError && !debouncedQ && (
-            <div className="rounded-xl border border-dashed border-white/10 p-8 text-center text-sm text-zinc-500">
+            <div className="rounded-xl border border-dashed border-[var(--separator-soft)] p-8 text-center text-sm text-[var(--text-3)]">
               在上方输入你要找的素材特征，例如"3秒内让用户产生好奇的美妆开头"、"鼓励观众马上行动的结尾"
             </div>
           )}
           {!semanticLoading && !semanticError && debouncedQ && semanticResults.length === 0 && (
-            <div className="rounded-xl border border-dashed border-white/10 p-8 text-center text-sm text-zinc-500">
+            <div className="rounded-xl border border-dashed border-[var(--separator-soft)] p-8 text-center text-sm text-[var(--text-3)]">
               没有召回到相关素材，换个说法试试
             </div>
           )}
           {semanticResults.map((r) => {
             const scorePct = Math.round(r.score * 100);
-            const scoreColor = r.score >= 0.65 ? "text-emerald-300" : r.score >= 0.55 ? "text-amber-300" : "text-zinc-400";
+            const scoreColor = r.score >= 0.65 ? "text-emerald-300" : r.score >= 0.55 ? "text-[var(--accent-hover)]" : "text-[var(--text-2)]";
             return (
-              <article key={`${r.table}-${r.id}`} className="rounded-xl border border-white/5 bg-[#1c1f26] p-4 transition hover:border-white/10">
+              <article key={`${r.table}-${r.id}`} className="rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)] p-4 transition hover:border-[var(--separator-soft)]">
                 <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                  <span className="rounded bg-sky-400/10 px-1.5 py-0.5 text-sky-300">{r.table_alias}</span>
-                  {r.sub_type && <span className="rounded bg-white/5 px-1.5 py-0.5 text-zinc-400">{r.sub_type}</span>}
+                  <span className="rounded bg-[var(--accent)]/10 px-1.5 py-0.5 text-sky-300">{r.table_alias}</span>
+                  {r.sub_type && <span className="rounded bg-[var(--bg-hover)] px-1.5 py-0.5 text-[var(--text-2)]">{r.sub_type}</span>}
                   <span className={`ml-auto font-mono ${scoreColor}`} title="语义相似度（余弦值）">
                     相似度 {scorePct}%
                   </span>
                 </div>
-                <h3 className="mt-2 text-[15px] font-semibold leading-snug text-zinc-100">{r.name}</h3>
-                {r.snippet && <p className="mt-1.5 line-clamp-3 text-sm leading-relaxed text-zinc-400">{r.snippet}</p>}
+                <h3 className="mt-2 text-[15px] font-semibold leading-snug text-[var(--text-1)]">{r.name}</h3>
+                {r.snippet && <p className="mt-1.5 line-clamp-3 text-sm leading-relaxed text-[var(--text-2)]">{r.snippet}</p>}
               </article>
             );
           })}
@@ -341,9 +341,9 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
       {/* ============ 关键词模式原有列表 ============ */}
       {searchMode === "keyword" && (
       <>
-      {loading && <div className="text-sm text-zinc-500">加载中…</div>}
+      {loading && <div className="text-sm text-[var(--text-3)]">加载中…</div>}
       {!loading && shown.length === 0 && (
-        <div className="rounded-xl border border-dashed border-white/10 p-8 text-center text-sm text-zinc-500">
+        <div className="rounded-xl border border-dashed border-[var(--separator-soft)] p-8 text-center text-sm text-[var(--text-3)]">
           {status === "draft" ? "没有待质控元素，全部处理完了" : "没有符合条件的元素"}
         </div>
       )}
@@ -359,23 +359,23 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
             <article
               key={e.id}
               onClick={() => selectionMode && toggleSelect(e.id)}
-              className={`cursor-pointer rounded-xl border bg-[#1c1f26] p-4 transition ${
+              className={`cursor-pointer rounded-xl border bg-[var(--bg-card)] p-4 transition ${
                 selectionMode && selected.has(e.id)
                   ? "border-violet-300/40 ring-1 ring-violet-300/30"
-                  : "border-white/5 hover:border-white/10"
+                  : "border-[var(--separator-soft)] hover:border-[var(--separator-soft)]"
               }`}
             >
               <div className="flex flex-wrap items-center gap-2 text-[11px]">
                 {selectionMode && (
                   <span
                     className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${
-                      selected.has(e.id) ? "border-violet-300 bg-violet-400/30 text-white" : "border-white/20"
+                      selected.has(e.id) ? "border-violet-300 bg-violet-400/30 text-white" : "border-[var(--separator-soft)]"
                     }`}
                   >
                     {selected.has(e.id) ? "✓" : ""}
                   </span>
                 )}
-                <span className="rounded bg-sky-400/10 px-1.5 py-0.5 text-sky-300">{e.category}</span>
+                <span className="rounded bg-[var(--accent)]/10 px-1.5 py-0.5 text-sky-300">{e.category}</span>
                 <span className={`rounded px-1.5 py-0.5 ${st.cls}`}>{st.label}</span>
                 {e.usage_count != null && e.usage_count > 0 && (
                   <span className="rounded bg-violet-400/10 px-1.5 py-0.5 text-violet-300" title="被创作项目引用的次数（版本迭代沿用不计重复）">
@@ -385,36 +385,36 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
                 {e.video && (
                   <>
                     {e.video.category_guess && (
-                      <span className="rounded bg-amber-300/10 px-1.5 py-0.5 text-amber-200/90">{e.video.category_guess}</span>
+                      <span className="rounded bg-[var(--accent-hover)]/10 px-1.5 py-0.5 text-[var(--accent-hover)]/90">{e.video.category_guess}</span>
                     )}
                     <button
                       onClick={() => onOpenInLibrary?.(e.video!.id)}
-                      className="max-w-[300px] truncate text-zinc-500 underline-offset-2 hover:text-amber-300 hover:underline"
+                      className="max-w-[300px] truncate text-[var(--text-3)] underline-offset-2 hover:text-[var(--accent-hover)] hover:underline"
                       title="在拆解库打开该素材"
                     >
                       {e.video.platform} · {e.video.title}
                     </button>
                   </>
                 )}
-                <span className="ml-auto text-zinc-600">
+                <span className="ml-auto text-[var(--text-3)]">
                   {e.confidence != null ? `置信 ${Math.round(e.confidence * 100)}%` : ""}
                 </span>
               </div>
 
-              <h3 className="mt-2 text-[15px] font-semibold leading-snug text-zinc-100">{e.name}</h3>
-              {e.description && <p className="mt-1.5 text-sm leading-relaxed text-zinc-400">{e.description}</p>}
+              <h3 className="mt-2 text-[15px] font-semibold leading-snug text-[var(--text-1)]">{e.name}</h3>
+              {e.description && <p className="mt-1.5 text-sm leading-relaxed text-[var(--text-2)]">{e.description}</p>}
               {e.formula && (
                 <details className="mt-2">
-                  <summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-300">配方</summary>
-                  <p className="mt-1.5 whitespace-pre-wrap rounded-lg bg-black/20 px-3 py-2 text-xs leading-relaxed text-zinc-400">{e.formula}</p>
+                  <summary className="cursor-pointer text-xs text-[var(--text-3)] hover:text-[var(--text-2)]">配方</summary>
+                  <p className="mt-1.5 whitespace-pre-wrap rounded-lg bg-black/20 px-3 py-2 text-xs leading-relaxed text-[var(--text-2)]">{e.formula}</p>
                 </details>
               )}
 
               {e.slots && e.slots.length > 0 && (
                 <div className="mt-2.5">
                   <div className="flex items-baseline justify-between">
-                    <span className="text-xs text-zinc-500">组合槽位（拿来就改）</span>
-                    <span className="text-[11px] text-zinc-600">
+                    <span className="text-xs text-[var(--text-3)]">组合槽位（拿来就改）</span>
+                    <span className="text-[11px] text-[var(--text-3)]">
                       {e.slots.filter((s) => s.slot_role === "固定").length} 固定 ·{" "}
                       {e.slots.filter((s) => s.slot_role === "可替换").length} 可替换
                     </span>
@@ -423,19 +423,19 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
                     {e.slots.map((s) => (
                       <div key={s.seq} className="rounded-lg bg-black/20 px-3 py-1.5">
                         <div className="flex items-center justify-between text-xs">
-                          <span className="font-medium text-zinc-300">
+                          <span className="font-medium text-[var(--text-2)]">
                             {s.seq}. <code className="text-sky-300/80">{s.method_code}</code>
                           </span>
-                          <span className="text-zinc-500">
+                          <span className="text-[var(--text-3)]">
                             {s.slot_role} · {Math.round(s.position_ratio_start * 100)}%→
                             {Math.round(s.position_ratio_end * 100)}%
                           </span>
                         </div>
                         {s.expected_function && (
-                          <p className="mt-0.5 text-[11px] leading-relaxed text-zinc-500">{s.expected_function}</p>
+                          <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--text-3)]">{s.expected_function}</p>
                         )}
                         {s.swap_alternatives && s.swap_alternatives.length > 0 && (
-                          <p className="mt-0.5 text-[11px] text-zinc-600">
+                          <p className="mt-0.5 text-[11px] text-[var(--text-3)]">
                             可换：{s.swap_alternatives.join(" / ")}
                           </p>
                         )}
@@ -446,46 +446,46 @@ export default function ElementsView({ onOpenInLibrary, onCreateWithElements }: 
               )}
 
               {e.evidence && e.evidence.length > 0 && (
-                <div className="mt-2 flex flex-col gap-1.5 border-l-2 border-amber-300/20 pl-3">
+                <div className="mt-2 flex flex-col gap-1.5 border-l-2 border-text-[var(--accent-hover)]/20 pl-3">
                   {e.evidence.slice(0, 2).map((ev, i) => (
-                    <p key={i} className="text-xs leading-relaxed text-zinc-500">
+                    <p key={i} className="text-xs leading-relaxed text-[var(--text-3)]">
                       {ev.quote}
-                      {ev.seg != null && <span className="ml-1 text-zinc-600">〔#{ev.seg}〕</span>}
+                      {ev.seg != null && <span className="ml-1 text-[var(--text-3)]">〔#{ev.seg}〕</span>}
                     </p>
                   ))}
                 </div>
               )}
 
-              <div className="mt-3 flex flex-wrap gap-1.5 border-t border-white/5 pt-3">
+              <div className="mt-3 flex flex-wrap gap-1.5 border-t border-[var(--separator-soft)] pt-3">
                 <button
                   disabled={busy}
                   onClick={() => void review(e.id, "accept")}
-                  className={`rounded px-2.5 py-1 text-xs ${e.status === "accepted" ? "bg-emerald-400/15 text-emerald-200" : "border border-white/10 text-zinc-400 hover:border-emerald-300/30 hover:text-emerald-300"}`}
+                  className={`rounded px-2.5 py-1 text-xs ${e.status === "accepted" ? "bg-emerald-400/15 text-emerald-200" : "border border-[var(--separator-soft)] text-[var(--text-2)] hover:border-emerald-300/30 hover:text-emerald-300"}`}
                 >
                   采纳
                 </button>
                 <button
                   disabled={busy}
                   onClick={() => void review(e.id, "reject")}
-                  className={`rounded px-2.5 py-1 text-xs ${e.status === "rejected" ? "bg-rose-400/15 text-rose-200" : "border border-white/10 text-zinc-400 hover:border-rose-300/30 hover:text-rose-300"}`}
+                  className={`rounded px-2.5 py-1 text-xs ${e.status === "rejected" ? "bg-rose-400/15 text-rose-200" : "border border-[var(--separator-soft)] text-[var(--text-2)] hover:border-rose-300/30 hover:text-rose-300"}`}
                 >
                   驳回
                 </button>
                 <button
                   disabled={busy}
                   onClick={() => setEditing(e)}
-                  className={`rounded px-2.5 py-1 text-xs ${e.status === "adjusted" ? "bg-sky-400/15 text-sky-200" : "border border-white/10 text-zinc-400 hover:border-sky-300/30 hover:text-sky-300"}`}
+                  className={`rounded px-2.5 py-1 text-xs ${e.status === "adjusted" ? "bg-sky-400/15 text-sky-200" : "border border-[var(--separator-soft)] text-[var(--text-2)] hover:border-sky-300/30 hover:text-sky-300"}`}
                 >
                   纠错
                 </button>
                 <button
                   onClick={() => toggleVersions(e.id)}
-                  className={`rounded border px-2 py-1 text-[11px] ${verOpen.has(e.id) ? "border-violet-300/30 bg-violet-400/15 text-violet-200" : "border-white/10 text-zinc-400 hover:border-violet-300/30 hover:text-violet-300"}`}
+                  className={`rounded border px-2 py-1 text-[11px] ${verOpen.has(e.id) ? "border-violet-300/30 bg-violet-400/15 text-violet-200" : "border-[var(--separator-soft)] text-[var(--text-2)] hover:border-violet-300/30 hover:text-violet-300"}`}
                 >
                   {verOpen.has(e.id) ? "收起演化" : "演化版本"}
                 </button>
                 {e.role_view && e.role_view !== "全员" && (
-                  <span className="ml-auto self-center text-[10px] text-zinc-600">角色视角：{e.role_view}</span>
+                  <span className="ml-auto self-center text-[10px] text-[var(--text-3)]">角色视角：{e.role_view}</span>
                 )}
               </div>
               {verOpen.has(e.id) && <ElementVersionsPanel element={e} />}
@@ -508,38 +508,38 @@ function AdjustModal({ e, onClose, onSave }: { e: ElementItem; onClose: () => vo
   const [formula, setFormula] = useState(e.formula ?? "");
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#191c21] p-5" onClick={(ev) => ev.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-base)] p-4" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-2xl border border-[var(--separator-soft)] bg-[#191c21] p-5" onClick={(ev) => ev.stopPropagation()}>
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-zinc-100">纠错元素</h3>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300">×</button>
+          <h3 className="text-sm font-semibold text-[var(--text-1)]">纠错元素</h3>
+          <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--text-2)]">×</button>
         </div>
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-2">
-            <label className="flex flex-col gap-1 text-xs text-zinc-500">
+            <label className="flex flex-col gap-1 text-xs text-[var(--text-3)]">
               分类
-              <select value={category} onChange={(ev) => setCategory(ev.target.value)} className="rounded-lg border border-white/10 bg-[#1f2228] px-2 py-1.5 text-sm text-zinc-200 outline-none">
+              <select value={category} onChange={(ev) => setCategory(ev.target.value)} className="rounded-lg border border-[var(--separator-soft)] bg-[#1f2228] px-2 py-1.5 text-sm text-[var(--text-1)] outline-none">
                 {CATEGORIES.map((c) => (
                   <option key={c} value={c}>{c}</option>
                 ))}
               </select>
             </label>
-            <label className="flex flex-col gap-1 text-xs text-zinc-500">
+            <label className="flex flex-col gap-1 text-xs text-[var(--text-3)]">
               名称
-              <input value={name} onChange={(ev) => setName(ev.target.value)} className="rounded-lg border border-white/10 bg-[#1f2228] px-2 py-1.5 text-sm text-zinc-200 outline-none" />
+              <input value={name} onChange={(ev) => setName(ev.target.value)} className="rounded-lg border border-[var(--separator-soft)] bg-[#1f2228] px-2 py-1.5 text-sm text-[var(--text-1)] outline-none" />
             </label>
           </div>
-          <label className="flex flex-col gap-1 text-xs text-zinc-500">
+          <label className="flex flex-col gap-1 text-xs text-[var(--text-3)]">
             描述
-            <textarea value={description} onChange={(ev) => setDescription(ev.target.value)} rows={2} className="rounded-lg border border-white/10 bg-[#1f2228] px-2 py-1.5 text-sm text-zinc-200 outline-none" />
+            <textarea value={description} onChange={(ev) => setDescription(ev.target.value)} rows={2} className="rounded-lg border border-[var(--separator-soft)] bg-[#1f2228] px-2 py-1.5 text-sm text-[var(--text-1)] outline-none" />
           </label>
-          <label className="flex flex-col gap-1 text-xs text-zinc-500">
+          <label className="flex flex-col gap-1 text-xs text-[var(--text-3)]">
             配方
-            <textarea value={formula} onChange={(ev) => setFormula(ev.target.value)} rows={3} className="rounded-lg border border-white/10 bg-[#1f2228] px-2 py-1.5 text-sm text-zinc-200 outline-none" />
+            <textarea value={formula} onChange={(ev) => setFormula(ev.target.value)} rows={3} className="rounded-lg border border-[var(--separator-soft)] bg-[#1f2228] px-2 py-1.5 text-sm text-[var(--text-1)] outline-none" />
           </label>
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded-lg px-3 py-1.5 text-sm text-zinc-400 hover:bg-white/5">取消</button>
+          <button onClick={onClose} className="rounded-lg px-3 py-1.5 text-sm text-[var(--text-2)] hover:bg-[var(--bg-hover)]">取消</button>
           <button onClick={() => onSave({ category, name, description, formula })} className="rounded-lg bg-sky-400/15 px-3 py-1.5 text-sm text-sky-200 hover:bg-sky-400/25">
             保存纠错
           </button>
@@ -591,40 +591,40 @@ function ElementVersionsPanel({ element }: { element: ElementItem }) {
   }, [element.id]);
 
   if (err) return <div className="mt-2 rounded bg-rose-400/10 px-2 py-1.5 text-[10px] text-rose-300">{err}</div>;
-  if (!data) return <div className="mt-2 rounded bg-black/20 px-2 py-2 text-[10px] text-zinc-600">版本加载中…</div>;
+  if (!data) return <div className="mt-2 rounded bg-black/20 px-2 py-2 text-[10px] text-[var(--text-3)]">版本加载中…</div>;
   if (data.items.length === 0)
-    return <div className="mt-2 rounded bg-black/20 px-2 py-2 text-[10px] text-zinc-600">暂无演化版本</div>;
+    return <div className="mt-2 rounded bg-black/20 px-2 py-2 text-[10px] text-[var(--text-3)]">暂无演化版本</div>;
 
   return (
-    <div className="mt-2 space-y-0 rounded-lg border border-white/5 bg-black/20 px-3 py-2.5">
-      <div className="mb-1 text-[10px] uppercase tracking-wider text-zinc-600">演化版本时间线</div>
-      <ol className="relative ml-2 space-y-2.5 border-l border-white/10 pl-3">
+    <div className="mt-2 space-y-0 rounded-lg border border-[var(--separator-soft)] bg-black/20 px-3 py-2.5">
+      <div className="mb-1 text-[10px] uppercase tracking-wider text-[var(--text-3)]">演化版本时间线</div>
+      <ol className="relative ml-2 space-y-2.5 border-l border-[var(--separator-soft)] pl-3">
         {data.items.map((v) => (
           <li key={v.id} className="relative">
             <span className="absolute -left-[17.5px] top-1 h-2 w-2 rounded-full border-2 border-[#20232a] bg-violet-300/80" />
             <div className="flex flex-wrap items-center gap-1.5">
               <span className="rounded bg-violet-400/15 px-1.5 py-px font-mono text-[9px] text-violet-200">v{v.version_seq}</span>
-              <span className="rounded bg-zinc-400/10 px-1.5 py-px text-[9px] text-zinc-300">
+              <span className="rounded bg-zinc-400/10 px-1.5 py-px text-[9px] text-[var(--text-2)]">
                 {CHANGE_KIND_LABEL[v.change_kind] ?? v.change_kind}
               </span>
-              <span className="text-[9px] text-zinc-600">{fmtTimeLocal(v.created_at)}</span>
+              <span className="text-[9px] text-[var(--text-3)]">{fmtTimeLocal(v.created_at)}</span>
               {v.used_by_creation_id && (
-                <span className="rounded bg-amber-300/10 px-1.5 py-px text-[9px] text-amber-200">
+                <span className="rounded bg-[var(--accent-hover)]/10 px-1.5 py-px text-[9px] text-[var(--accent-hover)]">
                   被创作「{v.used_by_creation_title ?? v.used_by_creation_id.slice(0, 8)}」引用
                 </span>
               )}
             </div>
             {v.new_formula && (
-              <div className="mt-1 whitespace-pre-wrap break-words rounded bg-[#14161a] px-2 py-1 font-mono text-[10px] leading-relaxed text-zinc-400">
+              <div className="mt-1 whitespace-pre-wrap break-words rounded bg-[#14161a] px-2 py-1 font-mono text-[10px] leading-relaxed text-[var(--text-2)]">
                 {v.new_formula}
               </div>
             )}
-            {v.note && <div className="mt-0.5 text-[10px] leading-relaxed text-zinc-500">{v.note}</div>}
+            {v.note && <div className="mt-0.5 text-[10px] leading-relaxed text-[var(--text-3)]">{v.note}</div>}
           </li>
         ))}
       </ol>
       {element.status === "accepted" && data.items.length === 0 && (
-        <div className="mt-1 text-[10px] text-zinc-600">该元素为母版，尚无派生版本</div>
+        <div className="mt-1 text-[10px] text-[var(--text-3)]">该元素为母版，尚无派生版本</div>
       )}
     </div>
   );

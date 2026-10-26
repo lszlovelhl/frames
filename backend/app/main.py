@@ -149,10 +149,13 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="帧间 Frames API", version="0.3.0", lifespan=lifespan)
 
-# 开发期允许前端本地调试
+# 开发期允许前端本地调试；生产同源由前端相对路径规避，此处兜底本地/局域网部署
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173", "http://127.0.0.1:5173",
+        "http://localhost:8000", "http://127.0.0.1:8000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

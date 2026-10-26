@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api, type BatchAnalyseResult } from "../api";
 
 const field =
-  "w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none transition focus:border-amber-300/50";
+  "w-full rounded-lg border border-[var(--separator-soft)] bg-[var(--bg-hover)] px-3 py-2 text-sm text-[var(--text-1)] placeholder-[var(--text-3)] outline-none transition focus:border-text-[var(--accent-hover)]/50";
 
 const AUTO_STEPS = [
   "自动识别平台（B站 / 抖音 / YouTube …）",
@@ -66,20 +66,20 @@ export default function BreakdownView({ onOpenVideo }: { onOpenVideo?: (videoId:
   return (
     <div className="mx-auto max-w-6xl px-8 py-8">
       <header className="mb-6">
-        <h1 className="text-xl font-semibold text-zinc-100">拆解工作台</h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <h1 className="text-xl font-semibold text-[var(--text-1)]">拆解工作台</h1>
+        <p className="mt-1 text-sm text-[var(--text-3)]">
           粘贴视频链接即可批量提交，系统自动抓取并两层拆解（L1云端定框架 + L2本地展开成稿）；提交后进度在右下角常驻显示，切到别的页面或应用再回来依然可见
         </p>
       </header>
 
-      <div className="rounded-xl border border-white/5 bg-[#1c1f26] p-6">
-        <div className={field + " !border-white/15 !bg-white/[0.05] !px-4 !py-3.5"}>
-          <div className="mb-1.5 flex items-center gap-2 text-xs text-zinc-400">
-            <span className="text-amber-300/80">🔗</span>
+      <div className="rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)] p-6">
+        <div className={field + " !border-[var(--separator-soft)] !bg-[var(--bg-card-hi)] !px-4 !py-3.5"}>
+          <div className="mb-1.5 flex items-center gap-2 text-xs text-[var(--text-2)]">
+            <span className="text-[var(--accent-hover)]/80">🔗</span>
             <span>视频链接（每行一条，可一次粘贴多条批量拆解）</span>
           </div>
           <textarea
-            className="h-24 w-full resize-y bg-transparent text-[14px] leading-relaxed text-zinc-50 placeholder-zinc-600 outline-none"
+            className="h-24 w-full resize-y bg-transparent text-[14px] leading-relaxed text-[var(--text-1)] placeholder-[var(--text-3)] outline-none"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => {
@@ -94,21 +94,21 @@ export default function BreakdownView({ onOpenVideo }: { onOpenVideo?: (videoId:
           <button
             onClick={run}
             disabled={busy}
-            className="shrink-0 rounded-lg bg-amber-300 px-6 py-2.5 text-sm font-semibold text-zinc-900 transition hover:bg-amber-200 disabled:cursor-not-allowed disabled:opacity-40"
+            className="shrink-0 rounded-lg bg-[var(--accent-hover)] px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-text-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
           >
             {busy ? "提交中…" : urls.length > 1 ? `批量拆解 ${urls.length} 条` : "一键多模态拆解"}
           </button>
-          <span className="text-[11px] text-zinc-500">
+          <span className="text-[11px] text-[var(--text-3)]">
             {rawCount > 0
               ? `已识别 ${urls.length} 条有效链接${rawCount > urls.length ? `（${rawCount - urls.length} 条格式不符已忽略）` : ""}`
               : "⌘/Ctrl + Enter 快捷提交"}
           </span>
         </div>
 
-        <ul className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-zinc-500">
+        <ul className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[var(--text-3)]">
           {AUTO_STEPS.map((s, i) => (
             <li key={i} className="flex items-center gap-1">
-              <span className="text-amber-300/60">{i + 1}</span>
+              <span className="text-[var(--accent-hover)]/60">{i + 1}</span>
               <span>{s}</span>
             </li>
           ))}
@@ -118,13 +118,13 @@ export default function BreakdownView({ onOpenVideo }: { onOpenVideo?: (videoId:
       </div>
 
       {submitted && (
-        <div className="mt-6 rounded-xl border border-white/5 bg-[#1c1f26] p-5">
+        <div className="mt-6 rounded-xl border border-[var(--separator-soft)] bg-[var(--bg-card)] p-5">
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="font-medium text-emerald-300">已加入拆解队列 {submitted.queued.length} 条</span>
             {submitted.skipped.length > 0 && (
-              <span className="text-[11px] text-zinc-500">{submitted.skipped.length} 条被跳过</span>
+              <span className="text-[11px] text-[var(--text-3)]">{submitted.skipped.length} 条被跳过</span>
             )}
-            <span className="text-[11px] text-zinc-500">进度见右下角常驻面板，完成后可在「拆解库」查看结果</span>
+            <span className="text-[11px] text-[var(--text-3)]">进度见右下角常驻面板，完成后可在「拆解库」查看结果</span>
           </div>
 
           <div className="mt-3 space-y-1.5">
@@ -132,20 +132,20 @@ export default function BreakdownView({ onOpenVideo }: { onOpenVideo?: (videoId:
               <button
                 key={q.analysis_id}
                 onClick={() => onOpenVideo?.(q.video_id)}
-                className="flex w-full items-center justify-between gap-3 rounded-lg bg-white/[0.03] px-3 py-2 text-left transition hover:bg-white/[0.06]"
+                className="flex w-full items-center justify-between gap-3 rounded-lg bg-[var(--bg-hover)] px-3 py-2 text-left transition hover:bg-[var(--bg-active)]"
               >
-                <span className="truncate text-[12px] text-zinc-200">{q.title || q.url}</span>
-                <span className="shrink-0 text-[10px] text-amber-300/80">排队中 · 点击查看</span>
+                <span className="truncate text-[12px] text-[var(--text-1)]">{q.title || q.url}</span>
+                <span className="shrink-0 text-[10px] text-[var(--accent-hover)]/80">排队中 · 点击查看</span>
               </button>
             ))}
           </div>
 
           {submitted.skipped.length > 0 && (
             <div className="mt-4">
-              <div className="mb-1 text-[11px] text-zinc-500">以下链接未提交：</div>
+              <div className="mb-1 text-[11px] text-[var(--text-3)]">以下链接未提交：</div>
               <ul className="space-y-1">
                 {submitted.skipped.map((s, i) => (
-                  <li key={i} className="truncate text-[11px] text-zinc-500">
+                  <li key={i} className="truncate text-[11px] text-[var(--text-3)]">
                     {s.url} — {s.reason}
                   </li>
                 ))}
