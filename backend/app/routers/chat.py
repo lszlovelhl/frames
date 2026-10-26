@@ -265,46 +265,60 @@ async def _handle_similar(db, video_id) -> str:
         return f"查询相似失败：{str(e)[:100]}"
 
 
-async def _handle_remember(db, user_id, content) -> str:
-    """处理记住偏好意图。带冲突解决：有相似旧记忆就更新，不新增。"""
+async def _handle_remember(db, user_id, content, raw_message="") -> str:
+    """处理记住偏好意图。
+
+    学 Mem0 conflict detection：
+    - 语义相似（sim≥0.85）→ 合并去重：刷新旧记忆，不新增重复
+    - 主题相关（sim≥0.55）且用户在纠正 → 显式更新（PUT 语义，覆盖旧记忆）
+    - 否则新增
+    """
     if not content:
         return "记住什么？比如：「记住我喜欢口播类视频」"
     try:
-        import uuid
         from sqlalchemy import text as sa_text
-        from app.services.memory_search import remember as remember_with_vec
+        from app.services.memory_search import (
+            bm25_score,
+            find_similar_memory,
+            remember as remember_with_vec,
+        )
 
-        # 冲突解决：找相似的旧记忆（同用户，同类型，内容相似）
-        # 先按精确匹配查
-        old = (await db.execute(sa_text(
-            "SELECT id FROM user_memory WHERE user_id=:uid AND memory_type='preference' AND content=:c"
-        ), {"uid": user_id, "c": content})).fetchone()
+        # 纠正信号：用户明确推翻/改写旧记忆（"其实""不是…是…""改成""换成""纠正""错了"）
+        correction_hints = ("其实", "不是", "改成", "改为", "换成", "纠正", "错了", "不对", "更新为", "重新")
+        is_correction = any(h in (raw_message or "") for h in correction_hints)
 
-        if not old:
-            # 再按关键词查（取内容前几个字做模糊匹配，防止"我喜欢口播"和"喜欢口播类"重复存）
-            key = content[:4] if len(content) >= 4 else content
-            old = (await db.execute(sa_text(
-                "SELECT id, content FROM user_memory WHERE user_id=:uid AND memory_type='preference' AND content LIKE :k"
-            ), {"uid": user_id, "k": f"%{key}%"})).fetchone()
-
-        if old:
-            # 更新旧记忆：内容更新 + importance +1（越确认越重要）+ 刷新时间
-            await db.execute(sa_text(
-                "UPDATE user_memory SET content=:c, importance=MIN(importance+1, 10), "
-                "updated_at=CURRENT_TIMESTAMP WHERE id=:mid"
-            ), {"c": content, "mid": old[0]})
-            # 同步更新向量
-            try:
-                from app.services.embedding import embed_texts, upsert_one
-                vecs = await embed_texts([content])
-                await upsert_one(db, "user_memory", old[0], content, vecs[0])
-            except Exception:
-                pass
-            return f"好的，我更新了记忆：{content}"
-        else:
-            # 新增（同步向量化）
-            await remember_with_vec(db, user_id, content, "preference", 7)
-            return f"好的，我记住了：{content}"
+        sims = await find_similar_memory(db, user_id, content, min_sim=0.50, limit=1)
+        if sims:
+            old = sims[0]
+            # 合并判定：向量高度相似，或（主题相关 + 关键词强命中）→ 同一主题
+            kw_hit = bm25_score(content, old["content"]) > 0.4
+            same_topic = old["sim"] >= 0.75 or (old["sim"] >= 0.55 and kw_hit)
+            if same_topic:
+                # 重复表达：去重合并（刷新时间 + 重要度+1），不新增矛盾/冗余记忆
+                await db.execute(sa_text(
+                    "UPDATE user_memory SET content=:c, "
+                    "importance=CASE WHEN importance<10 THEN importance+1 ELSE 10 END, "
+                    "updated_at=CURRENT_TIMESTAMP WHERE id=:mid"
+                ), {"c": content, "mid": old["id"]})
+                return f"好的，我已经记住了：{content}"
+            if old["sim"] >= 0.55 and is_correction:
+                # 纠正：覆盖旧记忆内容（PUT 语义），旧观点让位于新观点
+                await db.execute(sa_text(
+                    "UPDATE user_memory SET content=:c, memory_type='preference', "
+                    "importance=CASE WHEN importance<10 THEN importance+1 ELSE 10 END, "
+                    "updated_at=CURRENT_TIMESTAMP WHERE id=:mid"
+                ), {"c": content, "mid": old["id"]})
+                # 同步更新向量
+                try:
+                    from app.services.embedding import embed_texts, upsert_one
+                    vecs = await embed_texts([content])
+                    await upsert_one(db, "user_memory", old["id"], content, vecs[0])
+                except Exception:
+                    pass
+                return f"好的，我更新了记忆（原来的想法作废）：{content}"
+        # 新增（同步向量化）
+        await remember_with_vec(db, user_id, content, "preference", 7)
+        return f"好的，我记住了：{content}"
     except Exception as e:
         return f"记忆失败：{str(e)[:100]}"
 
@@ -535,7 +549,7 @@ async def chat(
         "breakdown": lambda: _handle_breakdown(db, url, session_id),
         "get_result": lambda: _handle_get_result(db, video_id),
         "similar": lambda: _handle_similar(db, video_id),
-        "remember": lambda: _handle_remember(db, user_id, intent_data.get("content", "")),
+        "remember": lambda: _handle_remember(db, user_id, intent_data.get("content", ""), message),
         "recall": lambda: _handle_recall(db, user_id),
         "feedback": lambda: _handle_feedback(db, user_id, intent_data.get("content", "")),
         "chat": lambda: _handle_chat(intent_data.get("content", ""), memories),

@@ -195,3 +195,75 @@ def _recency_factor(updated_at, now_ts: float | None = None) -> float:
     if age_days < 30:
         return 1.5 - (age_days - 3) / 27 * 1.2  # 3→30 天线性降到 0.3
     return 0.3  # 30 天后封底
+
+
+# ==============================================================
+# 4. 冲突检测（Mem0 conflict detection）：语义相似检索
+# ==============================================================
+async def find_similar_memory(
+    db: AsyncSession,
+    user_id: str,
+    content: str,
+    min_sim: float = 0.50,
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    """找与该用户已有记忆语义最相似的若干条（向量余弦）。
+
+    用于：记住新内容前查重（合并），纠正旧记忆前定位目标。
+    返回 [{id, content, memory_type, importance, sim}]，sim 为余弦相似度。
+    """
+    if not content:
+        return []
+    try:
+        qvec_list = await embed_texts([content])
+        qvec = np.asarray(qvec_list[0], dtype=np.float32)
+        qvec = qvec / (np.linalg.norm(qvec) + 1e-10)
+    except Exception as e:
+        logger.warning("冲突检测向量化失败（跳过）：%s", e)
+        return []
+
+    # 该用户的全部记忆 id
+    rows = (await db.execute(text(
+        "SELECT id FROM user_memory WHERE user_id=:uid"
+    ), {"uid": user_id})).fetchall()
+    ids = [r[0] for r in rows]
+    if not ids:
+        return []
+
+    ph = ",".join(f":id{i}" for i in range(len(ids)))
+    emb_rows = (await db.execute(text(
+        f"SELECT target_id, embedding, dim FROM lib_embedding "
+        f"WHERE target_table='user_memory' AND target_id IN ({ph})"
+    ), {f"id{i}": v for i, v in enumerate(ids)})).fetchall()
+    emb_rows = [r for r in emb_rows if r[2] == EMBED_DIM]
+    if not emb_rows:
+        return []
+
+    mat = np.stack([_blob_to_vec(r[1]) for r in emb_rows])
+    norms = np.linalg.norm(mat, axis=1, keepdims=True) + 1e-10
+    scores = (mat / norms) @ qvec
+
+    cand: list[tuple[str, float]] = []
+    for i, r in enumerate(emb_rows):
+        s = float(scores[i])
+        if s >= min_sim:
+            cand.append((r[0], s))
+    cand.sort(key=lambda x: x[1], reverse=True)
+    cand = cand[:limit]
+    if not cand:
+        return []
+
+    out: list[dict[str, Any]] = []
+    for mid, sim in cand:
+        info = (await db.execute(text(
+            "SELECT content, memory_type, importance FROM user_memory WHERE id=:mid"
+        ), {"mid": mid})).fetchone()
+        if info:
+            out.append({
+                "id": mid,
+                "content": info[0],
+                "memory_type": info[1],
+                "importance": info[2],
+                "sim": round(sim, 4),
+            })
+    return out
