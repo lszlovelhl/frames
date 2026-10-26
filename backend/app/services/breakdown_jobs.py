@@ -77,8 +77,20 @@ async def stop_workers() -> None:
 
 
 async def recover_stale() -> int:
-    """把上次进程退出时残留的 queued/running 标为 failed，避免界面卡在"进行中"。"""
+    """崩溃恢复（学 LangGraph 断点续跑）：上次进程退出残留的 queued/running
+    任务自动重新入队续跑，而不是直接标 failed。
+
+    续跑原理：
+    - 素材采集有缓存（ensure_media 复用已下载素材），重跑不会重复下载
+    - script 落库有幂等，重跑不产生脏数据
+    - 同一 job 只自动恢复一次（app_meta 记数），第二次再崩则标 failed，
+      防止崩溃循环烧 token
+
+    返回恢复的任务数。
+    """
     async with SessionLocal() as db:
+        from sqlalchemy import text as sa_text
+
         rows = (
             (
                 await db.execute(
@@ -90,16 +102,50 @@ async def recover_stale() -> int:
             .scalars()
             .all()
         )
+        recovered = 0
         for job in rows:
-            job.status = "failed"
-            job.stage = "interrupted"
-            job.message = "上次运行被中断（应用已重启），可重新点击拆解续跑"
-            job.pct = job.pct or 0
-            job.failed_reason = "应用重启导致中断"
-            job.finished_at = datetime.now(UTC)
+            # 查该 job 已自动恢复次数
+            row = (await db.execute(sa_text(
+                "SELECT value FROM app_meta WHERE key=:k"
+            ), {"k": f"job_recover:{job.id}"})).fetchone()
+            prev = int(row[0]) if row and row[0] else 0
+
+            if prev >= 1:
+                # 已自动恢复过一次又崩 → 不再无限重试，标 failed
+                job.status = "failed"
+                job.stage = "interrupted"
+                job.message = "自动续跑再次中断（应用重启），可手动重新拆解"
+                job.failed_reason = "recover_again"
+                job.finished_at = datetime.now(UTC)
+                logger.warning("job=%s 二次中断，放弃自动恢复", job.id)
+            else:
+                # 首次崩溃 → 断点续跑：重新入队
+                await db.execute(sa_text(
+                    "INSERT INTO app_meta (key, value) VALUES (:k, '1') "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
+                ), {"k": f"job_recover:{job.id}"})
+                job.status = "queued"
+                job.message = "上次运行被中断，已自动续跑…"
+                job.stage = "recovered"
+                job.pct = job.pct or 0
+                # 素材已采集的部分会被 ensure_media 缓存复用，近似断点续跑
+                recovered += 1
+
         if rows:
             await db.commit()
-        return len(rows)
+        # 续跑的重新入队（在事务提交后，避免队列消费先于提交）
+        for job in rows:
+            if job.status == "queued" and job.stage == "recovered":
+                _queue_add(job.id)
+        return recovered
+
+
+def _queue_add(job_id: str) -> None:
+    """把任务放回队列（含防重）。"""
+    if job_id in _pending:
+        return
+    _pending.add(job_id)
+    _get_queue().put_nowait(job_id)
 
 
 async def _worker(idx: int) -> None:
@@ -265,11 +311,22 @@ async def process(job_id: str) -> None:
                     script_id=result.get("script_id"),
                 )
             # 链路只失败在采集/模型侧时也照旧记用量流水
-            await billing.consume(
-                db, account=acc, action=action, points=points,
-                ref_type="video", ref_id=video.id,
-                note=f"批量视频拆解（{action}）",
-            )
+            # 续跑的任务（app_meta 有 job_recover 标记）不重复扣费——首次已扣
+            is_recovered = False
+            try:
+                from sqlalchemy import text as sa_text
+                rec = (await db.execute(sa_text(
+                    "SELECT value FROM app_meta WHERE key=:k"
+                ), {"k": f"job_recover:{job.id}"})).fetchone()
+                is_recovered = rec is not None
+            except Exception:
+                pass
+            if not is_recovered:
+                await billing.consume(
+                    db, account=acc, action=action, points=points,
+                    ref_type="video", ref_id=video.id,
+                    note=f"批量视频拆解（{action}）",
+                )
             await db.commit()
 
             # 后处理：向量化 + 飞书通知 + 主动推荐（失败不影响主流程）
