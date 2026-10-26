@@ -431,7 +431,7 @@ async def _handle_find_content(db, query: str, memories: str = "") -> str:
         return f"检索素材失败：{str(e)[:100]}"
 
 
-async def _handle_chat(content: str, memories: str = "") -> str:
+async def _handle_chat(content: str, memories: str = "", summary: str = "") -> str:
     """闲聊，用本地 qwen3.5 生成，免费又快。带相关记忆更懂用户。"""
     import httpx
     try:
@@ -440,6 +440,8 @@ async def _handle_chat(content: str, memories: str = "") -> str:
             ctx = ""
             if memories:
                 ctx = f"\n我对用户的了解：{memories}"
+            if summary:
+                ctx += f"\n最近对话回顾：{summary}"
             resp = await client.post(
                 "http://127.0.0.1:11434/api/generate",
                 json={
@@ -552,16 +554,17 @@ async def chat(
     sess_row = None
     if req.session_id:
         sess_row = (await db.execute(sa_text(
-            "SELECT id, last_video_id, last_job_id FROM chat_sessions "
+            "SELECT id, last_video_id, last_job_id, summary, summarized_cnt FROM chat_sessions "
             "WHERE id=:sid AND user_id=:uid"
         ), {"sid": req.session_id, "uid": user_id})).fetchone()
     if not sess_row:
         sess_row = (await db.execute(sa_text(
-            "SELECT id, last_video_id, last_job_id FROM chat_sessions "
+            "SELECT id, last_video_id, last_job_id, summary, summarized_cnt FROM chat_sessions "
             "WHERE user_id=:uid ORDER BY updated_at DESC LIMIT 1"
         ), {"uid": user_id})).fetchone()
     if sess_row:
-        session_id, last_video, last_job = sess_row
+        session_id, last_video, last_job = sess_row[:3]
+        sess_summary = sess_row[3] if sess_row else ""
         # 如果意图是 get_result/similar，但没提取到 video_id，用上下文的
         if not video_id:
             video_id = last_job or last_video
@@ -571,6 +574,7 @@ async def chat(
             "INSERT INTO chat_sessions (id, user_id, platform) VALUES (:sid, :uid, :p)"
         ), {"sid": session_id, "uid": user_id, "p": platform})
         last_video, last_job = None, None
+        sess_summary = ""
 
     # 存用户消息
     msg_id = __import__("uuid").uuid4().hex
@@ -603,7 +607,7 @@ async def chat(
         "remember": lambda: _handle_remember(db, user_id, intent_data.get("content", ""), message),
         "recall": lambda: _handle_recall(db, user_id),
         "feedback": lambda: _handle_feedback(db, user_id, intent_data.get("content", "")),
-        "chat": lambda: _handle_chat(intent_data.get("content", ""), memories),
+        "chat": lambda: _handle_chat(intent_data.get("content", ""), memories, sess_summary),
         "followup": lambda: _handle_followup(db, session_id, user_id, intent_data.get("content", ""), memories),
         "find_content": lambda: _handle_find_content(db, message, memories),
         "help": _handle_help,
@@ -644,6 +648,14 @@ async def chat(
         "UPDATE chat_sessions SET updated_at=CURRENT_TIMESTAMP WHERE id=:sid"
     ), {"sid": session_id})
 
+    # 上下文压缩：长会话满足条件则后台异步总结（不阻塞响应）
+    try:
+        from app.services.context_compact import need_summarize, schedule_summarize
+        if await need_summarize(db, session_id):
+            schedule_summarize(session_id, user_id, db)
+    except Exception:
+        pass
+
     await db.commit()
 
     # 4.5 记忆结晶（Auto-Dream）：异步后台跑，24 小时一次，不阻塞响应
@@ -664,13 +676,15 @@ async def chat(
 
 
 
-async def _handle_chat_stream(content: str, memories: str = ""):
+async def _handle_chat_stream(content: str, memories: str = "", summary: str = ""):
     """闲聊流式生成：本地 qwen3.5 逐 token 产出（免费，不出机）。"""
     import httpx
     import json as _json
     try:
         async with httpx.AsyncClient() as client:
             ctx = f"\n我对用户的了解：{memories}" if memories else ""
+            if summary:
+                ctx += f"\n最近对话回顾：{summary}"
             prompt = (
                 f"你是帧间 AI 助手，一个亲切的短视频拆解伙伴。"
                 f"用户说：「{content}」。{ctx}"
@@ -1035,16 +1049,17 @@ async def chat_stream(
         sess_row = None
         if req.session_id:
             sess_row = (await db.execute(sa_text(
-                "SELECT id, last_video_id, last_job_id FROM chat_sessions "
+                "SELECT id, last_video_id, last_job_id, summary, summarized_cnt FROM chat_sessions "
                 "WHERE id=:sid AND user_id=:uid"
             ), {"sid": req.session_id, "uid": user_id})).fetchone()
         if not sess_row:
             sess_row = (await db.execute(sa_text(
-                "SELECT id, last_video_id, last_job_id FROM chat_sessions "
+                "SELECT id, last_video_id, last_job_id, summary, summarized_cnt FROM chat_sessions "
                 "WHERE user_id=:uid ORDER BY updated_at DESC LIMIT 1"
             ), {"uid": user_id})).fetchone()
         if sess_row:
-            session_id, last_video, last_job = sess_row
+            session_id, last_video, last_job = sess_row[:3]
+            sess_summary = sess_row[3] if sess_row else ""
             if not video_id:
                 video_id = last_job or last_video
         else:
@@ -1053,6 +1068,7 @@ async def chat_stream(
                 "INSERT INTO chat_sessions (id, user_id, platform) VALUES (:sid, :uid, :p)"
             ), {"sid": session_id, "uid": user_id, "p": platform})
             last_video, last_job = None, None
+            sess_summary = ""
 
         # 存用户消息
         await db.execute(sa_text(
@@ -1080,7 +1096,7 @@ async def chat_stream(
             "remember": lambda: _handle_remember(db, user_id, intent_data.get("content", ""), message),
             "recall": lambda: _handle_recall(db, user_id),
             "feedback": lambda: _handle_feedback(db, user_id, intent_data.get("content", "")),
-            "chat": lambda: _handle_chat(intent_data.get("content", ""), memories),
+            "chat": lambda: _handle_chat(intent_data.get("content", ""), memories, sess_summary),
             "followup": lambda: _handle_followup(db, session_id, user_id, intent_data.get("content", ""), memories),
             "find_content": lambda: _handle_find_content(db, message, memories),
             "help": _handle_help,
@@ -1090,7 +1106,7 @@ async def chat_stream(
         reply_text = ""
         if intent == "chat":
             parts: list[str] = []
-            async for tok in _handle_chat_stream(intent_data.get("content", ""), memories):
+            async for tok in _handle_chat_stream(intent_data.get("content", ""), memories, sess_summary):
                 parts.append(tok)
                 yield _sse({"type": "delta", "text": tok})
             reply_text = "".join(parts) or _handle_help()
@@ -1113,6 +1129,13 @@ async def chat_stream(
             await db.execute(sa_text(
                 "UPDATE chat_sessions SET updated_at=CURRENT_TIMESTAMP WHERE id=:sid"
             ), {"sid": session_id})
+        # 上下文压缩：满足条件则后台异步总结长会话（不阻塞响应）
+        try:
+            from app.services.context_compact import need_summarize, schedule_summarize
+            if await need_summarize(db, session_id):
+                schedule_summarize(session_id, user_id, db)
+        except Exception:
+            pass
         await db.commit()
         yield _sse({"type": "done", "text": reply_text})
 

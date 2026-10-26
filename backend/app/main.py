@@ -84,6 +84,14 @@ async def lifespan(_: FastAPI):
         logger.info("记忆表迁移就绪")
     except Exception:  # noqa: BLE001
         logger.warning("记忆表迁移失败（不影响启动）", exc_info=True)
+    # 上下文压缩（会话摘要）列幂等补列：chat_sessions.summary / summarized_cnt
+    try:
+        from app.services.context_compact import ensure_summary_schema
+
+        await ensure_summary_schema()
+        logger.info("会话摘要列就绪")
+    except Exception:  # noqa: BLE001
+        logger.warning("会话摘要列迁移失败（不影响启动）", exc_info=True)
     # 三层分库提示词（tl1~tl6，第 8 章）幂等落库：仅当 code 内容变更才新增版本，不删历史
     try:
         from app.db import SessionLocal
