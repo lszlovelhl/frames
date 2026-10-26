@@ -279,13 +279,19 @@ async def _handle_remember(db, user_id, content, raw_message="") -> str:
         from sqlalchemy import text as sa_text
         from app.services.memory_search import (
             bm25_score,
+            find_pending_memory,
             find_similar_memory,
+            reject_pending,
             remember as remember_with_vec,
         )
 
         # 纠正信号：用户明确推翻/改写旧记忆（"其实""不是…是…""改成""换成""纠正""错了"）
         correction_hints = ("其实", "不是", "改成", "改为", "换成", "纠正", "错了", "不对", "更新为", "重新")
         is_correction = any(h in (raw_message or "") for h in correction_hints)
+
+        # 用户在待确认期间直接纠正：旧 pending 作废（避免 pending 吞掉纠正）
+        if is_correction and await find_pending_memory(db, user_id):
+            await reject_pending(db, user_id)
 
         sims = await find_similar_memory(db, user_id, content, min_sim=0.50, limit=1)
         if sims:
@@ -294,13 +300,30 @@ async def _handle_remember(db, user_id, content, raw_message="") -> str:
             kw_hit = bm25_score(content, old["content"]) > 0.4
             same_topic = old["sim"] >= 0.75 or (old["sim"] >= 0.55 and kw_hit)
             if same_topic:
-                # 重复表达：去重合并（刷新时间 + 重要度+1），不新增矛盾/冗余记忆
-                await db.execute(sa_text(
-                    "UPDATE user_memory SET content=:c, "
-                    "importance=CASE WHEN importance<10 THEN importance+1 ELSE 10 END, "
-                    "updated_at=CURRENT_TIMESTAMP WHERE id=:mid"
-                ), {"c": content, "mid": old["id"]})
-                return f"好的，我已经记住了：{content}"
+                if is_correction:
+                    # 用户在纠正：直接覆盖（PUT 语义），旧观点让位
+                    await db.execute(sa_text(
+                        "UPDATE user_memory SET content=:c, memory_type='preference', "
+                        "importance=CASE WHEN importance<10 THEN importance+1 ELSE 10 END, "
+                        "updated_at=CURRENT_TIMESTAMP WHERE id=:mid"
+                    ), {"c": content, "mid": old["id"]})
+                    # 同步更新向量
+                    try:
+                        from app.services.embedding import embed_texts, upsert_one
+                        vecs = await embed_texts([content])
+                        await upsert_one(db, "user_memory", old["id"], content, vecs[0])
+                    except Exception:
+                        pass
+                    return f"好的，我更新了记忆（原来的想法作废）：{content}"
+                # 无纠正信号但主题冲突：不静默合并，挂起待确认（AI 主动澄清）
+                from app.services.memory_search import remember_pending
+                await remember_pending(db, user_id, content, supersedes_id=old["id"])
+                await db.commit()
+                return (
+                    f"咦，我记着你之前说的是「{old['content'][:40]}」，"
+                    "这次你说的「" + content[:40] + "」好像不太一样。\n"
+                    "以哪个为准？回「改」我就更新；如果是两条都要记，回「两个都要」。"
+                )
             if old["sim"] >= 0.55 and is_correction:
                 # 纠正：覆盖旧记忆内容（PUT 语义），旧观点让位于新观点
                 await db.execute(sa_text(
@@ -482,6 +505,23 @@ async def chat(
     me = await _require_user(db, authorization)
     user_id = me["id"] if me else req.user_id
     platform = req.platform
+
+    # 0. 记忆待确认分支：AI 上次发现记忆冲突，主动等用户裁决（AI 主动澄清）
+    from app.services.memory_search import confirm_pending, find_pending_memory, reject_pending
+    pending = await find_pending_memory(db, user_id)
+    if pending:
+        confirm_words = ("改", "确认", "为准", "就按", "更新", "作废", "覆盖", "对的", "是的", "对，")
+        reject_words = ("两个都要", "都记", "保留", "没改", "没有改", "不用改", "只是补充", "别删", "不用")
+        if any(w in message for w in confirm_words):
+            done = await confirm_pending(db, user_id)
+            if done:
+                extra = f"原来的「{done['superseded_content'][:30]}」作废。" if done.get("superseded_content") else ""
+                return {"reply": f"明白了，按新的来：{done['content']}。{extra}"}
+        elif any(w in message for w in reject_words):
+            done = await reject_pending(db, user_id)
+            if done:
+                return {"reply": f"好，两条都保留：{done['content']} 也记下了。"}
+        # 用户回复无关内容：继续正常对话，pending 仍保留
 
     # 1. 先做意图识别（纯 LLM，不占 db）
     intent_data = await _llm_intent(message)

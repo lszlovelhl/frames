@@ -74,6 +74,16 @@ async def lifespan(_: FastAPI):
         logger.info("本地账号体系就绪")
     except Exception:  # noqa: BLE001
         logger.warning("账号体系迁移失败（不影响启动）", exc_info=True)
+    # 记忆表幂等迁移（status / supersedes_id 列，支持待确认机制）
+    try:
+        from app.db import SessionLocal
+        from app.services.memory_search import ensure_memory_schema
+
+        async with SessionLocal() as _db:
+            await ensure_memory_schema(_db)
+        logger.info("记忆表迁移就绪")
+    except Exception:  # noqa: BLE001
+        logger.warning("记忆表迁移失败（不影响启动）", exc_info=True)
     # 三层分库提示词（tl1~tl6，第 8 章）幂等落库：仅当 code 内容变更才新增版本，不删历史
     try:
         from app.db import SessionLocal

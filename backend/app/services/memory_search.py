@@ -117,6 +117,7 @@ async def hybrid_search(
     if user_id:
         sql += " WHERE user_id=:uid"
         params["uid"] = user_id
+    sql += " AND status='active'"
     rows = (await db.execute(text(sql), params)).fetchall()
     if not rows:
         return []
@@ -288,3 +289,99 @@ async def find_similar_memory(
                 "sim": round(sim, 4),
             })
     return out
+
+
+# ==============================================================
+# 4.5 记忆待确认（pending）机制：AI 主动澄清记忆冲突
+# ==============================================================
+async def ensure_memory_schema(db: AsyncSession) -> None:
+    """幂等迁移：user_memory 加 status / supersedes_id 列。"""
+    cols = {r[1] for r in (await db.execute(text("PRAGMA table_info(user_memory)"))).all()}
+    if "status" not in cols:
+        await db.execute(text(
+            "ALTER TABLE user_memory ADD COLUMN status TEXT DEFAULT 'active'"
+        ))
+    if "supersedes_id" not in cols:
+        await db.execute(text(
+            "ALTER TABLE user_memory ADD COLUMN supersedes_id TEXT"
+        ))
+    await db.commit()
+
+
+async def find_pending_memory(db: AsyncSession, user_id: str) -> dict[str, Any] | None:
+    """找该用户最新的待确认记忆（status='pending'）。"""
+    row = (await db.execute(text(
+        "SELECT id, content, memory_type, supersedes_id FROM user_memory "
+        "WHERE user_id=:uid AND status='pending' ORDER BY updated_at DESC LIMIT 1"
+    ), {"uid": user_id})).fetchone()
+    if not row:
+        return None
+    return {"id": row[0], "content": row[1], "memory_type": row[2], "supersedes_id": row[3]}
+
+
+async def confirm_pending(db: AsyncSession, user_id: str) -> dict[str, Any] | None:
+    """用户确认：pending 记忆转 active，其 supersedes 的旧记忆删除（含向量）。
+
+    返回 {id, content, superseded_content} 或 None（无 pending）。
+    """
+    pending = await find_pending_memory(db, user_id)
+    if not pending:
+        return None
+    old_content = None
+    if pending["supersedes_id"]:
+        old_row = (await db.execute(text(
+            "SELECT content FROM user_memory WHERE id=:mid"
+        ), {"mid": pending["supersedes_id"]})).fetchone()
+        if old_row:
+            old_content = old_row[0]
+        # 删旧记忆 + 向量
+        await db.execute(text(
+            "DELETE FROM lib_embedding WHERE target_table='user_memory' AND target_id=:mid"
+        ), {"mid": pending["supersedes_id"]})
+        await db.execute(text(
+            "DELETE FROM user_memory WHERE id=:mid"
+        ), {"mid": pending["supersedes_id"]})
+    # pending 转 active
+    await db.execute(text(
+        "UPDATE user_memory SET status='active', supersedes_id=NULL, "
+        "updated_at=CURRENT_TIMESTAMP WHERE id=:mid AND user_id=:uid"
+    ), {"mid": pending["id"], "uid": user_id})
+    await db.commit()
+    return {"id": pending["id"], "content": pending["content"], "superseded_content": old_content}
+
+
+async def reject_pending(db: AsyncSession, user_id: str) -> dict[str, Any] | None:
+    """用户否认/保留两条：删除 pending 记忆（含向量），旧记忆保留。"""
+    pending = await find_pending_memory(db, user_id)
+    if not pending:
+        return None
+    await db.execute(text(
+        "DELETE FROM lib_embedding WHERE target_table='user_memory' AND target_id=:mid"
+    ), {"mid": pending["id"]})
+    await db.execute(text(
+        "DELETE FROM user_memory WHERE id=:mid AND user_id=:uid"
+    ), {"mid": pending["id"], "uid": user_id})
+    await db.commit()
+    return {"id": pending["id"], "content": pending["content"]}
+
+
+async def remember_pending(
+    db: AsyncSession,
+    user_id: str,
+    content: str,
+    supersedes_id: str | None,
+    importance: int = 7,
+) -> str:
+    """写入一条待确认记忆（status='pending'）。不参与召回，等用户确认。"""
+    import uuid
+    mem_id = uuid.uuid4().hex
+    await db.execute(text(
+        "INSERT INTO user_memory (id, user_id, memory_type, content, importance, status, supersedes_id) "
+        "VALUES (:mid, :uid, 'preference', :c, :imp, 'pending', :sup)"
+    ), {"mid": mem_id, "uid": user_id, "c": content, "imp": importance, "sup": supersedes_id})
+    try:
+        vecs = await embed_texts([content])
+        await upsert_one(db, "user_memory", mem_id, content, vecs[0])
+    except Exception as e:
+        logger.warning("待确认记忆向量化失败：%s", e)
+    return mem_id
