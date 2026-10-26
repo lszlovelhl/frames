@@ -670,6 +670,13 @@ async def chat(
         "INSERT INTO chat_messages (id, session_id, role, content) VALUES (:mid, :sid, 'user', :content)"
     ), {"mid": msg_id, "sid": session_id, "content": message})
 
+    # 会话标题：首条消息自动起标题（异步，不阻塞回复；已有标题跳过）
+    try:
+        from app.services.session_title import maybe_title
+        __import__("asyncio").create_task(maybe_title(session_id, message))
+    except Exception:
+        pass
+
     # 2. 根据意图调用对应 handler
     # 对话类意图（chat/followup）：先按用户消息语义召回相关记忆，注入回复
     memories = ""
@@ -917,7 +924,7 @@ async def list_sessions(
     try:
         await db.rollback()
         rows = (await db.execute(sa_text(
-            "SELECT s.id, s.updated_at, "
+            "SELECT s.id, s.updated_at, s.title, "
             "(SELECT content FROM chat_messages m WHERE m.session_id=s.id "
             "  ORDER BY m.created_at DESC LIMIT 1) AS last_msg "
             "FROM chat_sessions s WHERE s.user_id=:uid "
@@ -927,7 +934,9 @@ async def list_sessions(
             {
                 "id": r[0],
                 "updated_at": str(r[1]) if r[1] else "",
-                "last_message": (r[2] or "")[:60],
+                # AI 原生标题优先，未生成时回退最后一条消息原文
+                "title": (r[2] or "")[:40],
+                "last_message": (r[3] or "")[:60],
             }
             for r in rows
         ]}

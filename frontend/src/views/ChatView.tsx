@@ -21,6 +21,7 @@ interface MemoryItem {
 interface SessionItem {
   id: string;
   updated_at: string;
+  title?: string;
   last_message: string;
 }
 
@@ -343,7 +344,7 @@ export default function ChatView() {
                   }`}
                   onClick={() => openSession(s.id)}
                 >
-                  <span className="flex-1 truncate text-xs">{s.last_message || "空会话"}</span>
+                  <span className="flex-1 truncate text-xs">{s.title || s.last_message || "空会话"}</span>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
