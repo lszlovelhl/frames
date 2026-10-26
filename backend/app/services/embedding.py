@@ -35,29 +35,78 @@ EMBED_BATCH = 32  # 智谱单次请求条数上限保守取 32
 
 
 # ==============================================================
-# 1. 远程 embedding
+# 1. 远程 embedding（带内存缓存：同内容不重复调 API）
 # ==============================================================
+# 内存缓存：content_hash -> vector。上限条数，防止无限增长。
+_EMBED_CACHE: dict[str, list[float]] = {}
+_EMBED_CACHE_MAX = 5000
+_EMBED_CACHE_HITS = 0
+
+
+def _cache_get(text: str) -> list[float] | None:
+    h = _hash_text(text)
+    return _EMBED_CACHE.get(h)
+
+
+def _cache_set(text: str, vector: list[float]) -> None:
+    global _EMBED_CACHE
+    h = _hash_text(text)
+    if len(_EMBED_CACHE) >= _EMBED_CACHE_MAX:
+        # 满了：清一半最旧的（dict 保持插入序，弹掉前 1/4）
+        drop = _EMBED_CACHE_MAX // 4
+        for k in list(_EMBED_CACHE)[:drop]:
+            del _EMBED_CACHE[k]
+    _EMBED_CACHE[h] = vector
+
+
+def embed_cache_stats() -> dict:
+    """缓存统计，方便监控。"""
+    return {
+        "cache_size": len(_EMBED_CACHE),
+        "cache_hits": _EMBED_CACHE_HITS,
+        "cache_max": _EMBED_CACHE_MAX,
+    }
+
+
 async def embed_texts(texts: list[str]) -> list[list[float]]:
     """批量把文本转成向量。自动按 32 条一批分片。
 
+    带内存缓存：命中缓存的文本直接复用向量，不调 API（省 token 和限流）。
     失败抛异常，由调用方决定重试/降级。
     """
+    global _EMBED_CACHE_HITS
     if not texts:
         return []
     if not GLM_API_KEY:
         raise RuntimeError("GLM_API_KEY 未配置，无法调用 embedding")
 
+    # 1. 查缓存：逐条命中
     results: list[list[float]] = []
+    todo: list[tuple[int, str]] = []  # (index, text) 需要调 API 的
+    for i, t in enumerate(texts):
+        cached = _cache_get(t)
+        if cached is not None:
+            results.append(cached)
+            _EMBED_CACHE_HITS += 1
+        else:
+            results.append(None)  # 占位
+            todo.append((i, t))
+
+    if not todo:
+        return results  # 全命中
+
+    # 2. 调 API（只算没命中的）
     headers = {
         "Authorization": f"Bearer {GLM_API_KEY}",
         "Content-Type": "application/json",
     }
     async with httpx.AsyncClient(timeout=30) as client:
-        for i in range(0, len(texts), EMBED_BATCH):
-            chunk = texts[i : i + EMBED_BATCH]
+        for j in range(0, len(todo), EMBED_BATCH):
+            batch = todo[j : j + EMBED_BATCH]
+            chunk_texts = [t for _, t in batch]
             payload = {
                 "model": EMBED_MODEL,
-                "input": chunk,
+                "input": chunk_texts,
                 "dimensions": EMBED_DIM,
                 "encoding_format": "float",
             }
@@ -66,12 +115,15 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
             )
             resp.raise_for_status()
             data = resp.json()
-            # OpenAI 兼容返回：{"data": [{"embedding": [...], "index": 0}, ...]}
             items = sorted(data["data"], key=lambda x: x["index"])
-            results.extend([item["embedding"] for item in items])
+            for idx, item in zip([i for i, _ in batch], items):
+                vec = item["embedding"]
+                results[idx] = vec
+                _cache_set(texts[idx], vec)
             usage = data.get("usage", {})
             logger.info(
-                "embedding 批次 %d-%d 完成，tokens=%s", i, i + len(chunk), usage
+                "embedding 批次 %d-%d 完成（含缓存命中），tokens=%s",
+                j, j + len(batch), usage,
             )
             # 温和限速，避免触发 QPS
             await __sleep(0.2)
