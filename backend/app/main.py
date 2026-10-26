@@ -21,6 +21,7 @@ from app.core.config import MEDIA_DIR
 from app.db import engine
 from app.media import cookies
 from app.routers import ai as ai_router
+from app.routers import auth as auth_router
 from app.routers import billing as billing_router
 from app.routers import chat as chat_router
 from app.routers import collection as collection_router
@@ -63,6 +64,16 @@ async def lifespan(_: FastAPI):
     from app.services.heartbeat import heartbeat_loop
 
     heartbeat_task = asyncio.create_task(heartbeat_loop(immediate=True))
+    # 本地账号体系：users 表幂等迁移（补 username/password_hash/auth_token 列）
+    try:
+        from app.db import SessionLocal
+        from app.services.auth import ensure_user_schema
+
+        async with SessionLocal() as _db:
+            await ensure_user_schema(_db)
+        logger.info("本地账号体系就绪")
+    except Exception:  # noqa: BLE001
+        logger.warning("账号体系迁移失败（不影响启动）", exc_info=True)
     # 三层分库提示词（tl1~tl6，第 8 章）幂等落库：仅当 code 内容变更才新增版本，不删历史
     try:
         from app.db import SessionLocal
@@ -98,6 +109,7 @@ app.add_middleware(
 )
 
 app.include_router(ai_router.router)
+app.include_router(auth_router.router)
 app.include_router(chat_router.router)
 app.include_router(feishu_webhook_router.router)
 app.include_router(videos_router.router)

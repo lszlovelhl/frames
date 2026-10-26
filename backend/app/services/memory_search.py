@@ -18,7 +18,7 @@ import numpy as np
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.embedding import embed_texts, upsert_one
+from app.services.embedding import EMBED_DIM, embed_texts, upsert_one
 
 logger = logging.getLogger(__name__)
 
@@ -131,9 +131,11 @@ async def hybrid_search(
         ids = [r[0] for r in rows]
         ph = ",".join(f":id{i}" for i in range(len(ids)))
         emb_rows = (await db.execute(text(
-            f"SELECT target_id, embedding FROM lib_embedding "
+            f"SELECT target_id, embedding, dim FROM lib_embedding "
             f"WHERE target_table='user_memory' AND target_id IN ({ph})"
         ), {f"id{i}": v for i, v in enumerate(ids)})).all()
+        # 只取与当前模型维度一致的向量（防 1024→768 迁移期维度混用）
+        emb_rows = [r for r in emb_rows if r[2] == EMBED_DIM]
         if emb_rows:
             mat = np.stack([_blob_to_vec(r[1]) for r in emb_rows])
             norms = np.linalg.norm(mat, axis=1, keepdims=True) + 1e-10

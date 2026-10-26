@@ -71,14 +71,17 @@ class CreatedAtMixin:
 # ============================================================
 
 class User(TimestampMixin, Base):
-    """账号（预留多端/多平台身份）"""
+    """账号（多端/多平台身份 + 本地登录）。密码 bcrypt 哈希，数据本地不上云。"""
 
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, default=uuid.uuid4
     )
-    display_name: Mapped[str] = mapped_column(String(64))
+    username: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # 登录名
+    password_hash: Mapped[str] = mapped_column(String(128))  # bcrypt
+    auth_token: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)  # 登录态 token
+    display_name: Mapped[str] = mapped_column(String(64), default="")
     role: Mapped[str] = mapped_column(String(32), default="全能")  # 编导/运营/拍摄/剪辑/全能
     platforms: Mapped[list] = mapped_column(JSON, default=list)  # 关注平台
 

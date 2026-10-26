@@ -1,14 +1,17 @@
-"""素材库语义向量化服务（第一阶段：暴力余弦，不上向量库）。
+"""素材库语义向量化服务（隐私优先：本地 embedding，文本不出本机）。
 
 为什么不上 Qdrant / Milvus / Chroma？
 - 当前素材总量 ~180 条（hook/quote/copywriting/topic/method），向量矩阵
-  180 × 1024 × 4B ≈ 0.7 MB，numpy 全量余弦 < 1ms。
+  180 × 768 × 4B ≈ 0.5 MB，numpy 全量余弦 < 1ms。
 - 当素材爬到 10w+ 条时再引入 ANN（sqlite-vec / hnswlib），现在上重型
   向量库纯属过度工程。
 
-链路：
-  文本 → 智谱 embedding-3 → 1024维 float32 向量 → SQLite BLOB
-  query 文本 → 同模型向量化 → numpy 余弦 → top-K
+链路（v2，隐私安全）：
+  文本 → 本地 Ollama nomic-embed-text → 768维 float32 向量 → SQLite BLOB
+  query 文本 → 本地同模型向量化 → numpy 余弦 → top-K
+  本地不可用时降级为纯关键词，绝不静默把用户文本发往第三方云端。
+
+历史：v1 用智谱 embedding-3（1024维）走云端，用户数据会上云，已弃用。
 """
 from __future__ import annotations
 
@@ -23,20 +26,22 @@ import numpy as np
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import GLM_API_KEY
-
 logger = logging.getLogger(__name__)
 
-# --- 智谱 embedding-3（OpenAI 兼容协议）---
-EMBED_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
-EMBED_MODEL = "embedding-3"
-EMBED_DIM = 1024  # 支持 2048/1024/512/256；1024 在召回质量和存储间最优
-EMBED_BATCH = 32  # 智谱单次请求条数上限保守取 32
+# --- 本地 embedding（隐私优先）---
+EMBED_MODEL = "nomic-embed-text"
+EMBED_DIM = 768  # nomic-embed-text 维度
 
 
 # ==============================================================
 # 1. 远程 embedding（带内存缓存：同内容不重复调 API）
 # ==============================================================
+# 隐私优先：默认走本地 Ollama embedding（文本不出本机）。
+# 本地不可用时抛异常，由调用方降级为纯关键词，绝不静默把文本发往云端。
+OLLAMA_EMBED_URL = "http://127.0.0.1:11434/api/embeddings"
+OLLAMA_EMBED_MODEL = "nomic-embed-text"  # 768 维，已本地安装
+EMBED_DIM = 768  # nomic-embed-text 维度
+
 # 内存缓存：content_hash -> vector。上限条数，防止无限增长。
 _EMBED_CACHE: dict[str, list[float]] = {}
 _EMBED_CACHE_MAX = 5000
@@ -68,21 +73,37 @@ def embed_cache_stats() -> dict:
     }
 
 
-async def embed_texts(texts: list[str]) -> list[list[float]]:
-    """批量把文本转成向量。自动按 32 条一批分片。
+async def _embed_local(texts: list[str]) -> list[list[float]]:
+    """本地 Ollama embedding（/api/embed 批量端点）。隐私：文本只在本机处理。"""
+    import httpx
+    # 批量端点一次最多 64 条，分批
+    results: list[list[float]] = []
+    async with httpx.AsyncClient(timeout=120) as client:
+        for i in range(0, len(texts), 64):
+            chunk = texts[i : i + 64]
+            resp = await client.post(
+                "http://127.0.0.1:11434/api/embed",
+                json={"model": OLLAMA_EMBED_MODEL, "input": chunk},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            results.extend(data.get("embeddings", []))
+    return results
 
-    带内存缓存：命中缓存的文本直接复用向量，不调 API（省 token 和限流）。
-    失败抛异常，由调用方决定重试/降级。
+
+async def embed_texts(texts: list[str]) -> list[list[float]]:
+    """批量把文本转成向量。带内存缓存：命中缓存的文本直接复用向量。
+
+    隐私优先走本地 Ollama（nomic-embed-text），文本不出本机；
+    本地不可用抛异常，由调用方降级（纯关键词），不静默上云。
     """
     global _EMBED_CACHE_HITS
     if not texts:
         return []
-    if not GLM_API_KEY:
-        raise RuntimeError("GLM_API_KEY 未配置，无法调用 embedding")
 
     # 1. 查缓存：逐条命中
     results: list[list[float]] = []
-    todo: list[tuple[int, str]] = []  # (index, text) 需要调 API 的
+    todo: list[tuple[int, str]] = []  # (index, text) 需要算的
     for i, t in enumerate(texts):
         cached = _cache_get(t)
         if cached is not None:
@@ -95,38 +116,16 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
     if not todo:
         return results  # 全命中
 
-    # 2. 调 API（只算没命中的）
-    headers = {
-        "Authorization": f"Bearer {GLM_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    async with httpx.AsyncClient(timeout=30) as client:
-        for j in range(0, len(todo), EMBED_BATCH):
-            batch = todo[j : j + EMBED_BATCH]
-            chunk_texts = [t for _, t in batch]
-            payload = {
-                "model": EMBED_MODEL,
-                "input": chunk_texts,
-                "dimensions": EMBED_DIM,
-                "encoding_format": "float",
-            }
-            resp = await client.post(
-                f"{EMBED_BASE_URL}/embeddings", headers=headers, json=payload
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            items = sorted(data["data"], key=lambda x: x["index"])
-            for idx, item in zip([i for i, _ in batch], items):
-                vec = item["embedding"]
-                results[idx] = vec
-                _cache_set(texts[idx], vec)
-            usage = data.get("usage", {})
-            logger.info(
-                "embedding 批次 %d-%d 完成（含缓存命中），tokens=%s",
-                j, j + len(batch), usage,
-            )
-            # 温和限速，避免触发 QPS
-            await __sleep(0.2)
+    # 2. 本地 Ollama 计算（未命中的）
+    try:
+        local_vecs = await _embed_local([t for _, t in todo])
+    except Exception as e:
+        # 本地不可用：抛异常让调用方降级。绝不静默把用户文本发往第三方云端。
+        raise RuntimeError(f"本地 embedding 不可用（{e}），已降级为纯关键词检索") from e
+
+    for (i, t), vec in zip(todo, local_vecs):
+        results[i] = vec
+        _cache_set(t, vec)
     return results
 
 
@@ -284,12 +283,17 @@ async def search(
     qvec = qvec / (np.linalg.norm(qvec) + 1e-10)
 
     # 4.2 捞所有向量
-    sql = "SELECT target_table, target_id, embedding FROM lib_embedding"
+    sql = "SELECT target_table, target_id, embedding, dim FROM lib_embedding"
     params: dict[str, Any] = {}
     if target_table:
         sql += " WHERE target_table=:tbl"
         params["tbl"] = target_table
     rows = (await db.execute(text(sql), params)).all()
+    if not rows:
+        return []
+
+    # 只取与当前模型维度一致的向量（防 1024→768 迁移期维度混用崩溃）
+    rows = [r for r in rows if r[3] == EMBED_DIM]
     if not rows:
         return []
 
