@@ -1,0 +1,32 @@
+# 测试专用依赖锁（CI 与本地 pytest 统一入口）
+#
+# 测试是纯逻辑内存隔离单测（conftest：不连真实库、不写业务文件），
+# 只装核心 Web/DB/异步/向量 + yt-dlp（downloader.py 模块级 import）。
+# 刻意不装媒体生产重依赖：
+#   - bilix：拉 danmakuc（C 扩展，cp312 无 wheel），且实际走 CLI 调用
+#   - faster-whisper：ctranslate2 C 库，且惰性 import
+#   - uvicorn/asyncpg/uvloop：测试链无模块级引用（默认 SQLite 引擎）
+# 用法：pip install -r requirements-test.txt
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.15.0
+aiosqlite==0.22.1
+fastapi==0.141.1
+greenlet==3.5.5
+h11==0.16.0
+httpx==0.28.1
+idna==3.19
+pydantic==2.13.5
+pydantic_core==2.46.5
+python-dotenv==1.2.3
+PyYAML==6.0.3
+SQLAlchemy==2.0.52
+starlette==1.6.0
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+bcrypt==5.0.0
+numpy==2.5.4
+playwright==1.64.0
+yt-dlp==2026.8.19
+pytest==9.1.1
+pytest-asyncio==1.4.0
