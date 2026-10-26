@@ -103,6 +103,9 @@ function AppInner() {
   const [view, setView] = useState<ViewKey>("chat");
   const [moreOpen, setMoreOpen] = useState(false);
   const touchX = useRef<number | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const dragRef = useRef<{ startX: number; startIdx: number } | null>(null);
+  const sliderRef = useRef<HTMLDivElement | null>(null);
   const [libraryFocusId, setLibraryFocusId] = useState<string | null>(null);
   const [createSeed, setCreateSeed] = useState<string[] | null>(null);
   const [createSeedProducts, setCreateSeedProducts] = useState<string[] | null>(null);
@@ -115,6 +118,55 @@ function AppInner() {
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, []);
+
+  // 移动端底栏滑动 Tab（滑块本体拖拽共用）
+  const sliderTabs = MOBILE_TABS.filter((n) => n.key !== "breakdown");
+  const curKey = moreOpen ? "__more" : view;
+  const activeIndex = Math.max(0, sliderTabs.findIndex((n) => n.key === curKey));
+
+  function onSliderDown(e: React.PointerEvent) {
+    if (!sliderRef.current) return;
+    dragRef.current = { startX: e.clientX, startIdx: activeIndex };
+    setDragging(true);
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function onSliderMove(e: React.PointerEvent) {
+    const d = dragRef.current;
+    const el = sliderRef.current;
+    if (!d || !el) return;
+    const cell = el.offsetWidth;
+    const dx = e.clientX - d.startX;
+    el.style.transition = "none";
+    el.style.transform = `translateX(${d.startIdx * cell + dx}px)`;
+  }
+
+  function onSliderUp(e: React.PointerEvent) {
+    const d = dragRef.current;
+    const el = sliderRef.current;
+    if (!d || !el) return;
+    const cell = el.offsetWidth;
+    const dx = e.clientX - d.startX;
+    const idx = Math.max(
+      0,
+      Math.min(Math.round(d.startIdx + dx / cell), sliderTabs.length - 1),
+    );
+    // 落位：交回 CSS 弹簧过渡
+    el.style.transition = "";
+    el.style.transform = `translateX(${idx * cell}px)`;
+    dragRef.current = null;
+    setDragging(false);
+    const key = sliderTabs[idx].key;
+    if (key === "__more") setMoreOpen(true);
+    else {
+      setMoreOpen(false);
+      go(key as ViewKey);
+    }
+  }
 
   if (!authed) {
     return <LoginView />;
@@ -198,82 +250,77 @@ function AppInner() {
         {main}
         <JobMonitor onOpenVideo={openVideoInLibrary} />
 
-        {/* 底部悬浮 Tab Bar（iOS 26 液态玻璃 + 滑动胶囊指示器 + 横滑切换） */}
-        {(() => {
-          const sliderTabs = MOBILE_TABS.filter((n) => n.key !== "breakdown");
-          const curKey = moreOpen ? "__more" : view;
-          const activeIndex = Math.max(
-            0,
-            sliderTabs.findIndex((n) => n.key === curKey),
-          );
-          return (
-            <nav
-              className="liquid-glass fixed bottom-3 left-3 right-3 z-50 rounded-[28px] px-2 pb-1.5 pt-1.5"
-              onTouchStart={(e) => {
-                touchX.current = e.touches[0].clientX;
-              }}
-              onTouchEnd={(e) => {
-                if (touchX.current === null) return;
-                const dx = e.changedTouches[0].clientX - touchX.current;
-                touchX.current = null;
-                if (Math.abs(dx) < 40) return;
-                const keys = sliderTabs.map((n) => n.key);
-                const idx = Math.max(0, keys.indexOf(curKey));
-                const next = keys[dx < 0 ? Math.min(idx + 1, keys.length - 1) : Math.max(idx - 1, 0)];
-                if (next === "__more") setMoreOpen(true);
-                else {
-                  setMoreOpen(false);
-                  go(next as ViewKey);
-                }
-              }}
-            >
-              {/* 滑动胶囊指示器（液态玻璃滑块） */}
-              <div
-                className="tab-slider liquid-pill"
-                style={{
-                  width: `calc((100% - 2px) / ${sliderTabs.length})`,
-                  transform: `translateX(${activeIndex * 100}%)`,
-                }}
-              />
-              <div className="relative grid grid-cols-4">
-                {sliderTabs.map((n) => {
-                  const active = n.key === curKey;
-                  const Icon = n.icon as (p: object) => React.ReactNode;
-                  return (
-                    <button
-                      key={n.key}
-                      onClick={() =>
-                        n.key === "__more"
-                          ? setMoreOpen((v) => !v)
-                          : go(n.key as ViewKey)
-                      }
-                      className={`relative z-10 flex flex-col items-center gap-0.5 rounded-[18px] px-3 py-1.5 transition-all duration-200 ${
-                        active ? "text-white" : "text-[var(--text-2)]"
-                      }`}
-                    >
-                      <span className={`text-[19px] ${active ? "drop-shadow-[0_1px_4px_rgba(10,132,255,0.6)]" : ""}`}>
-                        <Icon />
-                      </span>
-                      <span className="text-[9.5px] font-medium">{n.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              {/* 中间"新建拆解"：液态玻璃突出悬浮钮 */}
-              <button
-                onClick={() => go("breakdown")}
-                className="liquid-pill absolute -top-7 left-1/2 z-20 flex -translate-x-1/2 items-center justify-center rounded-full text-white"
-                style={{ height: 52, width: 52 }}
-                aria-label="新建拆解"
-              >
-                {(() => {
-                  const Icon = MOBILE_TABS[2].icon as (p: object) => React.ReactNode;
-                  return <Icon />;
-                })()}
-              </button>
-            </nav>
-          );
-        })()}
+        {/* 底部悬浮 Tab Bar（iOS 26 液态玻璃：滑块本体可拖拽，按下/滑动中为液态玻璃） */}
+        <nav
+          className={`liquid-glass fixed bottom-3 left-3 right-3 z-50 rounded-[28px] px-2 pb-1.5 pt-1.5 ${dragging ? "pressed" : ""}`}
+          onTouchStart={(e) => {
+            touchX.current = e.touches[0].clientX;
+          }}
+          onTouchEnd={(e) => {
+            if (touchX.current === null) return;
+            const dx = e.changedTouches[0].clientX - touchX.current;
+            touchX.current = null;
+            if (Math.abs(dx) < 40) return;
+            const keys = sliderTabs.map((n) => n.key);
+            const idx = Math.max(0, keys.indexOf(curKey));
+            const next = keys[dx < 0 ? Math.min(idx + 1, keys.length - 1) : Math.max(idx - 1, 0)];
+            if (next === "__more") setMoreOpen(true);
+            else {
+              setMoreOpen(false);
+              go(next as ViewKey);
+            }
+          }}
+        >
+          {/* 滑动胶囊指示器：椭圆液态玻璃滑块，本体可拖拽 */}
+          <div
+            ref={sliderRef}
+            className={`tab-slider liquid-pill ${dragging ? "dragging" : ""}`}
+            style={{
+              width: `calc((100% - 16px) / ${sliderTabs.length})`,
+              transform: `translateX(${activeIndex * 100}%)`,
+            }}
+            onPointerDown={onSliderDown}
+            onPointerMove={onSliderMove}
+            onPointerUp={onSliderUp}
+            onPointerCancel={onSliderUp}
+          />
+          <div className="relative grid grid-cols-4">
+            {sliderTabs.map((n) => {
+              const active = n.key === curKey;
+              const Icon = n.icon as (p: object) => React.ReactNode;
+              return (
+                <button
+                  key={n.key}
+                  onClick={() =>
+                    n.key === "__more"
+                      ? setMoreOpen((v) => !v)
+                      : go(n.key as ViewKey)
+                  }
+                  className={`relative z-10 flex flex-col items-center gap-0.5 rounded-[24px] px-3 py-1.5 transition-colors duration-200 ${
+                    active ? "text-white" : "text-[var(--text-2)]"
+                  }`}
+                >
+                  <span className={`text-[19px] ${active ? "drop-shadow-[0_1px_4px_rgba(10,132,255,0.5)]" : ""}`}>
+                    <Icon />
+                  </span>
+                  <span className="text-[9.5px] font-medium">{n.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          {/* 中间"新建拆解"：液态玻璃突出悬浮钮 */}
+          <button
+            onClick={() => go("breakdown")}
+            className="liquid-pill absolute -top-7 left-1/2 z-20 flex -translate-x-1/2 items-center justify-center rounded-full text-white"
+            style={{ height: 52, width: 52 }}
+            aria-label="新建拆解"
+          >
+            {(() => {
+              const Icon = MOBILE_TABS[2].icon as (p: object) => React.ReactNode;
+              return <Icon />;
+            })()}
+          </button>
+        </nav>
 
         {/* 更多抽屉：其余全部入口 + 记忆中心 */}
         {moreOpen && (
