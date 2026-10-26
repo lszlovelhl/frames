@@ -586,5 +586,63 @@ async def chat(
     return {"reply": reply_text, **extra}
 
 
+# ==============================================================
+# 记忆管理（用户可见、可手动删除——OpenWebUI 式透明控制）
+# ==============================================================
+@router.get("/api/chat/memories")
+async def list_memories(
+    user_id: str = "anonymous",
+    db: AsyncSession = Depends(get_session),
+):
+    """列出某用户的全部记忆（按重要性倒序），供前端展示/管理。"""
+    from sqlalchemy import text as sa_text
+    try:
+        await db.rollback()
+        rows = (await db.execute(sa_text(
+            "SELECT id, memory_type, content, importance, updated_at FROM user_memory "
+            "WHERE user_id=:uid ORDER BY importance DESC, updated_at DESC"
+        ), {"uid": user_id})).fetchall()
+        return {
+            "memories": [
+                {
+                    "id": r[0],
+                    "type": r[1],
+                    "content": r[2],
+                    "importance": r[3],
+                    "updated_at": str(r[4]) if r[4] else "",
+                }
+                for r in rows
+            ]
+        }
+    except Exception as e:
+        return {"memories": [], "error": str(e)[:100]}
+
+
+@router.delete("/api/chat/memories/{mem_id}")
+async def delete_memory(
+    mem_id: str,
+    db: AsyncSession = Depends(get_session),
+):
+    """删除一条记忆（连同向量），让用户对 AI 的记忆有控制权。"""
+    from sqlalchemy import text as sa_text
+    try:
+        await db.rollback()
+        # 删向量（lib_embedding target_table='user_memory'）
+        await db.execute(sa_text(
+            "DELETE FROM lib_embedding WHERE target_table='user_memory' AND target_id=:mid"
+        ), {"mid": mem_id})
+        # 删记忆
+        res = await db.execute(sa_text(
+            "DELETE FROM user_memory WHERE id=:mid"
+        ), {"mid": mem_id})
+        await db.commit()
+        if res.rowcount == 0:
+            return {"ok": False, "message": "记忆不存在"}
+        return {"ok": True, "message": "已忘记"}
+    except Exception as e:
+        await db.rollback()
+        return {"ok": False, "message": f"删除失败：{str(e)[:100]}"}
+
+
 # 延迟导入避免循环依赖
 from app.routers.videos import VideoCreate

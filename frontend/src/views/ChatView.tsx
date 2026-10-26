@@ -6,10 +6,24 @@ interface Message {
   time: string;
 }
 
+interface MemoryItem {
+  id: string;
+  type: string;
+  content: string;
+  importance: number;
+}
+
+const MEMORY_ICON: Record<string, string> = {
+  preference: "💡",
+  feedback: "🔧",
+  dream: "💭",
+};
+
 export default function ChatView() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [memories, setMemories] = useState<MemoryItem[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // 打开页面时自动打个招呼，AI 根据状态主动说话
@@ -45,6 +59,29 @@ export default function ChatView() {
     greet();
   }, []);
 
+  // 加载 AI 记住的事（OpenWebUI 式透明记忆：可见、可删）
+  useEffect(() => {
+    async function loadMemories() {
+      try {
+        const res = await fetch("/api/chat/memories?user_id=default");
+        const data = await res.json();
+        setMemories(data.memories || []);
+      } catch {
+        setMemories([]);
+      }
+    }
+    loadMemories();
+  }, []);
+
+  async function deleteMemory(id: string) {
+    try {
+      await fetch(`/api/chat/memories/${id}`, { method: "DELETE" });
+      setMemories((m) => m.filter((x) => x.id !== id));
+    } catch {
+      // 删除失败静默，用户可重试
+    }
+  }
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
@@ -63,7 +100,7 @@ export default function ChatView() {
       const resp = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, platform: "web" }),
+        body: JSON.stringify({ message: text, user_id: "default", platform: "web" }),
       });
       const data = await resp.json();
       setMessages((m) => [
@@ -74,6 +111,10 @@ export default function ChatView() {
           time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
         },
       ]);
+      // 对话后刷新记忆（可能自动记了新东西）
+      const memRes = await fetch("/api/chat/memories?user_id=default");
+      const memData = await memRes.json();
+      setMemories(memData.memories || []);
     } catch (e) {
       setMessages((m) => [
         ...m,
@@ -90,6 +131,34 @@ export default function ChatView() {
         <h1 className="text-base font-semibold text-zinc-100">AI 助手</h1>
         <p className="mt-0.5 text-xs text-zinc-500">说人话就能用，发链接自动拆解</p>
       </div>
+
+      {/* AI 记得你：记忆透明展示，可删除 */}
+      {memories.length > 0 && (
+        <div className="border-b border-white/5 px-5 py-3">
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-xs text-zinc-500">🧠 AI 记得你</span>
+            <span className="text-[10px] text-zinc-600">点 × 可让我忘记</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {memories.slice(0, 8).map((mem) => (
+              <span
+                key={mem.id}
+                title={`${mem.type === "preference" ? "偏好" : mem.type === "feedback" ? "反馈" : "结晶"} · 重要度 ${mem.importance}`}
+                className="group inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 py-1 pl-2.5 pr-1 text-xs text-zinc-300"
+              >
+                {MEMORY_ICON[mem.type] || "📌"} {mem.content.length > 18 ? mem.content.slice(0, 18) + "…" : mem.content}
+                <button
+                  onClick={() => deleteMemory(mem.id)}
+                  className="rounded-full px-1 text-zinc-500 transition-colors hover:bg-amber-400/20 hover:text-amber-300"
+                  title="删除这条记忆"
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
         {messages.map((m, i) => (
