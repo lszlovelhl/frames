@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AuthProvider, useAuth } from "./auth";
 import LoginView from "./views/LoginView";
 import JobMonitor from "./components/JobMonitor";
@@ -102,6 +102,7 @@ function AppInner() {
   const { authed, username, logout } = useAuth();
   const [view, setView] = useState<ViewKey>("chat");
   const [moreOpen, setMoreOpen] = useState(false);
+  const touchX = useRef<number | null>(null);
   const [libraryFocusId, setLibraryFocusId] = useState<string | null>(null);
   const [createSeed, setCreateSeed] = useState<string[] | null>(null);
   const [createSeedProducts, setCreateSeedProducts] = useState<string[] | null>(null);
@@ -197,32 +198,82 @@ function AppInner() {
         {main}
         <JobMonitor onOpenVideo={openVideoInLibrary} />
 
-        {/* 底部悬浮 Tab Bar（iOS 风格，毛玻璃） */}
-        <nav className="glass fixed bottom-3 left-3 right-3 z-50 flex items-center justify-around rounded-[26px] px-2 py-1.5 shadow-[var(--shadow-float)]">
-          {MOBILE_TABS.map((n) => {
-            const active = n.key === "__more" ? moreOpen : view === n.key;
-            const Icon = n.icon as (p: object) => React.ReactNode;
-            const isCenter = n.key === "breakdown";
-            return (
+        {/* 底部悬浮 Tab Bar（iOS 26 液态玻璃 + 滑动胶囊指示器 + 横滑切换） */}
+        {(() => {
+          const sliderTabs = MOBILE_TABS.filter((n) => n.key !== "breakdown");
+          const curKey = moreOpen ? "__more" : view;
+          const activeIndex = Math.max(
+            0,
+            sliderTabs.findIndex((n) => n.key === curKey),
+          );
+          return (
+            <nav
+              className="liquid-glass fixed bottom-3 left-3 right-3 z-50 rounded-[28px] px-2 pb-1.5 pt-1.5"
+              onTouchStart={(e) => {
+                touchX.current = e.touches[0].clientX;
+              }}
+              onTouchEnd={(e) => {
+                if (touchX.current === null) return;
+                const dx = e.changedTouches[0].clientX - touchX.current;
+                touchX.current = null;
+                if (Math.abs(dx) < 40) return;
+                const keys = sliderTabs.map((n) => n.key);
+                const idx = Math.max(0, keys.indexOf(curKey));
+                const next = keys[dx < 0 ? Math.min(idx + 1, keys.length - 1) : Math.max(idx - 1, 0)];
+                if (next === "__more") setMoreOpen(true);
+                else {
+                  setMoreOpen(false);
+                  go(next as ViewKey);
+                }
+              }}
+            >
+              {/* 滑动胶囊指示器（液态玻璃滑块） */}
+              <div
+                className="tab-slider liquid-pill"
+                style={{
+                  width: `calc((100% - 2px) / ${sliderTabs.length})`,
+                  transform: `translateX(${activeIndex * 100}%)`,
+                }}
+              />
+              <div className="relative grid grid-cols-4">
+                {sliderTabs.map((n) => {
+                  const active = n.key === curKey;
+                  const Icon = n.icon as (p: object) => React.ReactNode;
+                  return (
+                    <button
+                      key={n.key}
+                      onClick={() =>
+                        n.key === "__more"
+                          ? setMoreOpen((v) => !v)
+                          : go(n.key as ViewKey)
+                      }
+                      className={`relative z-10 flex flex-col items-center gap-0.5 rounded-[18px] px-3 py-1.5 transition-all duration-200 ${
+                        active ? "text-white" : "text-[var(--text-2)]"
+                      }`}
+                    >
+                      <span className={`text-[19px] ${active ? "drop-shadow-[0_1px_4px_rgba(10,132,255,0.6)]" : ""}`}>
+                        <Icon />
+                      </span>
+                      <span className="text-[9.5px] font-medium">{n.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {/* 中间"新建拆解"：液态玻璃突出悬浮钮 */}
               <button
-                key={n.key}
-                onClick={() => (n.key === "__more" ? setMoreOpen((v) => !v) : go(n.key as ViewKey))}
-                className={`relative flex flex-col items-center gap-0.5 rounded-2xl px-3 py-1.5 transition-all ${
-                  isCenter
-                    ? "-mt-7 h-12 w-12 items-center justify-center rounded-full bg-[var(--accent)] text-white shadow-[0_6px_16px_rgba(10,132,255,0.4)]"
-                    : active
-                      ? "text-[var(--accent)]"
-                      : "text-[var(--text-2)]"
-                }`}
+                onClick={() => go("breakdown")}
+                className="liquid-pill absolute -top-7 left-1/2 z-20 flex -translate-x-1/2 items-center justify-center rounded-full text-white"
+                style={{ height: 52, width: 52 }}
+                aria-label="新建拆解"
               >
-                <span className={`text-[19px] ${active && !isCenter ? "anim-pulse" : ""}`}>
-                  <Icon />
-                </span>
-                {!isCenter && <span className="text-[9.5px] font-medium">{n.label}</span>}
+                {(() => {
+                  const Icon = MOBILE_TABS[2].icon as (p: object) => React.ReactNode;
+                  return <Icon />;
+                })()}
               </button>
-            );
-          })}
-        </nav>
+            </nav>
+          );
+        })()}
 
         {/* 更多抽屉：其余全部入口 + 记忆中心 */}
         {moreOpen && (
