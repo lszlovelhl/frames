@@ -15,6 +15,7 @@ import PromptsView from "./views/PromptsView";
 import ProductsView from "./views/ProductsView";
 import CollectionView from "./views/CollectionView";
 import MemoryCenter from "./views/MemoryCenter";
+import LiquidLens from "./components/LiquidLens";
 import {
   IconAccounts,
   IconBrain,
@@ -237,6 +238,7 @@ function AppInner() {
     const rest = [...NAV_GROUPS[0].items.slice(3), ...NAV_GROUPS[1].items, ...NAV_GROUPS[2].items];
     return (
       <div className="flex h-screen flex-col bg-[var(--bg-elevated)] text-[var(--text-1)]">
+        <LiquidLens />
         <header className="glass flex shrink-0 items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
             <img src="/logo.png" alt="帧间" className="h-7 w-7 rounded-[9px]" />
@@ -317,11 +319,10 @@ function AppInner() {
               );
             })}
           </div>
-          {/* 中间"新建拆解"：液态玻璃突出悬浮钮 */}
+          {/* 中间"新建拆解"：HIG 规范——控制钮用实心系统蓝，避免玻璃叠玻璃 */}
           <button
             onClick={() => go("breakdown")}
-            className="liquid-pill absolute -top-7 left-1/2 z-20 flex -translate-x-1/2 items-center justify-center rounded-full text-white"
-            style={{ height: 52, width: 52 }}
+            className="absolute -top-7 left-1/2 z-20 flex h-[52px] w-[52px] -translate-x-1/2 items-center justify-center rounded-full bg-[var(--accent)] text-white shadow-[0_6px_18px_rgba(10,132,255,0.5),inset_0_1px_0_rgba(255,255,255,0.35)] transition-transform duration-200 active:scale-95"
             aria-label="新建拆解"
           >
             {(() => {
@@ -366,6 +367,7 @@ function AppInner() {
   /* ---------- 桌面：苹果风侧栏 ---------- */
   return (
     <div className="flex h-screen bg-[var(--bg-elevated)] text-[var(--text-1)]">
+      <LiquidLens />
       <aside className="flex w-60 shrink-0 flex-col border-r border-[var(--separator-soft)] bg-[var(--bg-base)] px-3 py-4">
         <div className="mb-6 flex items-center gap-2.5 px-2">
           <img src="/logo.png" alt="帧间" className="h-9 w-9 rounded-[10px]" />
