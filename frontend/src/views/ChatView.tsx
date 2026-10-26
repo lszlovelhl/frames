@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth, authHeaders } from "../auth";
+import MemoryManager from "../components/MemoryManager";
 
 interface Message {
   role: "user" | "ai";
@@ -12,6 +13,7 @@ interface MemoryItem {
   type: string;
   content: string;
   importance: number;
+  updated_at?: string;
 }
 
 interface SessionItem {
@@ -45,6 +47,7 @@ export default function ChatView() {
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [currentSession, setCurrentSession] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false); // 移动端抽屉
+  const [showMemories, setShowMemories] = useState(false); // 记忆管理面板
   const scrollRef = useRef<HTMLDivElement>(null);
   const uid = user_id || "anonymous";
 
@@ -292,7 +295,12 @@ export default function ChatView() {
           <div className="border-b border-white/5 px-4 py-3 md:px-5">
             <div className="mb-1.5 flex items-center justify-between">
               <span className="text-xs text-zinc-500">🧠 AI 记得你</span>
-              <span className="text-[10px] text-zinc-600">点 × 可让我忘记</span>
+              <button
+                onClick={() => setShowMemories(true)}
+                className="text-[10px] text-zinc-600 transition-colors hover:text-amber-300"
+              >
+                管理全部 →
+              </button>
             </div>
             <div className="flex flex-wrap gap-1.5">
               {memories.slice(0, 8).map((mem) => (
@@ -371,6 +379,15 @@ export default function ChatView() {
           </div>
         </div>
       </div>
+
+      {/* 记忆管理面板：完整查看/搜索/筛选/删除（透明控制） */}
+      {showMemories && (
+        <MemoryManager
+          memories={memories}
+          onDelete={deleteMemory}
+          onClose={() => setShowMemories(false)}
+        />
+      )}
     </div>
   );
 }
