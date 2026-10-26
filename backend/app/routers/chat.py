@@ -404,10 +404,11 @@ async def _handle_feedback(db, user_id, content) -> str:
         return f"记录失败：{str(e)[:100]}"
 
 
-async def _handle_find_content(db, query: str, memories: str = "") -> str:
+async def _handle_find_content(db, query: str, memories: str = "") -> tuple[str, dict]:
     """素材库语义问答：'有没有讲XX的视频' → 检索已拆解脚本，返回相关推荐。
 
     复用 lib_embedding（script_script 向量），跟素材检索同一套基础设施。
+    返回 (回复文本, {citations: 引用来源列表})——OpenWebUI RAG 引用溯源。
     """
     from sqlalchemy import text as sa_text
 
@@ -415,20 +416,35 @@ async def _handle_find_content(db, query: str, memories: str = "") -> str:
         from app.services.embedding import search as vec_search
         hits = await vec_search(db, query, target_table="script_script", top_k=3)
         if not hits:
-            return "我这边素材库里还没拆过相关的内容。你可以发个视频链接，我拆完就进库了。"
+            return "我这边素材库里还没拆过相关的内容。你可以发个视频链接，我拆完就进库了。", {}
 
         lines = [f"我帮你找了找和「{query}」相关的内容："]
+        citations = []
         for i, h in enumerate(hits, 1):
             row = (await db.execute(sa_text(
-                "SELECT core_idea, summary FROM script_script WHERE id=:sid"
+                "SELECT id, title, platform, video_id, core_idea FROM script_script WHERE id=:sid"
             ), {"sid": h["target_id"]})).fetchone()
             if row:
-                idea = (row[0] or "")[:40]
-                lines.append(f"{i}. {idea}")
+                s_id, title, platform, vid, idea = row
+                idea_txt = (idea or "")[:40]
+                lines.append(f"{i}. {idea_txt}")
+                # 引用来源：优先取视频公开链接
+                url = ""
+                if vid:
+                    vrow = (await db.execute(sa_text(
+                        "SELECT url FROM videos WHERE id=:vid"
+                    ), {"vid": vid})).fetchone()
+                    if vrow and vrow[0]:
+                        url = vrow[0]
+                citations.append({
+                    "title": (title or "未命名视频")[:60],
+                    "platform": platform or "",
+                    "url": url,
+                })
         lines.append("\n要我拆个类似的新视频吗？发链接给我就行。")
-        return "\n".join(lines)
+        return "\n".join(lines), {"citations": citations}
     except Exception as e:
-        return f"检索素材失败：{str(e)[:100]}"
+        return f"检索素材失败：{str(e)[:100]}", {}
 
 
 async def _handle_chat(content: str, memories: str = "", summary: str = "") -> str:
@@ -583,8 +599,7 @@ async def chat(
     ), {"mid": msg_id, "sid": session_id, "content": message})
 
     # 2. 根据意图调用对应 handler
-    # 对话类意图（chat/followup）：先按用户消息语义召回相关记忆，注入回复；
-    # 若消息含素材查询词（有没有/帮我找/推荐/类似/讲...的），走素材库语义问答
+    # 对话类意图（chat/followup）：先按用户消息语义召回相关记忆，注入回复
     memories = ""
     if intent in ("chat", "followup"):
         try:
@@ -594,11 +609,11 @@ async def chat(
                 memories = "；".join(r["content"] for r in mem_rows)
         except Exception:
             pass
-
-        _find_words = ["有没有", "帮我找", "推荐", "找找", "类似", "讲", "讲不", "话题", "主题"]
-        if any(w in message for w in ["有没有", "帮我找", "推荐", "找找", "类似"]) or \
-           (("讲" in message or "话题" in message) and "视频" in message):
-            intent = "find_content"
+    # 素材查询词强制走素材库问答（RAG 引用溯源）：意图识别给 similar/chat 也纠正过来
+    if any(w in message for w in ["有没有", "帮我找", "找找"]) or \
+       ("推荐" in message and "视频" in message) or \
+       (("讲" in message or "话题" in message) and "视频" in message):
+        intent = "find_content"
 
     handlers = {
         "breakdown": lambda: _handle_breakdown(db, url, session_id),
@@ -1085,9 +1100,11 @@ async def chat_stream(
                     memories = "；".join(r["content"] for r in mem_rows)
             except Exception:
                 pass
-            if any(w in message for w in ["有没有", "帮我找", "推荐", "找找", "类似"]) or \
-               (("讲" in message or "话题" in message) and "视频" in message):
-                intent = "find_content"
+        # 素材查询词强制走素材库问答（RAG 引用溯源）
+        if any(w in message for w in ["有没有", "帮我找", "找找"]) or \
+           ("推荐" in message and "视频" in message) or \
+           (("讲" in message or "话题" in message) and "视频" in message):
+            intent = "find_content"
 
         handlers = {
             "breakdown": lambda: _handle_breakdown(db, url, session_id),
@@ -1115,7 +1132,7 @@ async def chat_stream(
             if isinstance(result, tuple):
                 reply_text, _extra = result
             else:
-                reply_text = result
+                reply_text, _extra = result, {}
             if reply_text:
                 yield _sse({"type": "delta", "text": reply_text})
 
@@ -1137,7 +1154,7 @@ async def chat_stream(
         except Exception:
             pass
         await db.commit()
-        yield _sse({"type": "done", "text": reply_text})
+        yield _sse({"type": "done", "text": reply_text, "citations": _extra.get("citations", [])})
 
     return StreamingResponse(gen(), media_type="text/event-stream")
 

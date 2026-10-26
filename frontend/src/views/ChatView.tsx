@@ -7,6 +7,7 @@ interface Message {
   text: string;
   time: string;
   streaming?: boolean;
+  citations?: { title: string; platform: string; url: string }[];
 }
 
 interface MemoryItem {
@@ -246,11 +247,12 @@ export default function ChatView() {
       });
       if (!resp.ok || !resp.body) throw new Error("bad status");
 
-      // 解析 SSE：data: {type, text}
+      // 解析 SSE：data: {type, text, citations?}
       const reader = resp.body.getReader();
       const decoder = new TextDecoder();
       let buf = "";
       let full = "";
+      let citations: Message["citations"] = undefined;
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -266,6 +268,9 @@ export default function ChatView() {
               setMessages((m) => m.map((x, i) => (i === aiIdx ? { ...x, text: full, time: "" } : x)));
             } else if (d.type === "done") {
               full = d.text || full;
+              if (Array.isArray(d.citations) && d.citations.length) {
+                citations = d.citations;
+              }
             }
           } catch {
             // 跳过坏事件
@@ -273,7 +278,7 @@ export default function ChatView() {
         }
       }
       if (!full) full = "处理失败了，再试试？";
-      setMessages((m) => m.map((x, i) => (i === aiIdx ? { ...x, text: full, time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) } : x)));
+      setMessages((m) => m.map((x, i) => (i === aiIdx ? { ...x, text: full, time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }), citations } : x)));
       // 对话后刷新记忆和会话列表（可能自动记了新东西 / 更新了会话）
       loadMemories();
       loadSessions();
@@ -420,6 +425,26 @@ export default function ChatView() {
                   {m.text || (m.streaming ? <span className="text-zinc-400">正在思考<span className="animate-pulse">…</span></span> : "")}
                   {m.streaming && m.text && <span className="ml-0.5 inline-block h-3.5 w-[2px] animate-pulse bg-amber-300 align-middle" />}
                 </div>
+                {m.citations && m.citations.length > 0 && (
+                  <div className="mt-1.5 border-t border-white/10 pt-1.5">
+                    <div className="mb-0.5 text-[10px] text-zinc-500">参考来源</div>
+                    <div className="flex flex-wrap gap-1">
+                      {m.citations.map((c, ci) => (
+                        <a
+                          key={ci}
+                          href={c.url || "#"}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => !c.url && e.preventDefault()}
+                          className="max-w-full truncate rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-amber-200/80 hover:bg-white/10 hover:text-amber-200"
+                          title={c.title}
+                        >
+                          {c.platform ? `[${c.platform}] ` : ""}{c.title}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="mt-1 flex items-center justify-end gap-2">
                   <span className={`text-[10px] ${m.role === "user" ? "text-amber-900/60" : "text-zinc-500"}`}>
                     {m.time}
