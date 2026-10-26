@@ -112,7 +112,7 @@ async def hybrid_search(
     返回 [{id, content, memory_type, importance, score}]，按 score 降序。
     """
     # 3.1 取候选记忆
-    sql = "SELECT id, content, memory_type, importance FROM user_memory"
+    sql = "SELECT id, content, memory_type, importance, updated_at FROM user_memory"
     params: dict[str, Any] = {}
     if user_id:
         sql += " WHERE user_id=:uid"
@@ -148,13 +148,14 @@ async def hybrid_search(
     # 3.3 融合打分
     results = []
     for r in rows:
-        mid, content, mtype, imp = r[0], r[1], r[2], r[3]
+        mid, content, mtype, imp, updated_at = r[0], r[1], r[2], r[3], r[4]
         v = vec_scores.get(mid, 0.0)
         k = bm25_score(query, content)
         # 有向量的正常融合；没向量只用关键词
         score = VECTOR_WEIGHT * v + KEYWORD_WEIGHT * k if mid in vec_scores else k
         # 重要性加权（importance 5~10，映射 1.0~1.3）
         score *= 1.0 + min(max(imp, 5), 10) * 0.03 - 0.15
+        score *= _recency_factor(updated_at)
         results.append({
             "id": mid,
             "content": content,
@@ -169,3 +170,28 @@ async def hybrid_search(
 
 def _blob_to_vec(blob: bytes) -> np.ndarray:
     return np.frombuffer(blob, dtype=np.float32)
+
+
+def _recency_factor(updated_at, now_ts: float | None = None) -> float:
+    """记忆时效因子：最近 3 天 1.5x（boost），之后线性衰减到 0.3x 封底。
+
+    学 Mem0 Memory Decay（0.3x~1.5x 软重排）：旧记忆降权但仍可召回，不硬删。
+    """
+    import time
+    if updated_at is None:
+        return 0.7
+    try:
+        from datetime import datetime
+        if isinstance(updated_at, (int, float)):
+            ts = float(updated_at)
+        else:
+            ts = datetime.strptime(str(updated_at), "%Y-%m-%d %H:%M:%S").timestamp()
+    except Exception:
+        return 0.7
+    ref = now_ts if now_ts is not None else time.time()
+    age_days = max(0.0, (ref - ts) / 86400)
+    if age_days < 3:
+        return 1.5  # 最近 3 天：最新鲜，boost
+    if age_days < 30:
+        return 1.5 - (age_days - 3) / 27 * 1.2  # 3→30 天线性降到 0.3
+    return 0.3  # 30 天后封底
