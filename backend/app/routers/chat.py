@@ -271,6 +271,7 @@ async def _handle_remember(db, user_id, content) -> str:
     try:
         import uuid
         from sqlalchemy import text as sa_text
+        from app.services.memory_search import remember as remember_with_vec
 
         # 冲突解决：找相似的旧记忆（同用户，同类型，内容相似）
         # 先按精确匹配查
@@ -291,29 +292,34 @@ async def _handle_remember(db, user_id, content) -> str:
                 "UPDATE user_memory SET content=:c, importance=MIN(importance+1, 10), "
                 "updated_at=CURRENT_TIMESTAMP WHERE id=:mid"
             ), {"c": content, "mid": old[0]})
+            # 同步更新向量
+            try:
+                from app.services.embedding import embed_texts, upsert_one
+                vecs = await embed_texts([content])
+                await upsert_one(db, "user_memory", old[0], content, vecs[0])
+            except Exception:
+                pass
             return f"好的，我更新了记忆：{content}"
         else:
-            # 新增
-            mem_id = uuid.uuid4().hex
-            await db.execute(sa_text(
-                "INSERT INTO user_memory (id, user_id, memory_type, content, importance) "
-                "VALUES (:mid, :uid, 'preference', :content, 7)"
-            ), {"mid": mem_id, "uid": user_id, "content": content})
+            # 新增（同步向量化）
+            await remember_with_vec(db, user_id, content, "preference", 7)
             return f"好的，我记住了：{content}"
     except Exception as e:
         return f"记忆失败：{str(e)[:100]}"
 
 
 async def _handle_recall(db, user_id) -> str:
-    """处理查记忆意图。"""
+    """处理查记忆意图。用混合检索召回。"""
     try:
-        from sqlalchemy import text as sa_text
-        rows = (await db.execute(sa_text(
-            "SELECT content, importance FROM user_memory "
-            "WHERE user_id=:uid ORDER BY importance DESC"
-        ), {"uid": user_id})).fetchall()
+        from app.services.memory_search import hybrid_search
+
+        rows = await hybrid_search(db, query="", user_id=user_id, top_k=10)
+        # query 为空时退化为 importance 排序
+        if not rows:
+            rows = await hybrid_search(db, query="用户偏好 习惯 关注", user_id=user_id, top_k=10)
 
         # 查用户最近拆的视频，做用户画像
+        from sqlalchemy import text as sa_text
         stats_row = (await db.execute(sa_text(
             "SELECT count(*) FROM breakdown_jobs bj "
             "JOIN chat_sessions cs ON bj.id = cs.last_job_id "
@@ -328,7 +334,7 @@ async def _handle_recall(db, user_id) -> str:
         if done_count > 0:
             lines.append(f"• 你已经拆了 {done_count} 个视频")
         for r in rows:
-            lines.append(f"• {r[0]}")
+            lines.append(f"• {r['content']}")
 
         # 简单画像
         if done_count >= 5:
@@ -346,13 +352,8 @@ async def _handle_feedback(db, user_id, content) -> str:
     if not content:
         return "哪里不满意？告诉我具体哪里不对，我下次改进。"
     try:
-        import uuid
-        from sqlalchemy import text as sa_text
-        mem_id = uuid.uuid4().hex
-        await db.execute(sa_text(
-            "INSERT INTO user_memory (id, user_id, memory_type, content, importance) "
-            "VALUES (:mid, :uid, 'feedback', :content, 8)"
-        ), {"mid": mem_id, "uid": user_id, "content": f"用户反馈：{content}"})
+        from app.services.memory_search import remember as remember_with_vec
+        await remember_with_vec(db, user_id, f"用户反馈：{content}", "feedback", 8)
         return f"收到！我记住了：{content}\n下次我会注意的。"
     except Exception as e:
         return f"记录失败：{str(e)[:100]}"
@@ -510,12 +511,8 @@ async def chat(
                 "SELECT id FROM user_memory WHERE user_id=:uid AND content LIKE :c"
             ), {"uid": user_id, "c": f"%{found[0]}%"})).fetchone()
             if not already:
-                import uuid
-                mem_id = uuid.uuid4().hex
-                await db.execute(sa_text(
-                    "INSERT INTO user_memory (id, user_id, memory_type, content, importance) "
-                    "VALUES (:mid, :uid, 'preference', :content, 5)"
-                ), {"mid": mem_id, "uid": user_id, "content": f"关注{found[0]}类视频"})
+                from app.services.memory_search import remember as remember_with_vec
+                await remember_with_vec(db, user_id, f"关注{found[0]}类视频", "preference", 5)
                 logger.info("自动记忆：用户关注 %s 类视频", found[0])
     except Exception as e:
         logger.warning("自动记忆失败（不影响主流程）：%s", e)

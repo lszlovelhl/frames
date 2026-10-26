@@ -133,6 +133,15 @@ async def _consolidate_one(db, user_id: str) -> int:
             "INSERT INTO user_memory (id, user_id, memory_type, content, importance) "
             "VALUES (:mid, :uid, 'dream', :c, 6)"
         ), {"mid": mem_id, "uid": user_id, "c": line})
+
+        # 同步向量化（失败不影响记忆写入）
+        try:
+            from app.services.embedding import embed_texts, upsert_one
+            vecs = await embed_texts([line])
+            await upsert_one(db, "user_memory", mem_id, line, vecs[0])
+        except Exception as e:
+            logger.warning("结晶记忆向量化失败（不影响写入）：%s", e)
+
         added += 1
 
     if added:
