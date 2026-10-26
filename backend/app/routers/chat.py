@@ -265,18 +265,41 @@ async def _handle_similar(db, video_id) -> str:
 
 
 async def _handle_remember(db, user_id, content) -> str:
-    """处理记住偏好意图。"""
+    """处理记住偏好意图。带冲突解决：有相似旧记忆就更新，不新增。"""
     if not content:
         return "记住什么？比如：「记住我喜欢口播类视频」"
     try:
         import uuid
         from sqlalchemy import text as sa_text
-        mem_id = uuid.uuid4().hex
-        await db.execute(sa_text(
-            "INSERT INTO user_memory (id, user_id, memory_type, content, importance) "
-            "VALUES (:mid, :uid, 'preference', :content, 7)"
-        ), {"mid": mem_id, "uid": user_id, "content": content})
-        return f"好的，我记住了：{content}"
+
+        # 冲突解决：找相似的旧记忆（同用户，同类型，内容相似）
+        # 先按精确匹配查
+        old = (await db.execute(sa_text(
+            "SELECT id FROM user_memory WHERE user_id=:uid AND memory_type='preference' AND content=:c"
+        ), {"uid": user_id, "c": content})).fetchone()
+
+        if not old:
+            # 再按关键词查（取内容前几个字做模糊匹配，防止"我喜欢口播"和"喜欢口播类"重复存）
+            key = content[:4] if len(content) >= 4 else content
+            old = (await db.execute(sa_text(
+                "SELECT id, content FROM user_memory WHERE user_id=:uid AND memory_type='preference' AND content LIKE :k"
+            ), {"uid": user_id, "k": f"%{key}%"})).fetchone()
+
+        if old:
+            # 更新旧记忆：内容更新 + importance +1（越确认越重要）+ 刷新时间
+            await db.execute(sa_text(
+                "UPDATE user_memory SET content=:c, importance=MIN(importance+1, 10), "
+                "updated_at=CURRENT_TIMESTAMP WHERE id=:mid"
+            ), {"c": content, "mid": old[0]})
+            return f"好的，我更新了记忆：{content}"
+        else:
+            # 新增
+            mem_id = uuid.uuid4().hex
+            await db.execute(sa_text(
+                "INSERT INTO user_memory (id, user_id, memory_type, content, importance) "
+                "VALUES (:mid, :uid, 'preference', :content, 7)"
+            ), {"mid": mem_id, "uid": user_id, "content": content})
+            return f"好的，我记住了：{content}"
     except Exception as e:
         return f"记忆失败：{str(e)[:100]}"
 
@@ -503,6 +526,15 @@ async def chat(
     ), {"sid": session_id})
 
     await db.commit()
+
+    # 4.5 记忆结晶（Auto-Dream）：异步后台跑，24 小时一次，不阻塞响应
+    try:
+        import asyncio
+        from app.services.memory_dream import run_dream_background
+        asyncio.create_task(run_dream_background())
+        logger.info("已触发记忆结晶后台任务")
+    except Exception as e:
+        logger.warning("触发记忆结晶失败（不影响主流程）：%s", e)
 
     return {"reply": reply_text, **extra}
 
