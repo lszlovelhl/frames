@@ -95,6 +95,13 @@ async def remember(
     except Exception as e:
         logger.warning("记忆向量化失败（不影响写入）：%s", e)
 
+    # graph memory 联动：提取记忆中的实体（城市/视频类型/平台），建用户↔实体关系
+    try:
+        from app.services.graph_memory import link_from_memory
+        await link_from_memory(db, user_id, content)
+    except Exception as e:
+        logger.warning("实体关系联动失败（不影响记忆）：%s", e)
+
     return mem_id
 
 

@@ -92,6 +92,14 @@ async def lifespan(_: FastAPI):
         logger.info("会话摘要列就绪")
     except Exception:  # noqa: BLE001
         logger.warning("会话摘要列迁移失败（不影响启动）", exc_info=True)
+    # graph memory 实体关系表幂等建表
+    try:
+        from app.services.graph_memory import ensure_graph_schema
+
+        await ensure_graph_schema()
+        logger.info("实体关系表就绪")
+    except Exception:  # noqa: BLE001
+        logger.warning("实体关系表迁移失败（不影响启动）", exc_info=True)
     # 三层分库提示词（tl1~tl6，第 8 章）幂等落库：仅当 code 内容变更才新增版本，不删历史
     try:
         from app.db import SessionLocal

@@ -404,10 +404,11 @@ async def _handle_feedback(db, user_id, content) -> str:
         return f"记录失败：{str(e)[:100]}"
 
 
-async def _handle_find_content(db, query: str, memories: str = "") -> tuple[str, dict]:
+async def _handle_find_content(db, query: str, memories: str = "", user_id: str = "") -> tuple[str, dict]:
     """素材库语义问答：'有没有讲XX的视频' → 检索已拆解脚本，返回相关推荐。
 
     复用 lib_embedding（script_script 向量），跟素材检索同一套基础设施。
+    graph memory 增强：query 命中用户实体（城市/类型/平台）时，推荐更贴近偏好。
     返回 (回复文本, {citations: 引用来源列表})——OpenWebUI RAG 引用溯源。
     """
     from sqlalchemy import text as sa_text
@@ -418,7 +419,18 @@ async def _handle_find_content(db, query: str, memories: str = "") -> tuple[str,
         if not hits:
             return "我这边素材库里还没拆过相关的内容。你可以发个视频链接，我拆完就进库了。", {}
 
-        lines = [f"我帮你找了找和「{query}」相关的内容："]
+        # graph memory：query 命中用户实体 → 个性化提示（记忆关系网落地）
+        entity_hint = ""
+        if user_id:
+            try:
+                from app.services.graph_memory import entity_context
+                ctx = await entity_context(db, user_id, query)
+                if ctx:
+                    entity_hint = f"（顺着你对{ctx}的关注找的）"
+            except Exception:
+                pass
+
+        lines = [f"我帮你找了找和「{query}」相关的内容{entity_hint}："]
         citations = []
         for i, h in enumerate(hits, 1):
             row = (await db.execute(sa_text(
@@ -624,7 +636,7 @@ async def chat(
         "feedback": lambda: _handle_feedback(db, user_id, intent_data.get("content", "")),
         "chat": lambda: _handle_chat(intent_data.get("content", ""), memories, sess_summary),
         "followup": lambda: _handle_followup(db, session_id, user_id, intent_data.get("content", ""), memories),
-        "find_content": lambda: _handle_find_content(db, message, memories),
+        "find_content": lambda: _handle_find_content(db, message, memories, user_id),
         "help": _handle_help,
     }
     handler = handlers.get(intent, _handle_help)
@@ -1122,7 +1134,7 @@ async def chat_stream(
             "feedback": lambda: _handle_feedback(db, user_id, intent_data.get("content", "")),
             "chat": lambda: _handle_chat(intent_data.get("content", ""), memories, sess_summary),
             "followup": lambda: _handle_followup(db, session_id, user_id, intent_data.get("content", ""), memories),
-            "find_content": lambda: _handle_find_content(db, message, memories),
+            "find_content": lambda: _handle_find_content(db, message, memories, user_id),
             "help": _handle_help,
         }
 
