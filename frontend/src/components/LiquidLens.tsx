@@ -60,15 +60,17 @@ export default function LiquidLens() {
       <defs>
         <filter id={FILTER_ID} x="-20%" y="-20%" width="140%" height="140%" colorInterpolationFilters="sRGB">
           <feImage id={FILTER_ID} result="map" />
-          {/* 双通道色差：R 通道位移大（红边外偏）、B 通道位移小（蓝边内偏） */}
-          <feDisplacementMap in="SourceGraphic" in2="map" scale="7" xChannelSelector="R" yChannelSelector="G" result="shiftR" />
-          <feDisplacementMap in="SourceGraphic" in2="map" scale="3.5" xChannelSelector="R" yChannelSelector="G" result="shiftB" />
+          {/* 双通道色差（极克制）：R 通道位移大（红边外偏）、B 通道位移小（蓝边内偏） */}
+          <feDisplacementMap in="SourceGraphic" in2="map" scale="3" xChannelSelector="R" yChannelSelector="G" result="shiftR" />
+          <feDisplacementMap in="SourceGraphic" in2="map" scale="1.5" xChannelSelector="R" yChannelSelector="G" result="shiftB" />
           <feColorMatrix in="shiftR" result="rC" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" />
           <feColorMatrix in="shiftB" result="bC" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" />
           <feComposite in="rC" in2="bC" operator="arithmetic" k1="0" k2="1" k3="1" k4="0" result="fringe" />
-          {/* specular rim：位移映射 B 通道 → 边缘高光混合 */}
-          <feColorMatrix in="map" result="spec" values="0 0 0 0 0  0 0 0 0 0  0 0 0.7 0 0.15  0 0 0 1 0" />
-          <feComposite in="fringe" in2="spec" operator="arithmetic" k1="0" k2="1" k3="0.55" k4="0" />
+          {/* specular rim：位移映射亮度 → alpha，叠加中性白光（不染色） */}
+          <feColorMatrix in="map" result="specA" type="luminanceToAlpha" />
+          <feFlood flood-color="white" flood-opacity="0.8" result="white" />
+          <feComposite in="white" in2="specA" operator="in" result="spec" />
+          <feComposite in="fringe" in2="spec" operator="arithmetic" k1="0" k2="1" k3="0.26" k4="0" />
         </filter>
       </defs>
     </svg>

@@ -1265,6 +1265,7 @@ async def chat_stream(
 
         # 3. 生成回复（闲聊流式，其余整段）
         reply_text = ""
+        _extra: dict = {}
         if intent == "chat":
             parts: list[str] = []
             async for tok in _handle_chat_stream(intent_data.get("content", ""), memories, sess_summary):

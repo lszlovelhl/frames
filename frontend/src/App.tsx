@@ -16,6 +16,7 @@ import ProductsView from "./views/ProductsView";
 import CollectionView from "./views/CollectionView";
 import MemoryCenter from "./views/MemoryCenter";
 import LiquidLens from "./components/LiquidLens";
+import LiquidGlassRefraction from "./components/LiquidGlassRefraction";
 import {
   IconAccounts,
   IconBrain,
@@ -239,6 +240,7 @@ function AppInner() {
     return (
       <div className="flex h-screen flex-col bg-[var(--bg-elevated)] text-[var(--text-1)]">
         <LiquidLens />
+        <LiquidGlassRefraction view={view} />
         <header className="liquid-glass flex shrink-0 items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
             <img src="/logo.png" alt="帧间" className="h-7 w-7 rounded-[9px]" />
@@ -319,18 +321,21 @@ function AppInner() {
               );
             })}
           </div>
-          {/* 中间"新建拆解"：HIG 规范——控制钮用实心系统蓝，避免玻璃叠玻璃 */}
-          <button
-            onClick={() => go("breakdown")}
-            className="absolute -top-7 left-1/2 z-20 flex h-[52px] w-[52px] -translate-x-1/2 items-center justify-center rounded-full bg-[var(--accent)] text-white shadow-[0_6px_18px_rgba(10,132,255,0.5),inset_0_1px_0_rgba(255,255,255,0.35)] transition-transform duration-200 active:scale-95"
-            aria-label="新建拆解"
-          >
-            {(() => {
-              const Icon = MOBILE_TABS[2].icon as (p: object) => React.ReactNode;
-              return <Icon />;
-            })()}
-          </button>
         </nav>
+
+        {/* 中间"新建拆解"：HIG 实心系统蓝；渲染在底栏外，避免被底栏 overflow:hidden 裁剪；
+            水平对齐"创作台"tab（第 3 格中心 = left 12px + 底栏宽 0.625） */}
+        <button
+          onClick={() => go("breakdown")}
+          className="fixed z-[60] flex h-[52px] w-[52px] -translate-x-1/2 items-center justify-center rounded-full bg-[var(--accent)] text-white shadow-[0_6px_18px_rgba(10,132,255,0.5),inset_0_1px_0_rgba(255,255,255,0.35)] transition-transform duration-200 active:scale-95"
+          style={{ bottom: 54, left: "calc(12px + (100vw - 24px) * 0.625)" }}
+          aria-label="新建拆解"
+        >
+          {(() => {
+            const Icon = MOBILE_TABS[2].icon as (p: object) => React.ReactNode;
+            return <Icon />;
+          })()}
+        </button>
 
         {/* 更多抽屉：其余全部入口 + 记忆中心 */}
         {moreOpen && (

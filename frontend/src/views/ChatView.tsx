@@ -116,15 +116,26 @@ export default function ChatView() {
               try {
                 const d = JSON.parse(ev.slice(6));
                 if (d.type === "delta") {
-                  setMessages([{ role: "ai", text: d.text, time: "" }]);
+                  // 只更新初始"打招呼"占位；若用户已发消息/有历史，不覆盖
+                  setMessages((prev) => {
+                    if (prev.length === 1 && prev[0].role === "ai" && !prev[0].time) {
+                      return [{ ...prev[0], text: d.text }];
+                    }
+                    return prev;
+                  });
                 } else if (d.type === "done" && d.text) {
-                  setMessages([
-                    {
-                      role: "ai",
-                      text: d.text,
-                      time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-                    },
-                  ]);
+                  setMessages((prev) => {
+                    if (prev.length === 1 && prev[0].role === "ai" && !prev[0].time) {
+                      return [
+                        {
+                          role: "ai",
+                          text: d.text,
+                          time: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
+                        },
+                      ];
+                    }
+                    return prev;
+                  });
                 }
               } catch {
                 // 跳过坏事件
@@ -412,7 +423,7 @@ export default function ChatView() {
           </div>
         )}
 
-        <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-4 md:px-5">
+        <div ref={scrollRef} data-scroll="main" className="flex-1 space-y-4 overflow-y-auto px-4 py-4 md:px-5">
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
               <div
