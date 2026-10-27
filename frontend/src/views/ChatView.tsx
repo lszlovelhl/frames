@@ -364,7 +364,7 @@ export default function ChatView() {
 
       {/* 主对话区 */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="glass flex items-center gap-2 px-4 py-3 md:px-5">
+        <div className="liquid-glass flex items-center gap-2 px-4 py-3 md:px-5">
           {/* 移动端：打开会话抽屉 */}
           <button
             onClick={() => setSidebarOpen(true)}

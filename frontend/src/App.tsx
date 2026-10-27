@@ -239,7 +239,7 @@ function AppInner() {
     return (
       <div className="flex h-screen flex-col bg-[var(--bg-elevated)] text-[var(--text-1)]">
         <LiquidLens />
-        <header className="glass flex shrink-0 items-center justify-between px-4 py-3">
+        <header className="liquid-glass flex shrink-0 items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2">
             <img src="/logo.png" alt="帧间" className="h-7 w-7 rounded-[9px]" />
             <span className="text-[17px] font-semibold tracking-tight text-white">帧间</span>
@@ -339,7 +339,7 @@ function AppInner() {
             onClick={() => setMoreOpen(false)}
           >
             <div
-              className="anim-fade-up absolute bottom-20 left-3 right-3 rounded-[24px] bg-[var(--bg-card)] p-3 shadow-[var(--shadow-float)]"
+              className="liquid-glass anim-fade-up absolute bottom-20 left-3 right-3 rounded-[24px] p-3"
               onClick={(e) => e.stopPropagation()}
             >
               <div className="grid grid-cols-4 gap-1">
@@ -394,15 +394,14 @@ function AppInner() {
                       title={n.hint}
                       className={`group flex items-center gap-2.5 rounded-[10px] px-3 py-[7px] text-[13px] transition-all duration-150 ${
                         active
-                          ? "bg-[var(--bg-selected)] font-medium text-[var(--accent)]"
+                          ? "liquid-pill font-medium text-white"
                           : "text-[var(--text-2)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-1)]"
                       }`}
                     >
-                      <span className={`text-[17px] ${active ? "text-[var(--accent)]" : "text-[var(--text-3)] group-hover:text-[var(--text-2)]"}`}>
+                      <span className={`text-[17px] ${active ? "text-white" : "text-[var(--text-3)] group-hover:text-[var(--text-2)]"}`}>
                         <Icon />
                       </span>
                       <span>{n.label}</span>
-                      {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />}
                     </button>
                   );
                 })}
