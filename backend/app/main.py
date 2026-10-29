@@ -23,6 +23,7 @@ from app.media import cookies
 from app.routers import ai as ai_router
 from app.routers import auth as auth_router
 from app.routers import billing as billing_router
+from app.routers import breakdown_search as breakdown_search_router
 from app.routers import chat as chat_router
 from app.routers import collection as collection_router
 from app.routers import creations as creations_router
@@ -116,6 +117,16 @@ async def lifespan(_: FastAPI):
         logger.info("自检列就绪")
     except Exception:  # noqa: BLE001
         logger.warning("自检列迁移失败（不影响启动）", exc_info=True)
+    # 拆解结果分块混合索引：breakdown_chunk 幂等建表（SQLite BLOB + numpy 余弦，无向量库依赖）
+    try:
+        from app.db import SessionLocal
+        from app.services.breakdown_index import ensure_breakdown_index_schema
+
+        async with SessionLocal() as _db:
+            await ensure_breakdown_index_schema(_db)
+        logger.info("拆解分块索引表就绪")
+    except Exception:  # noqa: BLE001
+        logger.warning("拆解分块索引建表失败（不影响启动）", exc_info=True)
     # 会话标题：chat_sessions 补 title 列
     try:
         from app.services.session_title import ensure_title_schema
@@ -174,6 +185,7 @@ app.include_router(products_router.router)
 app.include_router(usage_router.router)
 app.include_router(providers_router.router)
 app.include_router(billing_router.router)
+app.include_router(breakdown_search_router.router)
 app.include_router(collection_router.router)
 
 # 本地媒体静态服务：/media/<work_dir>/...

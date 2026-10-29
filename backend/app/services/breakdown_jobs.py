@@ -261,6 +261,19 @@ async def _postprocess(db, job, video, result) -> None:
     except Exception as e:
         logger.warning("script 向量化失败（不影响主流程）：%s", e, exc_info=True)
 
+    # 1.5 拆解结果分块混合索引（概览/段落/钩子/高价值句/完播驱动/可复用积木）
+    # 隐私优先本地 embed；失败仅 warning 不影响主流程。当前 job 上下文拿不到会话
+    # 用户标识，owner_key 起步用 'default'（弱隔离取舍，见 breakdown_index 模块 docstring）。
+    try:
+        from app.services.breakdown_index import index_breakdown
+
+        counts = await index_breakdown(
+            db, sid_str, str(video.id), owner_key="default"
+        )
+        logger.info("拆解结果分块索引完成：script_id=%s 计数=%s", sid_str, counts)
+    except Exception as e:
+        logger.warning("拆解结果分块索引失败（不影响主流程）：%s", e, exc_info=True)
+
     # 2. 查质量分
     quality = 0.0
     try:

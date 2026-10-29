@@ -27,3 +27,6 @@ httpx==0.28.1
 yt-dlp==2026.8.19
 bilix==0.18.9
 faster-whisper==1.2.1
+# 向量计算（embedding.py / breakdown_index.py 模块级 import：numpy 余弦 + float32 BLOB
+# 序列化；版本与 requirements-test.txt 对齐 2.5.4）
+numpy==2.5.4
