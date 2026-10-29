@@ -265,7 +265,6 @@ async def _run_three_layer_main(
     # 动态编排：根据视频画像调整 L1 输出预算（省 token：非 BGM 也用 4096）
     l1_max_tokens = 4096
     warnings.append(f"L1 输出预算：{l1_max_tokens} tokens")
-
     visual_ref_lines = []
     for _sh in shots[:4]:  # 省 token：8 帧→4 帧
         _d = str(_sh.get("desc") or "").strip()
@@ -279,8 +278,9 @@ async def _run_three_layer_main(
     visual_ref = "\n".join(visual_ref_lines) or "（无）"
 
     # ---------- Stage 1: L1 本片定调 ----------
-    l1_max_attempts = 2 if route["compact_mode"] else 4
-    warnings.append(f"L1 重试预算：{l1_max_attempts} 次（{'长视频紧凑模式' if route['compact_mode'] else '标准'}）")
+    # 有界预算：首调 + 最多 2 次结构反馈重试（与 common.LAYER_MAX_TOTAL_ATTEMPTS 对齐，防 token 失控）
+    l1_max_attempts = 2 if route["compact_mode"] else 3
+    warnings.append(f"L1 重试预算：{l1_max_attempts} 次（{'长视频紧凑模式' if route['compact_mode'] else '标准'}，首调 + ≤2 次反馈重试）")
     script, data1, q1, v1 = await run_stage1_anchor(
         db,
         video,
@@ -440,6 +440,60 @@ async def _run_three_layer_main(
             key = str(msg).split(" ")[0]
             rule_soft[key] = rule_soft.get(key, 0) + 1
 
+    # ---------- 七维结构化推导（纯函数，零新增 LLM 调用，结果落 evidence JSON） ----------
+    from app.services.three_layer import completion, dimensions, quality_gate, rhythm
+
+    seg_dicts = [
+        {
+            "seq": s.seq,
+            "seg_type": s.seg_type or "",
+            "start_ms": s.start_ms or 0,
+            "end_ms": s.end_ms or 0,
+            "start_sentence_seq": s.start_sentence_seq or 0,
+            "end_sentence_seq": s.end_sentence_seq or 0,
+            "hook_point": bool(s.hook_point),
+            "payoff_point": bool(s.payoff_point),
+            "title": s.title or "",
+            "summary": s.summary or "",
+        }
+        for s in seg_rows
+    ]
+    sent_dicts = [
+        {
+            "seq": r.seq,
+            "start_ms": r.start_ms or 0,
+            "end_ms": r.end_ms or 0,
+            "quote": r.quote or "",
+            "sentence_function": r.sentence_function or "",
+            "emotion_intensity": r.emotion_intensity or 0,
+            "is_hook": bool(r.is_hook),
+            "is_turn": bool(r.is_turn),
+            "is_peak": bool(r.is_peak),
+        }
+        for r in sentence_rows
+    ]
+    rhythm_out = rhythm.derive_rhythm(seg_dicts, sent_dicts, duration_ms=duration_ms)
+    drivers = completion.derive_completion_drivers(
+        seg_dicts,
+        sent_dicts,
+        duration_ms=duration_ms,
+        hook_lib_count=int(lib_counts.get("lib_hook", 0)),
+    )
+    frame_evidence_n = sum(1 for e in evidence_rows if str(e.evidence_type) in ("frame", "ocr"))
+    element_baseline = validate.element_baseline(verdict_list)
+    dimensions_out = dimensions.assemble_dimensions(
+        core_idea=script.core_idea or "",
+        curve=quality.get("curve"),
+        rhythm=rhythm_out,
+        drivers=drivers,
+        segments=seg_dicts,
+        sentences=sent_dicts,
+        lib_counts=lib_counts,
+        element_baseline=element_baseline,
+        shots_n=len(shots),
+        frame_evidence_n=frame_evidence_n,
+    )
+
     evidence = {
         "counts": counts,
         "quality": quality,
@@ -478,9 +532,55 @@ async def _run_three_layer_main(
         "routing": route,
         "lib_counts": lib_counts,
         "turn_point_count": len(turn_rows),
-        "element_baseline": validate.element_baseline(verdict_list),
+        "element_baseline": element_baseline,
+        "rhythm": rhythm_out,
+        "completion_drivers": drivers,
+        "dimensions": dimensions_out,
         "verdicts": verdict_list,
     }
+
+    # ---------- 质量门 + 一轮本地免费档定向修订闭环（最多 1 轮，不烧 pro/DeepSeek） ----------
+    hooks_count = (
+        sum(1 for s in seg_rows if s.hook_point)
+        + sum(1 for r in sentence_rows if r.is_hook)
+        + int(lib_counts.get("lib_hook", 0))
+    )
+    gate_payload = {
+        "core_idea": script.core_idea or "",
+        "summary": script.summary or "",
+        "hooks_count": hooks_count,
+        "curve": quality.get("curve"),
+        "rhythm": rhythm_out,
+        "quote_verbatim_rate": evidence["quote_verbatim_rate"],
+        "segment_coverage": rhythm_out["coverage_ratio"],
+        "lib_counts": lib_counts,
+        "element_baseline": element_baseline,
+    }
+    gate = quality_gate.evaluate_quality_gate(gate_payload)
+    if not gate["passed"]:
+        warnings.append(
+            f"质量门未通过（score={gate['score']}，问题 {len(gate['issues'])} 项），"
+            "触发一轮本地免费档定向修订（最多 1 轮，不调用 pro/DeepSeek）"
+        )
+        try:
+            from app.services.self_review import revise_summary_on_gate
+
+            gate_revision = await revise_summary_on_gate(db, str(script.id), gate)
+        except Exception as gate_exc:  # noqa: BLE001
+            logger.warning("质量门定向修订调用异常（不阻塞主流程）：%s", gate_exc)
+            gate_revision = {
+                "ok": False,
+                "reason": f"{type(gate_exc).__name__}: {str(gate_exc)[:140]}",
+            }
+        gate["revision"] = gate_revision
+        gate["revision_rounds"] = int(gate_revision.get("rounds", 0))
+
+    # 各层结构校验反馈并入 warnings，保证失败全程留痕
+    for layer_q in quality.values():
+        if isinstance(layer_q, dict):
+            for issue in layer_q.get("validation_issues") or []:
+                warnings.append(f"结构校验反馈：{issue}")
+    evidence["quality_gate"] = gate
 
     script.summary = script.summary or ""
     script.quality_score = round(

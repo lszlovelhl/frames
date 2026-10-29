@@ -134,7 +134,7 @@ async def run_stage3_structure(
             analysis_id=analysis_id,
             layer=3,
             user_text=l3_user,
-            model="flash",
+            model=model,
             array_keys=LAYER_ARRAY_KEYS[3],
             max_tokens=16384,
         )
@@ -307,8 +307,10 @@ async def run_stage3_structure(
         ]
         warnings.append(f"L3 harness 兜底重建 {len(segments_json)} 个口播段（按停顿）")
 
-    # --- L3b：段落内容扩写 ---
+    # --- L3b：段落内容扩写（轻量文案补全，固定免费档 flash，不走 pro） ---
     await report("L3", 65, "三层链路 · L3b 段落内容扩写…")
+    l3b_quality = {"expanded": 0, "failed": 0}
+    quality["L3b"] = l3b_quality
     for _seg in segments_json:
         try:
             _p = str(_seg.get("purpose") or "")
@@ -350,7 +352,9 @@ async def run_stage3_structure(
                         _seg["purpose"] = str(_expanded["purpose"])[:4000]
                     if _expanded.get("summary") and len(str(_expanded["summary"])) > len(_s):
                         _seg["summary"] = str(_expanded["summary"])[:4000]
+                    l3b_quality["expanded"] += 1
         except Exception as _exc:
+            l3b_quality["failed"] += 1
             logger.warning("L3b 段落扩写失败（段 %s）：%s", _seg.get("seq"), _exc)
 
     seg_rows: list[M.ScriptSegment] = []

@@ -18,6 +18,9 @@
 import asyncio
 import json
 import logging
+import re
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import text as sa_text
 
@@ -25,6 +28,10 @@ logger = logging.getLogger(__name__)
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 OLLAMA_MODEL = "qwen3.5:latest"
+
+# 质量门定向修订：本地免费模型，整闭环强制 1 轮（防 token 失控；禁止切 pro/DeepSeek）
+GATE_REVISION_MAX_ROUNDS = 1
+GATE_REVISION_MIN_LEN = 30
 
 
 async def ensure_self_review_schema() -> None:
@@ -152,6 +159,32 @@ async def run_self_review_if_new(db, script_id: str) -> None:
         logger.warning("自检跳过（不阻塞拆解）：%s", e)
 
 
+def _coerce_plain_text(raw: str, limit: int = 400) -> str:
+    """把模型偶发返回的代码围栏 / JSON 片段压成纯文本（摘要类字段专用）。"""
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text).strip()
+    if text.startswith("{") or text.startswith("["):
+        try:
+            parsed = json.loads(text)
+            vals: list[str] = []
+            if isinstance(parsed, dict):
+                for v in parsed.values():
+                    if isinstance(v, str):
+                        vals.append(v)
+                    elif isinstance(v, (list, dict)):
+                        vals.append(str(v))
+            elif isinstance(parsed, list):
+                vals = [str(v) for v in parsed if isinstance(v, (str, dict, list))]
+            text = "".join(vals) if vals else text
+        except Exception:  # noqa: BLE001
+            pass
+    return text[:limit].strip()
+
+
 async def regenerate_summary_if_flagged(db, script_id: str, review: dict) -> None:
     """自检不合格时，基于问题清单自动重写拆解摘要（修订而非假装完美）。"""
     try:
@@ -174,24 +207,8 @@ async def regenerate_summary_if_flagged(db, script_id: str, review: dict) -> Non
         new_summary = await _call_qwen(prompt, max_tokens=400)
         if not new_summary or len(new_summary) < 30:
             return
-        # 清洗：模型偶发输出 JSON/结构化片段 → 转纯文本摘要
-        stripped = new_summary.strip()
-        if stripped.startswith("{") or stripped.startswith("["):
-            try:
-                parsed = json.loads(stripped)
-                vals = []
-                if isinstance(parsed, dict):
-                    for v in parsed.values():
-                        if isinstance(v, str):
-                            vals.append(v)
-                        elif isinstance(v, (list, dict)):
-                            vals.append(str(v))
-                elif isinstance(parsed, list):
-                    vals = [str(v) for v in parsed if isinstance(v, (str, dict, list))]
-                text = "".join(vals) if vals else stripped
-                new_summary = text[:400]
-            except Exception:
-                new_summary = stripped[:400]
+        # 清洗：模型偶发输出 JSON/围栏片段 → 统一转纯文本摘要
+        new_summary = _coerce_plain_text(new_summary, limit=400)
         # 更新摘要并记录修订痕迹（不假装重拆，透明标注）
         await db.execute(sa_text(
             "UPDATE script_script SET summary=:s, self_review=:r, updated_at=CURRENT_TIMESTAMP WHERE id=:sid"
@@ -200,7 +217,7 @@ async def regenerate_summary_if_flagged(db, script_id: str, review: dict) -> Non
             "r": json.dumps({
                 **review,
                 "regenerated": True,
-                "regenerated_at": "now",
+                "regenerated_at": datetime.now(UTC).isoformat(),
                 "prev_summary": summary[:120],
             }, ensure_ascii=False),
             "sid": script_id,
@@ -209,3 +226,80 @@ async def regenerate_summary_if_flagged(db, script_id: str, review: dict) -> Non
         logger.info("自检 flagged → 摘要已自动修订：script=%s", script_id[:8])
     except Exception as e:
         logger.warning("摘要修订失败（不影响拆解）：%s", e)
+
+
+async def revise_summary_on_gate(db, script_id: str, gate: dict) -> dict:
+    """质量门未通过时的一轮定向修订（本地免费 qwen，整闭环强制 1 轮）。
+
+    范围克制：只重写 ``summary``（颗粒度 / 可执行性短板）；钩子缺失、段落覆盖、
+    积木为空等结构类问题不在这里反复调模型，而是经 ``gate["fixes"]`` 写入证据，
+    供下一轮拆解或人工复核处理。模型固定 ``OLLAMA_MODEL``（本地免费档），
+    绝不切 pro / DeepSeek。
+    """
+    result: dict[str, Any] = {
+        "ok": False,
+        "rounds": 0,
+        "model": OLLAMA_MODEL,
+        "issues_addressed": [],
+        "reason": "",
+    }
+    try:
+        row = (await db.execute(sa_text(
+            "SELECT title, core_idea, summary, self_review FROM script_script WHERE id=:sid"
+        ), {"sid": script_id})).fetchone()
+        if not row:
+            result["reason"] = "script 记录不存在"
+            return result
+        title, core_idea, summary, prev_self = row[0] or "", row[1] or "", row[2] or "", row[3]
+
+        issues = [str(i) for i in (gate.get("issues") or [])][:6]
+        fixes = [str(f) for f in (gate.get("fixes") or [])][:6]
+        result["issues_addressed"] = issues
+        prompt = (
+            "你是资深短视频拆解质检员兼修订员。这份拆解报告质量门未通过，"
+            "问题与修订方向如下。请只重写『拆解摘要』（100~180 字）："
+            "针对问题补足起承转合颗粒度与可执行的剪辑/创作建议，"
+            "与标题和核心创意严格一致，杜绝空话套话；不要输出 JSON 或解释。\n\n"
+            "【未通过项】\n" + "\n".join(f"- {i}" for i in issues) + "\n"
+            "【修订方向】\n" + "\n".join(f"- {f}" for f in fixes) + "\n\n"
+            f"标题：{title[:80]}\n核心创意：{core_idea[:200]}\n原摘要：{summary[:300]}"
+        )
+        raw = await _call_qwen(prompt, max_tokens=600)
+        new_summary = _coerce_plain_text(raw, limit=400)
+        if len(new_summary) < GATE_REVISION_MIN_LEN:
+            result["reason"] = f"修订摘要过短（{len(new_summary)} 字 < {GATE_REVISION_MIN_LEN}）"
+            return result
+
+        try:
+            merged = json.loads(prev_self) if prev_self else {}
+        except Exception:  # noqa: BLE001
+            merged = {}
+        merged["gate_revision"] = {
+            "rounds": GATE_REVISION_MAX_ROUNDS,
+            "model": OLLAMA_MODEL,
+            "gate_score": gate.get("score"),
+            "gate_passed_before": bool(gate.get("passed")),
+            "issues": issues,
+            "prev_len": len((summary or "").strip()),
+            "new_len": len(new_summary),
+            "regenerated_at": datetime.now(UTC).isoformat(),
+        }
+        await db.execute(sa_text(
+            "UPDATE script_script SET summary=:s, self_review=:r, updated_at=CURRENT_TIMESTAMP WHERE id=:sid"
+        ), {
+            "s": new_summary,
+            "r": json.dumps(merged, ensure_ascii=False),
+            "sid": script_id,
+        })
+        result.update(
+            ok=True,
+            rounds=GATE_REVISION_MAX_ROUNDS,
+            prev_len=len((summary or "").strip()),
+            new_len=len(new_summary),
+        )
+        logger.info("质量门定向修订完成：script=%s gate_score=%s", str(script_id)[:8], gate.get("score"))
+        return result
+    except Exception as e:  # noqa: BLE001
+        result["reason"] = f"{type(e).__name__}: {str(e)[:140]}"
+        logger.warning("质量门定向修订失败（不阻塞拆解主流程）：%s", e)
+        return result

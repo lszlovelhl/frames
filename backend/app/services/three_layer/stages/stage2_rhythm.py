@@ -72,14 +72,11 @@ async def run_stage2_rhythm(
     model_series: dict[int, float] = {}
     l2_turn_points: list[Any] = []
 
-    for idx, (w_start, w_end) in enumerate(windows, start=1):
-        # 兼容当前线上策略：若需要可放开模型调用，目前沿用跳过或调用逻辑
-        # 保持与原 pipeline.py 的行为一致
-        break
-
+    # L2 当前不做分窗模型调用：情绪曲线由"音频能量锚点 + 句子强度插值"确定性拟合
+    # （见下方 fallback 分支）；model_series 预留为空位，模型序列接入时再填充。
     l2_agg["model_points"] = len(model_series)
     quality["L2"] = {**(quality.get("L2") or {}), **l2_agg}
-    ok, data2 = bool(l2_agg["ok_chunks"]), {}
+    curve_ok = bool(l2_agg["ok_chunks"])
 
     # 曲线以模型序列为骨架，缺失/越界点用句子强度插值补齐（插值点占比 ≤30% 校验）
     # 模型未给出序列时，退回"音频能量锚点法"：按句子区间内能量分位映射到 2~8 强度
@@ -151,7 +148,7 @@ async def run_stage2_rhythm(
         "method": method,
         "model_points": len(model_series),
         "fallback": fallback_used,
-        "model_call_ok": bool(ok),
+        "model_call_ok": curve_ok,
         "degenerate": degenerate,
     }
     if interp_ratio > 0.30:

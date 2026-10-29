@@ -45,6 +45,10 @@ THREE_LAYER_EVIDENCE_KEYS = (
     "quality",
     "curve",
     "element_baseline",
+    "rhythm",
+    "completion_drivers",
+    "dimensions",
+    "quality_gate",
     "error",
 )
 

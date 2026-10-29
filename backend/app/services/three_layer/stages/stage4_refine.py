@@ -410,18 +410,17 @@ async def run_stage4_refine(
                     {"role": "system", "content": system45},
                     {"role": "user", "content": json.dumps(l45_input, ensure_ascii=False, indent=1)},
                 ],
-                model="pro",
+                model=model,
                 max_tokens=16384,
                 json_mode=False,
                 timeout=600,
                 scene="tl45_script",
             )
+            q45["model_alias"] = model
             raw45 = (res45.get("reply") or "").strip()
             if raw45:
                 raw45 = re.sub(r"^```(?:markdown)?\s*", "", raw45)
                 raw45 = re.sub(r"\s*```\s*$", "", raw45)
-                for kw in ["话题热度与变现能力", "直播环境音", "对峙点", "秘密开始抛出", "金哥母带曝光"]:
-                    raw45 = raw45.replace(kw, "")
                 raw45 = re.sub(r"\]\s*\n", "\n", raw45)
                 raw45 = re.sub(r"\[实际执行说明\][^\n]*\n?", "", raw45)
                 raw45 = re.sub(r"\[引用自\s*S\d+\]", "", raw45)

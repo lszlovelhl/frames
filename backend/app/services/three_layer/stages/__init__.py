@@ -18,6 +18,7 @@ from .common import (
     _fmt_transcript,
     _looks_lyric,
     purge_three_layer,
+    validate_layer_payload,
 )
 from .stage1_anchor import run_stage1_anchor
 from .stage2_rhythm import run_stage2_rhythm
@@ -38,4 +39,5 @@ __all__ = [
     "run_stage3_structure",
     "run_stage4_refine",
     "run_stage5_elements",
+    "validate_layer_payload",
 ]

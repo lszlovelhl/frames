@@ -3,7 +3,6 @@
 """
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any, Callable, Awaitable
 
@@ -12,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import models as M
 from app.ai import chat as ai_chat
+from app.services.llm_json import parse_json_loose
 from app.services.three_layer import validate
 from app.services.three_layer.prompts import LAYER_ARRAY_KEYS
 from app.services.three_layer.stages.common import (
@@ -140,8 +140,10 @@ async def run_stage1_anchor(
                     timeout=120,
                     scene="tl1_anchor_rewrite",
                 )
-                _rd = json.loads((_rew or {}).get("reply") or "{}")
-                if _rd.get("core_idea"):
+                _rd, _repaired = parse_json_loose((_rew or {}).get("reply") or "")
+                if _repaired:
+                    q1.setdefault("warnings", []).append("定调重写 JSON 经宽松修复后使用（建议核对字段完整性）")
+                if isinstance(_rd, dict) and _rd.get("core_idea"):
                     script.core_idea = str(_rd["core_idea"])[:2000]
                     script.content_trend = str(_rd.get("content_trend") or script.content_trend)[:2000]
                     script.target_audience = str(_rd.get("target_audience") or script.target_audience)[:2000]

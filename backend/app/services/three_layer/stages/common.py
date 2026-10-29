@@ -41,6 +41,81 @@ Progress = Callable[[str, int, str], Awaitable[None]]
 L3_SEGMENT_MIN = 3
 L3_SEGMENT_MAX = 14
 
+# LLM 健壮性预算：首调 + 最多 2 次结构校验反馈重试（防 token 失控，硬上限）
+LAYER_MAX_TOTAL_ATTEMPTS = 3
+# 结构校验反馈提示词：把必填缺失 / 空数组 / 枚举越界回喂给模型要求修正
+LAYER_VALIDATION_FEEDBACK_HINT = (
+    "【结构校验反馈】上一次输出存在以下结构问题，请严格修正后重新输出："
+    "只输出严格 JSON（不得增删字段名、不得输出解释文字），缺失字段补齐、空数组补足、"
+    "枚举取值必须落在给定白名单内。问题清单：\n"
+)
+
+# 各层必填标量字段（数组字段由 array_keys 覆盖；L1 key_facts 可选）
+_PAYLOAD_SCALAR_REQUIRED: dict[int, tuple[str, ...]] = {
+    1: ("core_idea", "content_trend", "target_audience", "summary"),
+    6: ("combo",),
+}
+# 这些层的数组不允许为空（空 = 本轮实质失败，应反馈重试而非静默落库）
+_PAYLOAD_ARRAY_MUST_NONEMPTY = frozenset({3, 4, 6})
+
+
+def validate_layer_payload(layer: int, data: Any, array_keys: Sequence[str]) -> list[str]:
+    """纯函数：对模型原始 JSON 做结构体检，返回问题清单（空列表 = 通过）。
+
+    覆盖三类故障：①返回空/非对象；②必填标量缺失；③必填数组为空 / 类型错误；
+    ④关键枚举越界（使用 validate.ENUM_FALLBACK 兜底白名单，离线可用，不查库）。
+    供 ``_run_layer`` 做有界重试反馈，也可被离线单测直接驱动。
+    """
+    issues: list[str] = []
+    if not isinstance(data, dict):
+        return ["模型返回内容为空或不是 JSON 对象"]
+
+    for key in _PAYLOAD_SCALAR_REQUIRED.get(layer, ()):
+        v = data.get(key)
+        if v is None or (isinstance(v, str) and not v.strip()) or (
+            isinstance(v, (list, dict)) and not v
+        ):
+            issues.append(f"必填字段缺失或为空：{key}")
+
+    for key in array_keys or ():
+        if key == "key_facts":
+            continue
+        v = data.get(key)
+        if v is None:
+            issues.append(f"数组字段缺失：{key}")
+        elif not isinstance(v, list):
+            issues.append(f"字段 {key} 类型错误：期望数组，得到 {type(v).__name__}")
+        elif layer in _PAYLOAD_ARRAY_MUST_NONEMPTY and len(v) == 0:
+            issues.append(f"数组 {key} 为空（未产出任何条目）")
+
+    # 关键枚举越界（结构层拦截，行级 R2 另有白名单校验）
+    if layer == 3:
+        allowed = validate.ENUM_FALLBACK["seg_type"]
+        for i, seg in enumerate(data.get("segments") or []):
+            t = str((seg or {}).get("seg_type") or "").strip()
+            if t and t not in allowed:
+                issues.append(f"segments[{i}].seg_type 枚举越界：{t}")
+    elif layer == 4:
+        allowed_fn = validate.ENUM_FALLBACK["sentence_function"]
+        for i, sent in enumerate(data.get("sentences") or []):
+            fn = str((sent or {}).get("sentence_function") or "").strip()
+            if fn and fn not in allowed_fn:
+                issues.append(f"sentences[{i}].sentence_function 枚举越界：{fn}")
+            try:
+                inten = float((sent or {}).get("emotion_intensity") or 0)
+                if not 0 <= inten <= 10:
+                    issues.append(f"sentences[{i}].emotion_intensity 越界（应在 0~10）")
+            except (TypeError, ValueError):
+                issues.append(f"sentences[{i}].emotion_intensity 非数值")
+    elif layer == 6:
+        allowed_role = validate.ENUM_FALLBACK["slot_role"]
+        for i, slot in enumerate(data.get("slots") or []):
+            role = str((slot or {}).get("slot_role") or "").strip()
+            if role and role not in allowed_role:
+                issues.append(f"slots[{i}].slot_role 枚举越界：{role}")
+
+    return issues
+
 
 def _placeholder_row() -> SimpleNamespace:
     """占位对象：lib_* 行 flush 前即需写 ref_element_source，先取占位 id，落库后回填。"""
@@ -556,7 +631,7 @@ async def _run_layer(
             system = system + "\n\n" + "\n\n".join(extra)
 
     schema_hint = json.dumps(SCHEMAS[layer], ensure_ascii=False, indent=1)
-    messages = [
+    base_messages = [
         {"role": "system", "content": system},
         {
             "role": "user",
@@ -566,14 +641,20 @@ async def _run_layer(
 
     logger.info("三层链路 L%s 开始：system=%d字符, user=%d字符, max_tokens=%d", layer, len(system), len(user_text), max_tokens)
 
+    # 有界重试：首调 + 最多 2 次（LAYER_MAX_TOTAL_ATTEMPTS 硬上限，防 token 失控）
+    total_attempts = min(max(1, int(max_attempts)), LAYER_MAX_TOTAL_ATTEMPTS)
+    temperatures = (0.2, 0.6, 0.2)[:total_attempts]
     last_exc = ""
-    attempts = (0.2, 0.6, 0.2, 0.6)[: max(1, max_attempts)]
-    for attempt, temperature in enumerate(attempts):
+    validation_issues_all: list[str] = []
+    validation_retries = 0
+    messages_for_attempt: list[dict[str, Any]] = list(base_messages)
+
+    for attempt, temperature in enumerate(temperatures):
         if attempt:
             await asyncio.sleep(min(3 * attempt * attempt, 20))
         try:
             data, info = await complete_json(
-                messages,
+                messages_for_attempt,
                 array_keys=list(array_keys),
                 model=model,
                 temperature=temperature,
@@ -584,22 +665,57 @@ async def _run_layer(
                 ref_id=str(analysis_id),
                 max_rounds=3,
             )
-            if data:
-                data = simplify_obj(data)
-                quality = {
-                    "items": count_items(data, list(array_keys)) if array_keys else 1,
-                    "truncated": bool(info.get("truncated")),
-                    "repaired": bool(info.get("repaired")),
-                    "rounds": info.get("rounds"),
-                    "chars": len(info.get("raw") or ""),
-                    "prompt_version": version,
-                }
-                return True, data, quality
-            last_exc = f"第 {attempt + 1} 次返回空内容"
         except Exception as exc:  # noqa: BLE001
             last_exc = _exc_chain(exc)
             logger.warning("三层链路 L%s 调用失败（第 %s 次）：\n%s", layer, attempt + 1, last_exc)
-    return False, {"layer_error": last_exc}, {"items": 0, "prompt_version": version}
+            continue
+
+        if not data:
+            last_exc = f"第 {attempt + 1} 次返回空内容"
+            logger.warning("三层链路 L%s 第 %s 次返回空 JSON（模型=%s）", layer, attempt + 1, model)
+            continue
+
+        data = simplify_obj(data)
+        issues = validate_layer_payload(layer, data, array_keys)
+        if not issues:
+            quality = {
+                "items": count_items(data, list(array_keys)) if array_keys else 1,
+                "truncated": bool(info.get("truncated")),
+                "repaired": bool(info.get("repaired")),
+                "rounds": info.get("rounds"),
+                "chars": len(info.get("raw") or ""),
+                "prompt_version": version,
+                "validation_retries": validation_retries,
+                "validation_issues": [],
+                "model_alias": model,
+            }
+            return True, data, quality
+
+        # 结构校验未过：记录问题、把反馈回喂给下一轮（最多到硬上限）
+        validation_retries = attempt + 1
+        validation_issues_all.extend(issues)
+        logger.warning(
+            "三层链路 L%s 结构校验未过（第 %s/%s 次，模型=%s）：%s",
+            layer, attempt + 1, total_attempts, model, "；".join(issues[:5]),
+        )
+        last_exc = "结构校验未过：" + "；".join(issues[:4])
+        if attempt + 1 < total_attempts:
+            messages_for_attempt = base_messages + [
+                {
+                    "role": "user",
+                    "content": LAYER_VALIDATION_FEEDBACK_HINT
+                    + "\n".join(f"- {i}" for i in issues[:8]),
+                }
+            ]
+
+    quality = {
+        "items": 0,
+        "prompt_version": version,
+        "validation_retries": validation_retries,
+        "validation_issues": validation_issues_all[:10],
+        "model_alias": model,
+    }
+    return False, {"layer_error": last_exc}, quality
 
 
 # ---------------- 画面理解 ----------------
