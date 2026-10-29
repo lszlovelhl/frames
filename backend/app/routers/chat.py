@@ -19,6 +19,146 @@ from app.db import get_session
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
 
+# ==============================================================
+# P1 RAG 召回增强常量（魔法数收口；检索失败一律静默降级，不拖垮主流程）
+# ==============================================================
+MEMORY_TOP_K = 3            # chat/followup 记忆召回条数（既有行为，保持不变）
+CHAT_CHUNK_TOP_K = 3        # chat/followup 历史拆解参考召回条数（素材为辅）
+CHAT_CHUNK_PREVIEW = 120    # 拆解参考段落内容截断长度
+FIND_WHOLE_TOP_K = 3        # find_content 整片向量推荐条数（既有行为，保持不变）
+FIND_CHUNK_TOP_K = 4        # find_content 分块素材点召回条数
+FIND_CHUNK_KINDS = (
+    "hook",
+    "reusable_element",
+    "completion_driver",
+    "segment",
+)
+
+# 分块类型 → 中文展示标签（与 breakdown_index.CHUNK_KINDS 对齐，避免路由层裸字符串）
+CHUNK_KIND_LABELS = {
+    "script_summary": "整片概览",
+    "segment": "段落结构",
+    "hook": "钩子",
+    "sentence_function": "高价值句",
+    "completion_driver": "完播驱动",
+    "reusable_element": "可复用积木",
+}
+
+
+def format_breakdown_refs(chunks: list[dict]) -> str:
+    """把拆解分块命中拼成「历史拆解参考」上下文段落（纯函数，离线可测）。
+
+    记忆为主、拆解素材为辅；段落头部显式标注「素材背景，不代表用户偏好」，
+    避免模型把检索素材误当用户画像。空列表返回空串。
+    """
+    if not chunks:
+        return ""
+    lines: list[str] = []
+    for c in chunks:
+        label = CHUNK_KIND_LABELS.get(c.get("chunk_kind"), c.get("chunk_kind") or "拆解素材")
+        title = str(c.get("title") or "历史拆解")[:40]
+        content = (c.get("content") or "").strip().replace("\n", " ")[:CHAT_CHUNK_PREVIEW]
+        src = c.get("video_title") or ""
+        suffix = f"（来源：{src}）" if src else ""
+        lines.append(f"- [{label}] {title}：{content}{suffix}")
+    return "【历史拆解参考·素材背景，不代表用户偏好】\n" + "\n".join(lines)
+
+
+def dedupe_citations(items: list[dict]) -> list[dict]:
+    """citations 按 (video_id, url, chunk_kind) 去重，保持首次出现顺序（纯函数）。"""
+    seen: set[tuple[str, str, str]] = set()
+    out: list[dict] = []
+    for it in items or []:
+        key = (
+            str(it.get("video_id") or ""),
+            str(it.get("url") or ""),
+            str(it.get("chunk_kind") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(it)
+    return out
+
+
+def _assemble_find_content_reply(
+    query: str,
+    whole_cards: list[dict],
+    chunk_cards: list[dict],
+    entity_hint: str = "",
+) -> tuple[str, list[dict]]:
+    """find_content 回复拼装（纯函数）：区分「整片拆解」与「可复用素材点」两段。
+
+    whole_cards 字段：script_id/title/platform/url/video_id/idea/score；
+    chunk_cards 直接采用 ``search_chunks`` item 形状。
+    citations 保留旧契约 title/platform/url，并补充 chunk_kind/score/video_id。
+    """
+    lines = [f"我帮你找了找和「{query}」相关的内容{entity_hint}："]
+    citations: list[dict] = []
+    whole_script_ids = {str(c.get("script_id")) for c in whole_cards if c.get("script_id")}
+
+    if whole_cards:
+        lines.append("\n【整片拆解】")
+        for i, c in enumerate(whole_cards, 1):
+            lines.append(f"{i}. {c.get('idea') or ''}（{c.get('title') or '未命名视频'}）")
+            citations.append({
+                "title": (c.get("title") or "未命名视频")[:60],
+                "platform": c.get("platform") or "",
+                "url": c.get("url") or "",
+                "chunk_kind": "script_summary",
+                "score": c.get("score"),
+                "video_id": c.get("video_id"),
+            })
+
+    if chunk_cards:
+        lines.append("\n【可复用素材点】")
+        listed_scripts: set[str] = set()
+        for c in chunk_cards:
+            sid = str(c.get("script_id") or "")
+            # 按 script_id 去重：整片已推荐过的脚本不重复挂素材点；同脚本只留首条高分块
+            if sid and (sid in whole_script_ids or sid in listed_scripts):
+                continue
+            if sid:
+                listed_scripts.add(sid)
+            label = CHUNK_KIND_LABELS.get(c.get("chunk_kind"), c.get("chunk_kind") or "素材")
+            content = (c.get("content") or "").strip().replace("\n", " ")[:80]
+            lines.append(f"- [{label}] {c.get('title') or ''}：{content}")
+            citations.append({
+                "title": (c.get("video_title") or c.get("title") or "历史拆解片段")[:60],
+                "platform": c.get("platform") or "",
+                "url": c.get("url") or "",
+                "chunk_kind": c.get("chunk_kind"),
+                "score": c.get("score"),
+                "video_id": c.get("video_id"),
+            })
+
+    lines.append("\n要我拆个类似的新视频吗？发链接给我就行。")
+    return "\n".join(lines), dedupe_citations(citations)
+
+
+async def _recall_chat_context(db, message: str, user_id: str) -> tuple[str, list[dict]]:
+    """chat/followup 双路召回：记忆（主）+ 历史拆解分块（辅）。
+
+    返回 ``(memories_text, chunk_items)``；任一路异常 logger.warning 后降级为空，
+    绝不把检索错误抛进聊天主流程。
+    """
+    memories = ""
+    chunks: list[dict] = []
+    try:
+        from app.services.memory_search import hybrid_search
+        mem_rows = await hybrid_search(db, message, user_id=user_id, top_k=MEMORY_TOP_K)
+        if mem_rows:
+            memories = "；".join(r["content"] for r in mem_rows)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("聊天记忆召回失败（静默降级为空）：%s", e)
+    try:
+        from app.services import breakdown_index as bidx
+        res = await bidx.search_chunks(db, message, top_k=CHAT_CHUNK_TOP_K)
+        chunks = res.get("items", [])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("聊天拆解分块召回失败（静默降级为空）：%s", e)
+    return memories, chunks
+
 
 class ChatRequest(BaseModel):
     message: str
@@ -474,62 +614,87 @@ async def _handle_feedback(db, user_id, content) -> str:
 
 
 async def _handle_find_content(db, query: str, memories: str = "", user_id: str = "") -> tuple[str, dict]:
-    """素材库语义问答：'有没有讲XX的视频' → 检索已拆解脚本，返回相关推荐。
+    """素材库语义问答：'有没有讲XX的视频' → 整片向量推荐 + 分块素材点召回。
 
-    复用 lib_embedding（script_script 向量），跟素材检索同一套基础设施。
+    路 1 整片：``embedding.search(script_script)``（既有行为，保留为「整片拆解」）；
+    路 2 素材点：``bidx.search_chunks`` 混合检索 hook/reusable_element/completion_driver/segment。
     graph memory 增强：query 命中用户实体（城市/类型/平台）时，推荐更贴近偏好。
     返回 (回复文本, {citations: 引用来源列表})——OpenWebUI RAG 引用溯源。
+    两路检索与实体上下文各自 try/warning 静默降级，全部落空才返回空态文案。
     """
     from sqlalchemy import text as sa_text
 
+    # 路 1：整片脚本向量命中（失败降级为空列表，不报错）
+    whole_cards: list[dict] = []
     try:
         from app.services.embedding import search as vec_search
-        hits = await vec_search(db, query, target_table="script_script", top_k=3)
-        if not hits:
-            return "我这边素材库里还没拆过相关的内容。你可以发个视频链接，我拆完就进库了。", {}
+        hits = await vec_search(db, query, target_table="script_script", top_k=FIND_WHOLE_TOP_K)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("find_content 整片向量检索失败（静默降级为空）：%s", e)
+        hits = []
+    for h in hits:
+        row = (await db.execute(sa_text(
+            "SELECT id, title, platform, video_id, core_idea FROM script_script WHERE id=:sid"
+        ), {"sid": h["target_id"]})).fetchone()
+        if not row:
+            continue
+        s_id, title, platform, vid, idea = row
+        url = ""
+        if vid:
+            vrow = (await db.execute(sa_text(
+                "SELECT url FROM videos WHERE id=:vid"
+            ), {"vid": vid})).fetchone()
+            if vrow and vrow[0]:
+                url = vrow[0]
+        whole_cards.append({
+            "script_id": s_id,
+            "title": title or "未命名视频",
+            "platform": platform or "",
+            "url": url,
+            "video_id": vid,
+            "idea": (idea or "")[:40],
+            "score": h.get("score"),
+        })
 
-        # graph memory：query 命中用户实体 → 个性化提示（记忆关系网落地）
-        entity_hint = ""
-        if user_id:
-            try:
-                from app.services.graph_memory import entity_context
-                ctx = await entity_context(db, user_id, query)
-                if ctx:
-                    entity_hint = f"（顺着你对{ctx}的关注找的）"
-            except Exception:
-                pass
+    # 路 2：分块级混合检索（钩子 / 积木 / 完播驱动 / 段落；失败降级为空列表）
+    chunk_cards: list[dict] = []
+    try:
+        from app.services import breakdown_index as bidx
+        res = await bidx.search_chunks(db, query, kinds=list(FIND_CHUNK_KINDS), top_k=FIND_CHUNK_TOP_K)
+        chunk_cards = res.get("items", [])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("find_content 分块混合检索失败（静默降级为空）：%s", e)
 
-        lines = [f"我帮你找了找和「{query}」相关的内容{entity_hint}："]
-        citations = []
-        for i, h in enumerate(hits, 1):
-            row = (await db.execute(sa_text(
-                "SELECT id, title, platform, video_id, core_idea FROM script_script WHERE id=:sid"
-            ), {"sid": h["target_id"]})).fetchone()
-            if row:
-                s_id, title, platform, vid, idea = row
-                idea_txt = (idea or "")[:40]
-                lines.append(f"{i}. {idea_txt}")
-                # 引用来源：优先取视频公开链接
-                url = ""
-                if vid:
-                    vrow = (await db.execute(sa_text(
-                        "SELECT url FROM videos WHERE id=:vid"
-                    ), {"vid": vid})).fetchone()
-                    if vrow and vrow[0]:
-                        url = vrow[0]
-                citations.append({
-                    "title": (title or "未命名视频")[:60],
-                    "platform": platform or "",
-                    "url": url,
-                })
-        lines.append("\n要我拆个类似的新视频吗？发链接给我就行。")
-        return "\n".join(lines), {"citations": citations}
-    except Exception as e:
-        return f"检索素材失败：{str(e)[:100]}", {}
+    if not whole_cards and not chunk_cards:
+        return "我这边素材库里还没拆过相关的内容。你可以发个视频链接，我拆完就进库了。", {}
+
+    # graph memory：query 命中用户实体 → 个性化提示（失败静默跳过）
+    entity_hint = ""
+    if user_id:
+        try:
+            from app.services.graph_memory import entity_context
+            ctx = await entity_context(db, user_id, query)
+            if ctx:
+                entity_hint = f"（顺着你对{ctx}的关注找的）"
+        except Exception as e:  # noqa: BLE001
+            logger.warning("find_content 实体上下文失败（静默跳过）：%s", e)
+
+    reply_text, citations = _assemble_find_content_reply(
+        query, whole_cards, chunk_cards, entity_hint
+    )
+    return reply_text, {"citations": citations}
 
 
-async def _handle_chat(content: str, memories: str = "", summary: str = "") -> str:
-    """闲聊，用本地 qwen3.5 生成，免费又快。带相关记忆更懂用户。"""
+async def _handle_chat(
+    content: str,
+    memories: str = "",
+    summary: str = "",
+    refs: str = "",
+) -> str:
+    """闲聊，用本地 qwen3.5 生成，免费又快。带相关记忆更懂用户。
+
+    注入顺序保持既有约定：用户偏好记忆 → 会话回顾 → 历史拆解参考（素材为辅）。
+    """
     import httpx
     try:
         # 调本地 Ollama
@@ -539,6 +704,8 @@ async def _handle_chat(content: str, memories: str = "", summary: str = "") -> s
                 ctx = f"\n我对用户的了解：{memories}"
             if summary:
                 ctx += f"\n最近对话回顾：{summary}"
+            if refs:
+                ctx += f"\n可参考的历史拆解素材（仅作素材背景，不代表用户偏好）：\n{refs}"
             resp = await client.post(
                 "http://127.0.0.1:11434/api/generate",
                 json={
@@ -561,8 +728,10 @@ async def _handle_chat(content: str, memories: str = "", summary: str = "") -> s
         return "嗯，我在听。或者直接发个视频链接，我帮你拆解分析。"
 
 
-async def _handle_followup(db, session_id, user_id, content, memories: str = "") -> str:
-    """处理用户对 AI 追问的回答。带记忆上下文（备用）。"""
+async def _handle_followup(
+    db, session_id, user_id, content, memories: str = "", refs: str = ""
+) -> str:
+    """处理用户对 AI 追问的回答。带记忆上下文（备用）+ 历史拆解素材参考。"""
     from sqlalchemy import text as sa_text
 
     # 把用户的回答存到 session 的 preferences 里
@@ -573,12 +742,16 @@ async def _handle_followup(db, session_id, user_id, content, memories: str = "")
     except Exception:
         pass
 
-    return (
+    reply = (
         f"好的，我记住了：你想重点分析「{content}」\n"
         f"拆解完成后我会在报告里特别标注这部分。\n"
         f"\n"
         f"现在拆解应该快好了，稍后问我「拆完了吗」就能看结果。"
     )
+    # 拆解素材为辅：追加到回复尾部，供模型下一轮与用户参考，不抢占主回复
+    if refs:
+        reply += "\n\n" + refs
+    return reply
 
 
 async def _handle_help() -> str:
@@ -687,16 +860,12 @@ async def chat(
         pass
 
     # 2. 根据意图调用对应 handler
-    # 对话类意图（chat/followup）：先按用户消息语义召回相关记忆，注入回复
+    # 对话类意图（chat/followup）：记忆为主 + 历史拆解分块为辅，双路召回注入上下文
     memories = ""
+    refs_text = ""
     if intent in ("chat", "followup"):
-        try:
-            from app.services.memory_search import hybrid_search
-            mem_rows = await hybrid_search(db, message, user_id=user_id, top_k=3)
-            if mem_rows:
-                memories = "；".join(r["content"] for r in mem_rows)
-        except Exception:
-            pass
+        memories, chat_chunks = await _recall_chat_context(db, message, user_id)
+        refs_text = format_breakdown_refs(chat_chunks)
     # 素材查询词强制走素材库问答（RAG 引用溯源）：意图识别给 similar/chat 也纠正过来
     if any(w in message for w in ["有没有", "帮我找", "找找"]) or \
        ("推荐" in message and "视频" in message) or \
@@ -710,8 +879,8 @@ async def chat(
         "remember": lambda: _handle_remember(db, user_id, intent_data.get("content", ""), message),
         "recall": lambda: _handle_recall(db, user_id),
         "feedback": lambda: _handle_feedback(db, user_id, intent_data.get("content", "")),
-        "chat": lambda: _handle_chat(intent_data.get("content", ""), memories, sess_summary),
-        "followup": lambda: _handle_followup(db, session_id, user_id, intent_data.get("content", ""), memories),
+        "chat": lambda: _handle_chat(intent_data.get("content", ""), memories, sess_summary, refs_text),
+        "followup": lambda: _handle_followup(db, session_id, user_id, intent_data.get("content", ""), memories, refs_text),
         "find_content": lambda: _handle_find_content(db, message, memories, user_id),
         "help": _handle_help,
     }
@@ -786,8 +955,13 @@ async def chat(
 
 
 
-async def _handle_chat_stream(content: str, memories: str = "", summary: str = ""):
-    """闲聊流式生成：本地 qwen3.5 逐 token 产出（免费，不出机）。"""
+async def _handle_chat_stream(
+    content: str, memories: str = "", summary: str = "", refs: str = ""
+):
+    """闲聊流式生成：本地 qwen3.5 逐 token 产出（免费，不出机）。
+
+    注入顺序与 ``_handle_chat`` 保持对等：记忆 → 会话回顾 → 历史拆解参考。
+    """
     import httpx
     import json as _json
     try:
@@ -795,6 +969,8 @@ async def _handle_chat_stream(content: str, memories: str = "", summary: str = "
             ctx = f"\n我对用户的了解：{memories}" if memories else ""
             if summary:
                 ctx += f"\n最近对话回顾：{summary}"
+            if refs:
+                ctx += f"\n可参考的历史拆解素材（仅作素材背景，不代表用户偏好）：\n{refs}"
             prompt = (
                 f"你是帧间 AI 助手，一个亲切的短视频拆解伙伴。"
                 f"用户说：「{content}」。{ctx}"
@@ -1234,16 +1410,12 @@ async def chat_stream(
             "INSERT INTO chat_messages (id, session_id, role, content) VALUES (:mid, :sid, 'user', :content)"
         ), {"mid": _uuid.uuid4().hex, "sid": session_id, "content": message})
 
-        # 记忆注入 + 素材问答意图判定
+        # 记忆注入（主）+ 历史拆解参考（辅）+ 素材问答意图判定
         memories = ""
+        refs_text = ""
         if intent in ("chat", "followup"):
-            try:
-                from app.services.memory_search import hybrid_search
-                mem_rows = await hybrid_search(db, message, user_id=user_id, top_k=3)
-                if mem_rows:
-                    memories = "；".join(r["content"] for r in mem_rows)
-            except Exception:
-                pass
+            memories, chat_chunks = await _recall_chat_context(db, message, user_id)
+            refs_text = format_breakdown_refs(chat_chunks)
         # 素材查询词强制走素材库问答（RAG 引用溯源）
         if any(w in message for w in ["有没有", "帮我找", "找找"]) or \
            ("推荐" in message and "视频" in message) or \
@@ -1257,8 +1429,8 @@ async def chat_stream(
             "remember": lambda: _handle_remember(db, user_id, intent_data.get("content", ""), message),
             "recall": lambda: _handle_recall(db, user_id),
             "feedback": lambda: _handle_feedback(db, user_id, intent_data.get("content", "")),
-            "chat": lambda: _handle_chat(intent_data.get("content", ""), memories, sess_summary),
-            "followup": lambda: _handle_followup(db, session_id, user_id, intent_data.get("content", ""), memories),
+            "chat": lambda: _handle_chat(intent_data.get("content", ""), memories, sess_summary, refs_text),
+            "followup": lambda: _handle_followup(db, session_id, user_id, intent_data.get("content", ""), memories, refs_text),
             "find_content": lambda: _handle_find_content(db, message, memories, user_id),
             "help": _handle_help,
         }
@@ -1268,7 +1440,9 @@ async def chat_stream(
         _extra: dict = {}
         if intent == "chat":
             parts: list[str] = []
-            async for tok in _handle_chat_stream(intent_data.get("content", ""), memories, sess_summary):
+            async for tok in _handle_chat_stream(
+                intent_data.get("content", ""), memories, sess_summary, refs_text
+            ):
                 parts.append(tok)
                 yield _sse({"type": "delta", "text": tok})
             reply_text = "".join(parts) or _handle_help()

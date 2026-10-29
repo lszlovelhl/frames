@@ -1,12 +1,12 @@
 """创作台路由：对话式创作（元素引用）+ 创作指南（8 章结构化落卡）+ 产物管理。"""
 
 import json
+import logging
 import re
 from datetime import UTC, datetime
-from typing import Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,15 +17,19 @@ from app.core.prompts import (
     DEFAULT_CREATION_GUIDE_BRIEF_PROMPT,
     DEFAULT_CREATION_GUIDE_FULL_PROMPT,
     DEFAULT_CREATION_MAIN_PROMPT,
-    GUIDE_CHAPTERS,
 )
 from app.db import get_session
-from app.services import billing, element_library
+from app.services import billing, creation_materials, element_library
 from app.services.llm_json import complete_json
 from app.services.prompt_contract import CREATION_OUTPUT_CONTRACT
 from app.services.prompt_store import load_active_prompt
 from app.services.runtime_config import creation_alias
 from app.services.zh import simplify_obj, to_simplified
+
+logger = logging.getLogger(__name__)
+
+# P1 自动召回：未显式选元素时按意图召回的素材条数（纯本地检索，不调 LLM）
+RECOMMEND_TOP_K = 4
 
 router = APIRouter()
 
@@ -88,6 +92,9 @@ class CreationSaveReq(BaseModel):
     element_ids: list[str] = []
     platform: str | None = None
     intent: str | None = None
+    # 可选：聊天环节召回的素材（creation_materials.recall_materials 产物形状）；
+    # 有值时转换进 core_elements 并汇总来源视频进 ref_video_ids；缺省行为与旧版一致
+    recall_materials: list[dict] = []
 
 
 class ContinueChatReq(BaseModel):
@@ -168,6 +175,44 @@ def _media_cards(
         lines.append(f"- 产品[{p.industry}]{p.brand} {p.name}：{p.headline or ''}")
         pool.append({"kind": "product", "name": p.name, "brand": p.brand, "industry": p.industry})
     return ("\n".join(lines), pool) if lines else ("", [])
+
+
+# ------------------------------------------------ 自动召回素材（P1）
+def _intent_query(messages: list[ChatMsg], intent: str | None) -> str:
+    """召回查询词：优先创作意图字段，缺省回退最后一条用户消息；都为空则空串。"""
+    if (intent or "").strip():
+        return intent.strip()
+    for m in reversed(messages or []):
+        if m.role == "user" and (m.content or "").strip():
+            return m.content.strip()
+    return ""
+
+
+def _recommended_cards(materials: list[dict]) -> str:
+    """系统推荐素材 → 可引用清单文本（排版风格对齐 ``_media_cards``）。"""
+    lines: list[str] = []
+    for m in materials:
+        src = "元素库" if m.get("source") == "element" else "拆解素材"
+        score = m.get("score")
+        score_txt = f"（相关度 {round(score, 3)}）" if isinstance(score, (int, float)) else ""
+        lines.append(
+            f"- [{src}·{m.get('kind') or '素材'}]{m.get('name') or ''}{score_txt}："
+            f"{m.get('summary') or ''}"
+        )
+    return "\n".join(lines)
+
+
+async def _recall_recommended(
+    db: AsyncSession, query: str, top_k: int = RECOMMEND_TOP_K
+) -> list[dict]:
+    """按查询词双路召回推荐素材；空查询或检索异常一律静默降级为空列表。"""
+    if not (query or "").strip():
+        return []
+    try:
+        return await creation_materials.recall_materials(db, query, top_k=top_k)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("创作对话自动召回素材失败（静默降级为空）：%s", e)
+        return []
 
 
 async def _source_curves_text(db: AsyncSession, elements: list[dict]) -> str:
@@ -426,9 +471,18 @@ async def _load_products(db: AsyncSession, ids: list[str]) -> list[M.Product]:
 
 @router.post("/api/creations/chat")
 async def creation_chat(req: CreationChatReq, db: AsyncSession = Depends(get_session)):
-    """对话式创作：注入元素卡片 + 产品卡片上下文，调用 AI 返回创作建议/脚本。"""
+    """对话式创作：注入元素卡片 + 产品卡片上下文，调用 AI 返回创作建议/脚本。
+
+    未显式传 element_ids 时，按创作意图自动召回「系统推荐的可复用素材」注入上下文；
+    显式选择了元素则完全沿用用户选择，不做覆盖。
+    """
     elements = await _load_elements(db, req.element_ids)
     products = await _load_products(db, req.product_ids)
+
+    # 自动召回：仅在用户未显式选择元素时触发；检索失败静默为空
+    recommended: list[dict] = []
+    if not req.element_ids:
+        recommended = await _recall_recommended(db, _intent_query(req.messages, req.intent))
 
     extra = []
     if req.platform:
@@ -441,6 +495,11 @@ async def creation_chat(req: CreationChatReq, db: AsyncSession = Depends(get_ses
         extra.append(
             "本片需要自然种草/带货的产品（不要生硬硬广，按脚本逻辑融入钩子与卖点）：\n"
             + _product_cards(products)
+        )
+    if recommended:
+        extra.append(
+            "系统推荐的可复用素材（按你的创作意图自动召回，仅供参考，可直接采用）：\n"
+            + _recommended_cards(recommended)
         )
 
     sys_msg = await _sys_prompt(db)
@@ -468,14 +527,26 @@ async def creation_chat(req: CreationChatReq, db: AsyncSession = Depends(get_ses
     )
     await db.commit()
 
+    used_elements = [
+        {"id": e["id"], "category": e["category"], "name": e["name"], "status": e["status"]}
+        for e in elements
+    ]
+    # 自动召回项追加进 used_elements，source 字段区分 element（元素库）/ chunk（拆解片段）
+    for m in recommended:
+        used_elements.append({
+            "id": creation_materials.core_entry_id(m),
+            "source": m.get("source"),
+            "kind": m.get("kind"),
+            "category": m.get("kind"),
+            "name": m.get("name"),
+            "score": m.get("score"),
+        })
+
     return {
         "reply": to_simplified(result["reply"] or ""),
         "model": result.get("model"),
         "usage": result.get("usage"),
-        "used_elements": [
-            {"id": e["id"], "category": e["category"], "name": e["name"], "status": e["status"]}
-            for e in elements
-        ],
+        "used_elements": used_elements,
         "used_products": [
             {"id": str(p.id), "brand": p.brand, "name": p.name, "industry": p.industry}
             for p in products
@@ -483,20 +554,55 @@ async def creation_chat(req: CreationChatReq, db: AsyncSession = Depends(get_ses
     }
 
 
+@router.get("/api/creations/materials")
+async def list_creation_materials(
+    intent: str | None = None,
+    category: str | None = None,
+    top_k: int = Query(default=creation_materials.DEFAULT_TOP_K, ge=1, le=20),
+    db: AsyncSession = Depends(get_session),
+):
+    """创作素材召回：按意图双路（拆解分块 + 元素库）融合去重返回。
+
+    空 intent 返回 ``{"items": [], "count": 0}`` 不报错；检索异常静默降级为空。
+    注意：声明在 ``/api/creations/{creation_id}`` 之前，避免路径参数吞掉 materials。
+    """
+    items = await creation_materials.recall_materials(db, intent or "", category=category, top_k=top_k)
+    return {"items": items, "count": len(items)}
+
+
 @router.post("/api/creations")
 async def save_creation(req: CreationSaveReq, db: AsyncSession = Depends(get_session)):
-    """把一段创作内容落卡：创建创作项目与脚本资产，引用元素记入 core_elements。"""
+    """把一段创作内容落卡：创建创作项目与脚本资产，引用元素记入 core_elements。
+
+    显式 ``element_ids`` 优先在前；``recall_materials`` 有值时转换为 core_elements
+    追加在后，并把来源 video_id 去重汇总进 ``ref_video_ids``；无材料时行为与旧版一致。
+    """
     if not req.title.strip() or not req.content.strip():
         raise HTTPException(status_code=400, detail="标题与内容不能为空")
+
+    core_elements = [
+        {"element_id": eid, "role": "", "order": i}
+        for i, eid in enumerate(req.element_ids or [])
+    ]
+    ref_video_ids: list[str] = []
+    if req.recall_materials:
+        try:
+            rec_entries, ref_video_ids = creation_materials.materials_to_core_entries(
+                req.recall_materials
+            )
+            base = len(core_elements)
+            core_elements.extend(
+                {**entry, "order": base + entry["order"]} for entry in rec_entries
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("创作落库：召回素材转换失败（静默忽略，沿用显式元素）：%s", e)
 
     creation = M.Creation(
         title=req.title.strip(),
         platform=req.platform,
         intent=req.intent,
-        core_elements=[
-            {"element_id": eid, "role": "", "order": i}
-            for i, eid in enumerate(req.element_ids or [])
-        ],
+        core_elements=core_elements,
+        ref_video_ids=ref_video_ids,
         status="idea",
     )
     db.add(creation)
