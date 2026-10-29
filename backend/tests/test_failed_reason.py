@@ -84,3 +84,33 @@ def test_latest_migration_enforces_failed_reason_default():
     assert "failed_reason" in src
     assert "server_default" in src
     assert "UPDATE breakdown_jobs" in src
+
+
+def test_collect_failure_evidence_carries_short_code():
+    """采集失败落库约定：evidence.collect_failure 必须同时带 retryable 标志与
+    error_type 短码——前者供 recover_stale 收紧永久失败自动续跑，后者落 failed_reason。
+    """
+    from app.media.downloader import DownloadBlocked
+    from app.services.breakdown_jobs import _extract_collect_failure
+
+    exc = DownloadBlocked(
+        "登录失效",
+        detail={
+            "stage": "download",
+            "platform": "douyin",
+            "category": "auth_expired",
+            "error_type": "douyin_auth_expired",
+            "retryable": False,
+            "attempts": 2,
+            "last_error": "403 Forbidden",
+            "user_message": "登录态已失效，请更新 Cookie",
+        },
+    )
+    found = _extract_collect_failure(exc)
+    assert found is not None
+    assert {
+        "stage", "platform", "category", "error_type",
+        "retryable", "attempts", "last_error",
+    } <= set(found)
+    assert found["retryable"] is False
+    assert "_" in found["error_type"]  # 短类别码格式 {platform}_{category}

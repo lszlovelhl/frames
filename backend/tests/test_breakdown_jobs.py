@@ -35,3 +35,30 @@ def test_recover_decision_first_and_second():
     assert decide(1, "running") == "failed"
     assert decide(2, "queued") == "failed"
     assert decide(0, "done") == "done"
+
+
+def test_recover_decision_pure_rules():
+    """收紧规则：永久采集失败（retryable=False）即使首次也不自动续跑。"""
+    assert bj._recover_decision(0, False) == "queued"
+    assert bj._recover_decision(1, False) == "failed"
+    assert bj._recover_decision(0, True) == "failed"
+    assert bj._recover_decision(1, True) == "failed"
+
+
+def test_extract_collect_failure_reads_blocked_detail():
+    from app.media.downloader import DownloadBlocked
+
+    detail = {
+        "stage": "download", "platform": "wechat", "category": "auth_expired",
+        "error_type": "wechat_auth_expired", "retryable": False,
+        "attempts": 3, "last_error": "401", "user_message": "cookie 过期",
+    }
+    found = bj._extract_collect_failure(DownloadBlocked("cookie 过期", detail=detail))
+    assert found == detail
+
+
+def test_extract_collect_failure_ignores_non_collect_error():
+    class _OtherError(Exception):
+        pass
+
+    assert bj._extract_collect_failure(_OtherError("模型调用失败")) is None

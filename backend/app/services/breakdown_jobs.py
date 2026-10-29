@@ -12,11 +12,13 @@ process / batch_state），路由层无需感知承载表变化。
 import asyncio
 import logging
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select
 
 from app import models as M
 from app.db import SessionLocal
+from app.media.resilience import classify_exception, reason_code
 from app.services import billing
 from app.services.media_prep import ensure_media, subtitle_for_breakdown
 from app.services.analysis import (
@@ -40,6 +42,60 @@ STAGE_LABELS = {
     "audio": "声学分析",
     "bgm": "背景音乐分离",
 }
+
+
+def _recover_decision(prev_count: int, permanent_collect: bool) -> str:
+    """崩溃恢复纯决策（可单测）：``queued``=重新入队续跑；``failed``=放弃自动恢复。
+
+    收紧规则：采集证据标为永久失败（retryable=False）的残留任务不再自动续跑，
+    避免登录失效 / 内容下架类任务崩溃循环烧 token 与磁盘。
+    """
+    if prev_count >= 1 or permanent_collect:
+        return "failed"
+    return "queued"
+
+
+def _extract_collect_failure(exc: BaseException) -> dict[str, Any] | None:
+    """从异常链提取「采集/下载失败」结构化证据；无采集类证据时返回 None。
+
+    来源：
+    1. ``downloader.DownloadBlocked.detail``（category / attempts / chain 轨迹）；
+    2. ``media_prep.RuntimeError`` 透传的 ``detail`` 属性；
+    3. DownloadBlocked 无 detail 时按 ``classify_exception`` 即时合成。
+
+    非采集类失败（三层拆解 / 模型调用等）不返回证据，保持 mark_failed 默认行为。
+    """
+    from app.media.downloader import DownloadBlocked
+
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    found_detail: dict[str, Any] | None = None
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        detail = getattr(cur, "detail", None)
+        if isinstance(detail, dict) and detail.get("category"):
+            found_detail = detail
+            if isinstance(cur, DownloadBlocked):
+                break
+        if isinstance(cur, DownloadBlocked):
+            verdict = classify_exception(cur, platform=found_detail.get("platform", "") if found_detail else "")
+            return {
+                "stage": "download",
+                "platform": (found_detail or {}).get("platform", ""),
+                "category": verdict.category,
+                "error_type": reason_code(
+                    (found_detail or {}).get("platform", ""), verdict.category
+                ),
+                "retryable": verdict.retryable,
+                "attempts": (found_detail or {}).get("attempts", 1),
+                "last_error": str(cur)[:300],
+                "user_message": verdict.user_message,
+            }
+        cur = cur.__cause__ or cur.__context__
+
+    if found_detail:
+        return found_detail
+    return None
 
 _queue: asyncio.Queue[str] | None = None
 _workers: list[asyncio.Task] = []
@@ -110,14 +166,31 @@ async def recover_stale() -> int:
             ), {"k": f"job_recover:{job.id}"})).fetchone()
             prev = int(row[0]) if row and row[0] else 0
 
-            if prev >= 1:
+            # 永久采集失败（登录失效 / 内容下架 / 风控封禁）不再自动二次恢复，
+            # 避免崩溃循环烧 token / 磁盘；只有未标永久失败的残留才允许续跑
+            evidence = job.evidence or {}
+            collect = evidence.get("collect_failure") or {}
+            permanent_collect = collect.get("retryable") is False
+
+            if _recover_decision(prev, permanent_collect) == "failed":
                 # 已自动恢复过一次又崩 → 不再无限重试，标 failed
                 job.status = "failed"
-                job.stage = "interrupted"
-                job.message = "自动续跑再次中断（应用重启），可手动重新拆解"
-                job.failed_reason = "recover_again"
                 job.finished_at = datetime.now(UTC)
-                logger.warning("job=%s 二次中断，放弃自动恢复", job.id)
+                if permanent_collect and prev < 1:
+                    job.stage = "media"
+                    job.message = collect.get(
+                        "user_message"
+                    ) or "采集失败且不可自动重试，可手动重新拆解"
+                    job.failed_reason = collect.get("error_type") or "collect_permanent"
+                    logger.warning(
+                        "job=%s 采集永久失败（%s），放弃自动恢复",
+                        job.id, collect.get("error_type"),
+                    )
+                else:
+                    job.stage = "interrupted"
+                    job.message = "自动续跑再次中断（应用重启），可手动重新拆解"
+                    job.failed_reason = "recover_again"
+                    logger.warning("job=%s 二次中断，放弃自动恢复", job.id)
             else:
                 # 首次崩溃 → 断点续跑：重新入队
                 await db.execute(sa_text(
@@ -366,7 +439,19 @@ async def process(job_id: str) -> None:
                         await fresh_db.execute(select(M.BreakdownJob).where(M.BreakdownJob.id == job_id))
                     ).scalar_one_or_none()
                     if fresh_job is not None:
-                        await mark_failed(fresh_db, fresh_job, message=f"拆解失败：{exc}")
+                        collect = _extract_collect_failure(exc)
+                        message = f"拆解失败：{exc}"
+                        if collect and collect.get("user_message"):
+                            message = collect["user_message"]
+                        await mark_failed(fresh_db, fresh_job, message=message)
+                        if collect:
+                            # 结构化采集失败证据落 evidence；failed_reason 覆盖为短类别码
+                            evidence = dict(fresh_job.evidence or {})
+                            evidence["collect_failure"] = collect
+                            fresh_job.evidence = evidence
+                            fresh_job.failed_reason = (
+                                collect.get("error_type") or fresh_job.failed_reason
+                            )
                         await fresh_db.commit()
             except Exception:  # noqa: BLE001
                 logger.exception("独立会话更新 job failed 状态失败：job=%s", job_id)

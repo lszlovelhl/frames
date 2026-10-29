@@ -168,7 +168,11 @@ async def ensure_media(
     try:
         video_path = await download_if_needed(video, db, progress=progress)
     except Exception as exc:  # noqa: BLE001 下载失败信息对用户更友好
-        raise RuntimeError(f"视频下载失败：{exc}") from exc
+        # 透传 DownloadBlocked.detail 结构化证据（异常链 __cause__ 之外的补充通道），
+        # 供队列层写入 evidence["collect_failure"]
+        err = RuntimeError(f"视频下载失败：{exc}")
+        err.detail = getattr(exc, "detail", None) or {}
+        raise err from exc
     raw = raw_of(video)
     work_dir = Path(raw.get("work_dir") or work_dir_for(video.url))
     if not video_path or not Path(video_path).exists():

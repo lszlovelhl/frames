@@ -88,7 +88,17 @@ async def run_pipeline(
             meta = dl["meta"]
             await _emit(progress, "download", "done", meta.get("title") or "")
         except downloader.DownloadBlocked as exc:
-            raise  # 无法下载则整体失败，交由路由层提示
+            # 不可下载则整体失败语义保留；结构化证据（detail）由队列层写入
+            # job.evidence["collect_failure"]，这里只留进度日志便于排障
+            detail = getattr(exc, "detail", None) or {}
+            logger.warning(
+                "下载阶段被拦截：platform=%s category=%s attempts=%s",
+                platform, detail.get("category"), detail.get("attempts"),
+            )
+            raise
+        except Exception as exc:  # noqa: BLE001 未分类异常统一收口为 DownloadBlocked，避免 worker 裸崩
+            logger.exception("下载阶段未分类异常：platform=%s", platform)
+            raise downloader.DownloadBlocked(f"下载阶段异常：{exc}") from exc
 
     duration_ms = await _ffprobe_duration(video_path) or int((meta.get("duration") or 0) * 1000)
 

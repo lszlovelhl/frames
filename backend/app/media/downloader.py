@@ -1,14 +1,21 @@
-"""视频下载。策略：
-- bilibili：优先 bilix（内置 wbi 风控适配），失败回退 yt-dlp + 预取 cookie
-- youtube / douyin：yt-dlp
-- wechat：腾讯元宝解析接口换直链（需元宝网页登录 cookie）→ finder-preview feed 取流
-- xiaohongshu：无公开稳定取流，抛 DownloadBlocked
+"""视频下载。降级链与重试策略（分类/退避实现在 app.media.resilience）：
+
+- bilibili：自研官方 API 爬虫（可重试错误指数退避重试）→ 仍失败回退
+  ``_download_ytdlp_bilibili``（带 cookie + ffmpeg 位置）→ 永久失败抛
+  DownloadBlocked 并携带结构化 detail；
+- youtube / douyin 等通用路线：yt-dlp，可重试 DownloadError 走退避；
+  永久风控/登录失效走 ``cookies.mark_expired`` + DownloadBlocked；
+- wechat：元宝解析 → finder-preview feed → 直链/m3u8 下载，各环节可重试退避，
+  cookie 过期 / 内容下架直接 DownloadBlocked；
+- xiaohongshu：无公开稳定取流，抛 DownloadBlocked。
+
+产物安全：流式下载先写 ``.part`` 临时名，ffprobe 校验通过后再定名，
+半截 mp4 / 空文件 / HTML 错误页不会被当作成功产物。
 """
 import asyncio
 import logging
 import re
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -16,19 +23,49 @@ import httpx
 import yt_dlp
 
 from app.media import cookies, ffbin
+from app.media.resilience import (
+    AUTH_EXPIRED,
+    CONTENT_UNAVAILABLE,
+    MAX_ERROR_TEXT,
+    STREAM_INTERRUPTED,
+    ErrorVerdict,
+    classify_exception,
+    classify_http_status,
+    reason_code,
+    retry_with_backoff,
+    user_message_for,
+)
 
 logger = logging.getLogger(__name__)
-
-BILIX_EXE = str(Path(sys.executable).parent / "bilix")
 
 BILI_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
+# 各链路尝试次数（退避基准/上限/抖动在 resilience.py 集中定义）
+BILI_API_ATTEMPTS = 3
+BILI_YTDLP_ATTEMPTS = 2
+YTDLP_ATTEMPTS = 3
+WECHAT_API_ATTEMPTS = 3
+WECHAT_STREAM_ATTEMPTS = 2
+# 超时常量：API 类短超时（快速失败进降级链），媒体流长超时
+WECHAT_API_TIMEOUT = 30.0
+MEDIA_CONNECT_TIMEOUT = 15.0
+MEDIA_READ_TIMEOUT = 60.0
+FFMPEG_CONVERT_TIMEOUT = 120
+
 
 class DownloadBlocked(Exception):
-    """该平台/链接无法自动取流，需要用户介入（扫码、手动上传等）。"""
+    """该平台/链接无法自动取流，需要用户介入（扫码、手动上传等）。
+
+    ``detail`` 为结构化失败证据（category / retryable / attempts / last_error ...），
+    供队列层写入 ``job.evidence["collect_failure"]``；纯展示路径只用 ``str(exc)``。
+    """
+
+    def __init__(self, message: str, detail: dict[str, Any] | None = None):
+        super().__init__(message)
+        self.detail: dict[str, Any] = detail or {}
 
 
 async def download(url: str, work_dir: Path, platform: str = "") -> dict[str, Any]:
@@ -47,67 +84,78 @@ async def download(url: str, work_dir: Path, platform: str = "") -> dict[str, An
     return await _download_generic(url, work_dir, platform)
 
 
-# ---------- bilibili（bilix 优先） ----------
+# ---------- 结构化失败证据 ----------
 
-def _parse_bili_title(info_text: str) -> tuple[str, dict]:
-    """从 bilix info 输出解析标题与数据快照。"""
-    title = ""
-    stats: dict[str, int | str] = {}
-    for line in info_text.splitlines():
-        m = re.match(r"^\s*([^\s].*?)\s*[-—]\s*([\d,]+)👀\s*([\d,]+)👍\s*([\d,]+)🪙", line)
-        if m:
-            title = m.group(1).strip()
-            stats = {
-                "view_count": int(m.group(2).replace(",", "")),
-                "like_count": int(m.group(3).replace(",", "")),
-                "coin_count": int(m.group(4).replace(",", "")),
-            }
-            break
-        if not title and not line.startswith(("INFO", "┣", "┗", "┃")):
-            t = line.strip()
-            if t and " " not in t and len(t) > 2:
-                title = t
-                break
-    if not title:
-        for line in info_text.splitlines():
-            t = line.strip()
-            if t and not t.startswith(("INFO", "┣", "┗", "┃", "─", " ")):
-                title = t
-                break
-    return title, stats
+def _failure_detail(
+    *,
+    platform: str,
+    verdict: ErrorVerdict,
+    attempts: int,
+    last_error: str,
+    chain: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """组装写入 ``job.evidence["collect_failure"]`` 的结构化证据。"""
+    return {
+        "stage": "download",
+        "platform": platform,
+        "category": verdict.category,
+        "error_type": reason_code(platform, verdict.category),
+        "retryable": verdict.retryable,
+        "attempts": attempts,
+        "last_error": (last_error or "")[:MAX_ERROR_TEXT],
+        "user_message": verdict.user_message,
+        "chain": chain or [],
+    }
 
 
-async def _bilix_info(url: str) -> tuple[str, dict]:
-    loop = asyncio.get_running_loop()
-    try:
-        proc = await loop.run_in_executor(
-            None,
-            lambda: subprocess.run(
-                [BILIX_EXE, "info", url], capture_output=True, text=True,
-                timeout=60, cwd="/tmp",
-            ),
-        )
-        return _parse_bili_title(proc.stdout)
-    except Exception:  # noqa: BLE001
-        return "", {}
+def _worst_verdict(a: ErrorVerdict, b: ErrorVerdict) -> ErrorVerdict:
+    """降级链汇总：永久失败优先于可重试失败，避免可重试结论掩盖永久结论。"""
+    if not a.retryable and not b.retryable:
+        # 同为永久：以最后一路（最新错误）为准
+        return b
+    if not a.retryable:
+        return a
+    if not b.retryable:
+        return b
+    return b
 
 
-def _find_largest_mp4(work_dir: Path) -> Path | None:
-    files = list(work_dir.rglob("*.mp4"))
-    if not files:
-        return None
-    return max(files, key=lambda p: p.stat().st_size)
-
+# ---------- bilibili（自研 API 爬虫 → yt-dlp 降级链） ----------
 
 async def _download_bilibili(url: str, work_dir: Path) -> dict[str, Any]:
-    """用自研 API 爬虫下载 B 站视频。"""
+    """B 站下载降级链：
+
+    1. 自研官方 API 爬虫（view + playurl），可重试错误指数退避重试；
+    2. 仍失败（含风控 / 产物校验失败）→ 回退 ``_download_ytdlp_bilibili``；
+    3. 两路都失败 → 按分类给用户可操作中文 message，detail 携带链路证据。
+    """
     from app.media.bili_scraper import get_scraper
 
-    try:
-        scraper = await get_scraper()
-        video_info = await scraper.get_video_info(url)
-        video_path = await scraper.download_video(url, work_dir)
+    chain_trace: list[dict[str, Any]] = []
 
+    # 第一路：自研 API 爬虫
+    api_out: dict[str, Any] = {}
+    first_verdict: ErrorVerdict | None = None
+    try:
+        async def api_factory():
+            scraper = await get_scraper()
+            video_info = await scraper.get_video_info(url)
+            video_path = await scraper.download_video(url, work_dir)
+            return video_info, video_path
+
+        video_info, video_path = await retry_with_backoff(
+            api_factory,
+            attempts=BILI_API_ATTEMPTS,
+            platform="bilibili",
+            url=url,
+            label="bili_api",
+            out=api_out,
+        )
+        # 产物闸门：ffprobe 不认作有效视频流（空文件 / 截断流 / HTML 错误页）→ 进降级链
+        if not _ffprobe_has_video(Path(video_path)):
+            raise RuntimeError("API 爬虫产物未通过 ffprobe 视频流校验（空文件或截断流）")
+        if cookies.get_cookie_file_for("bilibili"):
+            cookies.mark_success("bilibili")
         return {
             "video_path": str(video_path),
             "meta": {
@@ -121,29 +169,82 @@ async def _download_bilibili(url: str, work_dir: Path) -> dict[str, Any]:
                 },
             },
         }
-    except Exception as exc:  # noqa: BLE001
-        raise DownloadBlocked(f"B站下载失败：{exc}") from exc
+    except Exception as exc:  # noqa: BLE001 分类后进入降级链，不吞异常
+        first_verdict = classify_exception(exc, platform="bilibili")
+        chain_trace.append({
+            "source": "bili_api",
+            "category": first_verdict.category,
+            "retryable": first_verdict.retryable,
+            "attempts": api_out.get("attempts", 1),
+            "error": str(exc)[:MAX_ERROR_TEXT],
+        })
+        logger.warning(
+            "B站 API 链路失败，进入 yt-dlp 降级：category=%s error=%s",
+            first_verdict.category, exc,
+        )
+        # 清理可能残留的半截文件，避免被后续流程误判成功
+        for stale in work_dir.glob("video.mp4*"):
+            try:
+                stale.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("清理 B站 API 残留文件失败: %s", stale, exc_info=True)
+
+    # 第二路：yt-dlp 回退（自带 cookie / ffmpeg 位置适配）
+    yt_out: dict[str, Any] = {}
+    try:
+        return await retry_with_backoff(
+            lambda: _download_ytdlp_bilibili(url, work_dir, meta_title=""),
+            attempts=BILI_YTDLP_ATTEMPTS,
+            platform="bilibili",
+            url=url,
+            label="bili_ytdlp",
+            out=yt_out,
+        )
+    except Exception as exc:  # noqa: BLE001 汇总两路证据后抛 DownloadBlocked
+        second_verdict = classify_exception(exc, platform="bilibili")
+        chain_trace.append({
+            "source": "yt_dlp",
+            "category": second_verdict.category,
+            "retryable": second_verdict.retryable,
+            "attempts": yt_out.get("attempts", 1),
+            "error": str(exc)[:MAX_ERROR_TEXT],
+        })
+        if second_verdict.category == AUTH_EXPIRED:
+            cookies.mark_expired("bilibili", "B站抓取被平台判定需登录/风控，登录态可能失效")
+        final_verdict = _worst_verdict(first_verdict or second_verdict, second_verdict)
+        detail = _failure_detail(
+            platform="bilibili",
+            verdict=final_verdict,
+            attempts=api_out.get("attempts", 0) + yt_out.get("attempts", 0),
+            last_error=" | ".join(item["error"] for item in chain_trace),
+            chain=chain_trace,
+        )
+        raise DownloadBlocked(final_verdict.user_message, detail=detail) from exc
 
 
 async def _download_ytdlp_bilibili(
     url: str, work_dir: Path, meta_title: str
 ) -> dict[str, Any]:
+    """yt-dlp 降级路线：Netscape cookie 文件 + 显式 ffmpeg 位置。"""
     cookie_file = cookies.get_cookie_file_for("bilibili")
     if cookie_file:
         cookie_path_obj = Path(cookie_file)
     else:
         cookie_path_obj = work_dir / "_bili_cookies.txt"
         # 先访问首页拿 buvid
-        subprocess.run(
-            ["curl", "-s", "-c", str(cookie_path_obj), "-o", "/dev/null",
-             "-A", BILI_UA, "https://www.bilibili.com/"],
-            check=True, timeout=30, capture_output=True,
-        )
+        try:
+            subprocess.run(
+                ["curl", "-s", "-c", str(cookie_path_obj), "-o", "/dev/null",
+                 "-A", BILI_UA, "https://www.bilibili.com/"],
+                check=True, timeout=30, capture_output=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            logger.warning("预取 B 站 buvid cookie 失败（继续尝试无 cookie 下载）: %s", exc)
     loop = asyncio.get_running_loop()
 
     def _run():
         opts: dict = {
-            "outtmpl": str(work_dir / "ytdlp_media.%(ext)s"),
+            "outtmpl": str(work_dir / "ytdlp_media.part.%(ext)s"),
             "format": "bv*[height<=1080]+ba/b[height<=1080]/b",
             "merge_output_format": "mp4",
             "noplaylist": True,
@@ -167,9 +268,17 @@ async def _download_ytdlp_bilibili(
     info = await loop.run_in_executor(None, _run)
     if cookie_file:
         cookies.mark_success("bilibili")
-    video_path = next(work_dir.glob("ytdlp_media.*"), None)
-    if video_path is None:
-        raise RuntimeError("yt-dlp 未产出文件")
+    raw_path = next(work_dir.glob("ytdlp_media.part.*"), None)
+    if raw_path is None:  # 兼容旧命名残留
+        raw_path = next(work_dir.glob("ytdlp_media.*"), None)
+    if raw_path is None:
+        raise RuntimeError("yt-dlp 未产出文件（可能为会员专属 / 地区限制 / 稿件不可见）")
+    video_path = work_dir / "ytdlp_media.mp4"
+    if raw_path != video_path:
+        raw_path.replace(video_path)
+    if not _ffprobe_has_video(video_path):
+        video_path.unlink(missing_ok=True)
+        raise RuntimeError("yt-dlp 产物未通过 ffprobe 视频流校验（截断流或空文件）")
     return {
         "video_path": str(video_path),
         "meta": {
@@ -196,7 +305,7 @@ async def _download_generic(url: str, work_dir: Path, platform: str) -> dict[str
     if platform != "douyin":
         headers["User-Agent"] = BILI_UA
     opts: dict = {
-        "outtmpl": str(work_dir / "media.%(ext)s"),
+        "outtmpl": str(work_dir / "media.part.%(ext)s"),
         "format": "bv*[height<=1080]+ba/b[height<=1080]/b",
         "merge_output_format": "mp4",
         "noplaylist": True,
@@ -221,31 +330,80 @@ async def _download_generic(url: str, work_dir: Path, platform: str) -> dict[str
         with yt_dlp.YoutubeDL(opts) as ydl:
             return ydl.extract_info(url, download=True)
 
+    out: dict[str, Any] = {}
     try:
-        info = await loop.run_in_executor(None, _run)
-    except yt_dlp.utils.DownloadError as exc:
+        info = await retry_with_backoff(
+            lambda: loop.run_in_executor(None, _run),
+            attempts=YTDLP_ATTEMPTS,
+            platform=platform,
+            url=url,
+            label="yt_dlp",
+            out=out,
+        )
+    except Exception as exc:  # noqa: BLE001 DownloadError 与其他异常统一分类落证据
+        verdict = classify_exception(exc, platform=platform)
         msg = str(exc)
         # "Fresh cookies (not necessarily logged in) are needed" 是 yt-dlp 对反爬
         # 的提示（常因 UA/首次请求被风控），并非登录态失效，不应置 expired 自锁
-        if cookies.looks_like_login_failure(msg) and "not necessarily logged in" not in msg:
+        if verdict.category == AUTH_EXPIRED and "not necessarily logged in" not in msg.lower():
             cookies.mark_expired(platform, "抓取被平台判定需登录/风控，登录态可能失效")
-        raise DownloadBlocked(f"下载失败：{msg}") from exc
+        detail = _failure_detail(
+            platform=platform, verdict=verdict,
+            attempts=out.get("attempts", 1), last_error=msg,
+        )
+        raise DownloadBlocked(verdict.user_message, detail=detail) from exc
 
     # 抓取成功 → 回写登录态有效（仅当确实用过 cookie）
     if cookie_file:
         cookies.mark_success(platform)
 
-    video_path = next(work_dir.glob("media.*"), None)
-    if video_path is None:
-        raise DownloadBlocked("下载完成但未找到媒体文件（可能是会员/地区限制）")
-    if video_path.suffix.lower() != ".mp4":
-        converted = work_dir / "media.mp4"
-        subprocess.run(
-            [ffbin.ffmpeg_bin(), "-y", "-i", str(video_path), "-c", "copy", str(converted)],
-            check=True, capture_output=True,
+    raw_path = next(work_dir.glob("media.part.*"), None)
+    if raw_path is None:  # 兼容旧命名残留
+        raw_path = next(work_dir.glob("media.*"), None)
+    if raw_path is None:
+        verdict = ErrorVerdict(
+            False, CONTENT_UNAVAILABLE, user_message_for(CONTENT_UNAVAILABLE)
         )
+        raise DownloadBlocked(
+            verdict.user_message,
+            detail=_failure_detail(
+                platform=platform, verdict=verdict, attempts=out.get("attempts", 1),
+                last_error="下载完成但未找到媒体文件（可能是会员/地区限制）",
+            ),
+        )
+    video_path = work_dir / "media.mp4"
+    if raw_path.suffix.lower() != ".mp4":
+        try:
+            subprocess.run(
+                [ffbin.ffmpeg_bin(), "-y", "-i", str(raw_path), "-c", "copy", str(video_path)],
+                check=True, capture_output=True, timeout=FFMPEG_CONVERT_TIMEOUT,
+            )
+        except (subprocess.CalledProcessError, OSError) as exc:
+            verdict = classify_exception(exc, platform=platform)
+            raise DownloadBlocked(
+                verdict.user_message,
+                detail=_failure_detail(
+                    platform=platform, verdict=verdict,
+                    attempts=out.get("attempts", 1), last_error=str(exc),
+                ),
+            ) from exc
+        raw_path.unlink(missing_ok=True)
+    elif raw_path != video_path:
+        raw_path.replace(video_path)
+    # 产物闸门：ffprobe 校验通过才算成功；半截流/空文件直接删除并报可重试类错误
+    if not _ffprobe_has_video(video_path):
         video_path.unlink(missing_ok=True)
-        video_path = converted
+        verdict = ErrorVerdict(
+            True, STREAM_INTERRUPTED, user_message_for(STREAM_INTERRUPTED)
+        )
+        raise DownloadBlocked(
+            verdict.user_message,
+            detail=_failure_detail(
+                platform=platform, verdict=verdict,
+                attempts=out.get("attempts", 1),
+                last_error="ffprobe 未检出视频流（空文件 / 截断流 / 非媒体响应）",
+            ),
+        )
     # douyin 不公开播放量：yt-dlp 返回的 view_count 为 0/缺失是平台特性，
     # 不写入 meta，避免建档 stats_snapshot 出现假的「播放 0」
     if platform == "douyin" and not (info.get("view_count") or 0):
@@ -301,20 +459,33 @@ _U64 = (1 << 64) - 1
 
 
 class _WechatError(Exception):
-    """视频号解析链路中可向用户展示的错误。"""
+    """视频号解析链路中可向用户展示的错误；``verdict`` 供退避 / 落库分类决策。"""
+
+    def __init__(self, message: str, verdict: ErrorVerdict | None = None):
+        super().__init__(message)
+        self.verdict = verdict
 
 
 def _wechat_cookie_text() -> str:
     """读取元宝登录态（header 字符串格式，非 Netscape）。"""
-    st = cookies.get_status("wechat")
-    if st["status"] not in ("valid", "imported") or not st["has_cookie"]:
+    if not cookies.get_status("wechat")["has_cookie"]:
         raise _WechatError(
             "微信视频号暂未配置有效登录态：请到「采集账号」页微信视频号一栏，"
-            "登录 yuanbao.tencent.com 后从浏览器开发者工具复制 Cookie 导入。"
+            "登录 yuanbao.tencent.com 后从浏览器开发者工具复制 Cookie 导入。",
+            ErrorVerdict(False, AUTH_EXPIRED, user_message_for(AUTH_EXPIRED)),
+        )
+    st = cookies.get_status("wechat")
+    if st["status"] not in ("valid", "imported"):
+        raise _WechatError(
+            "微信视频号登录态已失效，请在「采集账号」页重新导入元宝 Cookie。",
+            ErrorVerdict(False, AUTH_EXPIRED, user_message_for(AUTH_EXPIRED)),
         )
     text = cookies.cookie_path("wechat").read_text(encoding="utf-8", errors="ignore").strip()
     if "hy_token" not in text:
-        raise _WechatError("微信视频号登录态缺少元宝鉴权字段（hy_token），请重新导入 Cookie。")
+        raise _WechatError(
+            "微信视频号登录态缺少元宝鉴权字段（hy_token），请重新导入 Cookie。",
+            ErrorVerdict(False, AUTH_EXPIRED, user_message_for(AUTH_EXPIRED)),
+        )
     return text
 
 
@@ -328,22 +499,43 @@ def _plain_text(value: Any) -> str:
 
 
 async def _wechat_parse_share(cookie: str, share_url: str) -> tuple[str, str]:
-    """元宝解析分享链接 → (eid, token)"""
+    """元宝解析分享链接 → (eid, token)；可重试错误由 retry_with_backoff 退避。"""
     headers = {**_WECHAT_PARSE_HEADERS, "cookie": cookie}
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
+
+    async def factory():
+        async with httpx.AsyncClient(timeout=WECHAT_API_TIMEOUT) as client:
+            return await client.post(
                 _WECHAT_PARSE_URL,
                 json={"type": "video_channel_url", "url": share_url, "scene": 1},
                 headers=headers,
             )
+
+    try:
+        resp = await retry_with_backoff(
+            factory, attempts=WECHAT_API_ATTEMPTS,
+            platform="wechat", url=share_url, label="wechat_parse",
+        )
     except httpx.HTTPError as exc:
-        raise _WechatError(f"元宝解析接口请求失败：{exc}") from exc
-    if resp.status_code in (401, 403):
+        raise _WechatError(
+            f"元宝解析接口请求失败：{exc}", classify_exception(exc, platform="wechat")
+        ) from exc
+
+    status = resp.status_code
+    if status in (401, 403):
         cookies.mark_expired("wechat", "元宝解析接口返回 401/403，Cookie 缺失或已过期")
-        raise _WechatError("元宝解析接口返回 401：Cookie 已过期，请在「采集账号」页更新。")
-    if resp.status_code != 200:
-        raise _WechatError(f"元宝解析接口异常: HTTP {resp.status_code}")
+        raise _WechatError(
+            "元宝解析接口返回 401/403：Cookie 已过期，请在「采集账号」页更新。",
+            ErrorVerdict(False, AUTH_EXPIRED, user_message_for(AUTH_EXPIRED)),
+        )
+    if status == 429 or 500 <= status <= 599:
+        raise _WechatError(
+            f"元宝解析接口临时不可用（HTTP {status}），已自动退避重试仍失败",
+            classify_http_status(status),
+        )
+    if status != 200:
+        raise _WechatError(
+            f"元宝解析接口异常: HTTP {status}", classify_http_status(status)
+        )
     data = (resp.json() or {}).get("data") or {}
     export_id = data.get("wx_export_id") or ""
     token, eid = "", export_id
@@ -356,7 +548,10 @@ async def _wechat_parse_share(cookie: str, share_url: str) -> tuple[str, str]:
         eid = query.get("eid") or [export_id]
         eid = eid[0] if eid else ""
     if not eid:
-        raise _WechatError("元宝解析未返回 export id（分享链接可能已失效）")
+        raise _WechatError(
+            "元宝解析未返回 export id（分享链接可能已失效或被删除）",
+            ErrorVerdict(False, CONTENT_UNAVAILABLE, user_message_for(CONTENT_UNAVAILABLE)),
+        )
     return eid, token
 
 
@@ -376,25 +571,48 @@ async def _wechat_feed_info(eid: str, token: str) -> dict:
         f"?entry_card_type=48&comment_scene=39&appid=0"
         f"&token={quote(token)}&entry_scene=0&eid={quote(eid)}"
     )
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
+
+    async def factory():
+        async with httpx.AsyncClient(timeout=WECHAT_API_TIMEOUT) as client:
+            return await client.post(
                 api,
                 json={"baseReq": {"generalToken": token}, "exportId": eid},
                 headers={**_WECHAT_FEED_HEADERS, "Referer": referer},
             )
+
+    try:
+        resp = await retry_with_backoff(
+            factory, attempts=WECHAT_API_ATTEMPTS,
+            platform="wechat", url=api, label="wechat_feed",
+        )
     except httpx.HTTPError as exc:
-        raise _WechatError(f"视频号 feed 接口请求失败：{exc}") from exc
-    if resp.status_code not in (200, 201):
-        raise _WechatError(f"视频号接口异常: HTTP {resp.status_code}")
+        raise _WechatError(
+            f"视频号 feed 接口请求失败：{exc}", classify_exception(exc, platform="wechat")
+        ) from exc
+    status = resp.status_code
+    if status == 429 or 500 <= status <= 599:
+        raise _WechatError(
+            f"视频号接口临时不可用（HTTP {status}），已自动退避重试仍失败",
+            classify_http_status(status),
+        )
+    if status not in (200, 201):
+        raise _WechatError(
+            f"视频号接口异常: HTTP {status}", classify_http_status(status)
+        )
     result = resp.json()
     if result.get("errCode"):
-        raise _WechatError(f"视频号接口错误: {_plain_text(result.get('errMsg'))}")
+        raise _WechatError(
+            f"视频号接口错误: {_plain_text(result.get('errMsg'))}",
+            ErrorVerdict(False, CONTENT_UNAVAILABLE, user_message_for(CONTENT_UNAVAILABLE)),
+        )
     detail = (result.get("data") or {}).get("errMsg") or {}
     title = _plain_text(detail.get("title"))
     content = _plain_text(detail.get("content"))
     if detail.get("type") or title or content:
-        raise _WechatError(content and f"{title}: {content}" or title or "内容无法播放（可能为回放或已下架）")
+        raise _WechatError(
+            content and f"{title}: {content}" or title or "内容无法播放（可能为回放或已下架）",
+            ErrorVerdict(False, CONTENT_UNAVAILABLE, user_message_for(CONTENT_UNAVAILABLE)),
+        )
     return result
 
 
@@ -597,17 +815,49 @@ def _decrypt_wechat_media_head(path: Path, key: int, enc_len: int = _WECHAT_ENC_
 
 
 async def _download_wechat(url: str, work_dir: Path) -> dict[str, Any]:
-    """视频号下载：元宝解析换直链 → 流式下载 → ffprobe 校验（带 decodeKey 则解密头部）。"""
+    """视频号下载：元宝解析换直链 → 流式下载到 ``.part`` 临时文件 →
+    ffprobe 校验（带 decodeKey 则解密头部）通过后再定名。
+    """
     m = re.search(r"weixin\.qq\.com/sph/([A-Za-z0-9_\-]+)", url, re.IGNORECASE)
     vid = m.group(1) if m else ""
     final_path = work_dir / f"{vid or 'wechat_video'}.mp4"
+    part_path = final_path.with_name(f"{final_path.stem}.part.mp4")
 
-    cookie = _wechat_cookie_text()
+    try:
+        cookie = _wechat_cookie_text()
+    except _WechatError as exc:
+        verdict = exc.verdict or ErrorVerdict(False, AUTH_EXPIRED, str(exc))
+        raise DownloadBlocked(
+            str(exc),
+            detail=_failure_detail(
+                platform="wechat", verdict=verdict, attempts=0, last_error=str(exc)
+            ),
+        ) from exc
+
     try:
         eid, token = await _wechat_parse_share(cookie, url)
         feed = await _wechat_feed_info(eid, token)
     except _WechatError as exc:
-        raise DownloadBlocked(str(exc)) from exc
+        raw = exc.verdict or classify_exception(exc, platform="wechat")
+        # 子环节内部已完成退避；对外作为最终失败结论落证据（retryable=False）
+        final_verdict = ErrorVerdict(False, raw.category, raw.user_message)
+        raise DownloadBlocked(
+            str(exc),
+            detail=_failure_detail(
+                platform="wechat", verdict=final_verdict,
+                attempts=WECHAT_API_ATTEMPTS, last_error=str(exc),
+            ),
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 退避耗尽后的底层 httpx 异常也收口为结构化失败
+        raw = classify_exception(exc, platform="wechat")
+        final_verdict = ErrorVerdict(False, raw.category, raw.user_message)
+        raise DownloadBlocked(
+            final_verdict.user_message,
+            detail=_failure_detail(
+                platform="wechat", verdict=final_verdict,
+                attempts=WECHAT_API_ATTEMPTS, last_error=str(exc),
+            ),
+        ) from exc
 
     meta = _feed_meta(feed)
     candidates: list[dict] = []
@@ -617,54 +867,88 @@ async def _download_wechat(url: str, work_dir: Path) -> dict[str, Any]:
             seen.add(item["url"])
             candidates.append(item)
     if not candidates:
-        raise DownloadBlocked("元宝解析成功但未在视频号接口返回中找到视频流（可能为直播/回放内容）")
+        verdict = ErrorVerdict(
+            False, CONTENT_UNAVAILABLE, user_message_for(CONTENT_UNAVAILABLE)
+        )
+        raise DownloadBlocked(
+            "元宝解析成功但未在视频号接口返回中找到视频流（可能为直播/回放内容）",
+            detail=_failure_detail(
+                platform="wechat", verdict=verdict, attempts=1,
+                last_error="feed JSON 中无可用媒体地址",
+            ),
+        )
 
-    errors: list[str] = []
-    for cand in candidates:
+    async def fetch_candidate(cand: dict[str, Any]) -> None:
+        """下载单个候选源到 part 文件，校验通过后替换为最终 mp4。"""
         media_url = cand["url"]
         decode_key = cand["decode_key"]
-        try:
-            if final_path.exists():
-                final_path.unlink()
+        part_path.unlink(missing_ok=True)
+
+        async def factory():
             if media_url.lower().split("?")[0].endswith(".m3u8"):
                 proc = await asyncio.get_running_loop().run_in_executor(
                     None,
                     lambda: subprocess.run(
                         [ffbin.ffmpeg_bin(), "-y", "-i", media_url, "-c", "copy",
-                         "-bsf:a", "aac_adtstoasc", str(final_path)],
+                         "-bsf:a", "aac_adtstoasc", str(part_path)],
                         capture_output=True, timeout=600,
                     ),
                 )
                 if proc.returncode != 0:
-                    raise RuntimeError("m3u8 下载失败（可能为加密流）")
+                    raise RuntimeError("m3u8 下载失败（可能为加密流或流中断）")
             else:
                 headers = {
                     "User-Agent": BILI_UA,
                     "Referer": "https://weixin.qq.com/",
                 }
-                try:
-                    async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=15.0)) as client:
-                        async with client.stream("GET", media_url, headers=headers) as resp:
-                            resp.raise_for_status()
-                            with open(final_path, "wb") as f:
-                                async for chunk in resp.aiter_bytes(chunk_size=1 << 20):
-                                    f.write(chunk)
-                except httpx.HTTPError as exc:
-                    raise RuntimeError(f"直链下载失败：{exc}") from exc
-            # 常规校验失败且带 decodeKey → 解密文件头后重验
-            if not _ffprobe_has_video(final_path) and decode_key:
-                _decrypt_wechat_media_head(final_path, decode_key)
-            if _ffprobe_has_video(final_path):
-                cookies.mark_success("wechat")
-                logger.info("视频号下载完成: %s", final_path)
-                return {"video_path": str(final_path), "meta": meta}
-            errors.append(f"候选源校验失败: {media_url[:80]}")
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"{str(exc)[:120]} ({media_url[:60]})")
-        finally:
-            if final_path.exists() and not _ffprobe_has_video(final_path):
-                final_path.unlink(missing_ok=True)
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(MEDIA_READ_TIMEOUT, connect=MEDIA_CONNECT_TIMEOUT)
+                ) as client:
+                    async with client.stream("GET", media_url, headers=headers) as resp:
+                        resp.raise_for_status()
+                        with open(part_path, "wb") as f:
+                            async for chunk in resp.aiter_bytes(chunk_size=1 << 20):
+                                f.write(chunk)
 
-    detail = f"（{'；'.join(errors[-2:])}）" if errors else ""
-    raise DownloadBlocked(f"视频号下载失败{detail}。可尝试到「采集账号」页更新元宝 Cookie 后重试。")
+        await retry_with_backoff(
+            factory, attempts=WECHAT_STREAM_ATTEMPTS,
+            platform="wechat", url=media_url, label="wechat_stream",
+        )
+        # 常规校验失败且带 decodeKey → 解密文件头后重验
+        if not _ffprobe_has_video(part_path) and decode_key:
+            _decrypt_wechat_media_head(part_path, decode_key)
+        if not _ffprobe_has_video(part_path):
+            raise RuntimeError("候选流校验失败：ffprobe 未检出视频流（空文件或截断流）")
+        part_path.replace(final_path)
+
+    errors: list[str] = []
+    last_verdict: ErrorVerdict | None = None
+    for cand in candidates:
+        try:
+            await fetch_candidate(cand)
+            cookies.mark_success("wechat")
+            logger.info("视频号下载完成: %s", final_path)
+            return {"video_path": str(final_path), "meta": meta}
+        except Exception as exc:  # noqa: BLE001 换下一个候选源，单源失败不崩 worker
+            last_verdict = classify_exception(exc, platform="wechat")
+            errors.append(f"{str(exc)[:120]} ({cand['url'][:60]})")
+            logger.warning("视频号候选源失败: %s", exc)
+            part_path.unlink(missing_ok=True)
+            final_path.unlink(missing_ok=True)
+
+    raw_verdict = last_verdict or ErrorVerdict(
+        False, CONTENT_UNAVAILABLE, user_message_for(CONTENT_UNAVAILABLE)
+    )
+    # 所有候选均失败：退避已在每路执行，对外作为最终失败落证据
+    final_verdict = ErrorVerdict(False, raw_verdict.category, raw_verdict.user_message)
+    raise DownloadBlocked(
+        f"视频号下载失败（{'；'.join(errors[-2:])}）。可尝试到「采集账号」页更新元宝 Cookie 后重试。",
+        detail=_failure_detail(
+            platform="wechat",
+            verdict=final_verdict,
+            attempts=WECHAT_STREAM_ATTEMPTS,
+            last_error=" | ".join(errors[-2:]),
+            chain=[{"source": "candidate_feeds", "errors": errors[-3:]}],
+        ),
+    )
 
