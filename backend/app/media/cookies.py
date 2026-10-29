@@ -337,11 +337,3 @@ async def periodic_check() -> None:
         except Exception:  # noqa: BLE001
             logger.exception("登录态巡检异常")
         await asyncio.sleep(3600)
-
-
-def looks_like_login_failure(msg: str) -> bool:
-    """下载错误信息是否提示登录/风控失效。"""
-    if not msg:
-        return False
-    low = msg.lower()
-    return any(m in low for m in ("403", "401", "sign in", "login", "登录", "cookie", "风控", "需登录"))

@@ -19,7 +19,7 @@
 """
 from __future__ import annotations
 
-from typing import Any, Sequence
+from typing import Any
 
 # ---------------- 阈值与权重（常量集中处） ----------------
 PASS_SCORE = 70.0                 # 加权总分及格线
